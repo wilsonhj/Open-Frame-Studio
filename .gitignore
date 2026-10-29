@@ -22,3 +22,6 @@ spike-out/
 coverage/
 test-results/
 playwright-report/
+
+# local run store and Soul registry
+.data/

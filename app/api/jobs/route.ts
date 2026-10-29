@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getBinding } from "../../../lib/bindings/index.ts";
 import {
   ComfyNotConfiguredError,
+  SubmitAmbiguousError,
   SubmitRejectedError,
   createClient,
   loadWorkflow,
@@ -15,7 +16,8 @@ export const runtime = "nodejs";
 /**
  * POST /api/jobs (multipart/form-data)
  *   workflow=<binding name>  plus one field per bound input.
- * -> 202 { id, status, ... } on submit. Submitted exactly once (never retried).
+ * -> 202 { id, status, ... } on submit. Submitted exactly once under a fresh
+ * idempotency key (never retried; this route keeps no run state to re-send from).
  */
 export async function POST(request: Request) {
   let form: FormData;
@@ -48,11 +50,18 @@ export async function POST(request: Request) {
         contentType: file.type,
       }),
     );
-    const job = await submitOnce(client, workflow);
+    const job = await submitOnce(client, workflow, { idempotencyKey: crypto.randomUUID() });
     return NextResponse.json(job, { status: 202 });
   } catch (error) {
     if (error instanceof ComfyNotConfiguredError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    if (error instanceof SubmitAmbiguousError) {
+      // The job may exist; do not tell the client to retry blindly.
+      return NextResponse.json(
+        { error: "The submit outcome is unknown; a job may have been created.", code: "submit_ambiguous" },
+        { status: 502 },
+      );
     }
     if (error instanceof SubmitRejectedError) {
       return NextResponse.json(

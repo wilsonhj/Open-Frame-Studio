@@ -1,6 +1,6 @@
 # Spec: Open Soul Studio HTTP API
 
-Status: Wave 1 contract, frozen with `lib/types.ts` and `lib/bindings/*.ts` (`docs/PLAN.md:143`).
+Status: Wave 1 contract, frozen with `lib/types.ts` and `lib/bindings/*.ts` (`docs/PLAN.md:144`).
 The TypeScript types in `lib/types.ts` are the source of truth; this page names them and adds the HTTP behaviour.
 Every route is a Next.js route handler with `runtime = "nodejs"`. The Comfy API key stays on the server: the browser never sees `COMFY_API_KEY`, a Comfy URL, or a signed URL (`lib/comfy.ts:1-20`).
 
@@ -14,16 +14,16 @@ Every route is a Next.js route handler with `runtime = "nodejs"`. The Comfy API 
   | 400 | Bad input: wrong content type, unknown workflow/mode/asset, or an `InputError` / `BindingError` naming `field` | `app/api/jobs/route.ts:25,30,37` |
   | 402 | Comfy rejected the submit for credits or plan | `app/api/jobs/route.ts:60` |
   | 404 | Unknown run, output or file | `app/api/jobs/[id]/outputs/[outputId]/route.ts:24-26` |
-  | 422 | Comfy rejected the submit (invalid graph, `idempotency_key_reuse`, ...) | `app/api/jobs/route.ts:56-61` |
-  | 502 | Upstream or transport failure | `app/api/jobs/route.ts:63-66` |
+  | 422 | Comfy rejected the submit (invalid graph, `idempotency_key_reuse`, ...) | `app/api/jobs/route.ts` |
+  | 502 | Upstream or transport failure; for a submit, the outcome is unknown (`SubmitAmbiguousError`: a job may exist) | `app/api/jobs/route.ts` |
   | 503 | `COMFY_API_KEY` is not configured | `app/api/jobs/route.ts:54-55` |
-- **No auto-resubmit.** Each Comfy submit happens exactly once (`lib/comfy.ts:136-154`, `docs/PLAN.md:134`). A retry or regenerate is always an explicit user action that creates a new job with a new seed.
-- **Every wait has a timeout.** Each pipeline step carries a required `timeoutMs` (`PipelineStep`, `lib/types.ts:179-212`). When it runs out, the step becomes `timed_out` and its Comfy job is left alone (`docs/PLAN.md:133`).
+- **No auto-resubmit.** A submit is never retried under a new idempotency key (`lib/comfy.ts`, `docs/PLAN.md` Known traps). After an ambiguous failure, a pipeline may re-send once more under the *same* key (§2.0). A retry or regenerate is always an explicit user action that mints a new key and creates a new job with a new seed.
+- **Every wait has a timeout.** Each pipeline step carries a required `timeoutMs` (`PipelineStep`, `lib/types.ts:179-250`). When it runs out, the step becomes `timed_out` and its Comfy job is left alone (`docs/PLAN.md:134`).
 - **Images in JSON** use `ImageRef` (`lib/types.ts:150`):
   - `{ "upload": "<part name>" }` refers to a file part in the same multipart request. Each file must be PNG, JPEG or WebP and ≤ 20 MB (`lib/inputs.ts:7-8`).
   - `{ "assetId": "<id>" }` refers to an existing Comfy asset, for example `OutputRef.id` from an earlier job. This is how steps and runs chain.
 - **Outputs** are `OutputRef` objects (`lib/types.ts:38-50`). Their `url` is app-relative: `/api/jobs/{jobId}/outputs/{outputId}`. Files rendered by code steps, such as composed cards, are served under `/api/pipelines/{kind}/{runId}/files/{name}`.
-- **Polling.** Clients poll a `GET` route, starting at about 1 s and backing off to 5 s. There is no SSE (`docs/PLAN.md:136`).
+- **Polling.** Clients poll a `GET` route, starting at about 1 s and backing off to 5 s. There is no SSE (`docs/PLAN.md:137`).
 
 ---
 
@@ -71,7 +71,7 @@ Source: `app/api/jobs/[id]/outputs/[outputId]/route.ts:10-32`.
 
 ## 2. Pipelines (planned, Wave 2)
 
-A pipeline is a small DAG of `PipelineStep`s (`lib/types.ts:167-212`):
+A pipeline is a small DAG of `PipelineStep`s (`lib/types.ts:167-250`):
 
 - **`comfy` steps** run one graph from `workflows/<WorkflowName>.api.json`. Their inputs go through `applyBindings` (`lib/bindings/apply.ts`), with the binding in `lib/bindings/<workflow>.ts`.
 - **`code` steps** run in process: photo QA, crop, prompt building, compose, compliance checks and card rendering.
@@ -95,7 +95,7 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 
 **Validation** happens before any submit. It returns `400 {error, field}`, where `field` is a JSON path such as `bullets[2]` or `images[0]`. An unknown mode or asset id returns `400`, and the error lists the valid ids.
 
-**`PipelineRun<K>`** (`lib/types.ts:241-257`):
+**`PipelineRun<K>`** (`lib/types.ts:279-305`):
 
 ```ts
 {
@@ -103,10 +103,12 @@ A request that uses only `assetId` refs may instead be sent as `application/json
   createdAt, updatedAt,           // ISO-8601
   timeoutMs,                      // overall budget
   progress,                       // 0..1
-  steps: PipelineStep[],          // per-step status, timeoutMs, jobId, outputs, error
+  steps: PipelineStep[],          // per-step status, timeoutMs, deadlineAt, submission, jobId, outputs, error
   request: PipelineRequestMap[K],
   result: PipelineResultMap[K] | null,  // set when terminal
-  error: JobErrorInfo | null
+  error: JobErrorInfo | null,
+  schema: "open-soul-studio/run@1",
+  cancelRequested?: boolean
 }
 ```
 
@@ -117,17 +119,59 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 - `partial`: the run finished, but at least one step is `failed`, `timed_out` or `needs_input`, and at least one deliverable exists.
 - `failed`: nothing deliverable exists, or a gating step failed. For example, a failed main-image compliance check fails the run before fan-out (`docs/spec/marketplace.md:176`).
 
-**Resumability.** The run state is persisted on the server, keyed by `runId`. After a restart, a step that has a `jobId` is resumed by polling that job, never by resubmitting it. Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/types.ts:215-222`).
+### 2.0 Durable run state and restart
+
+**Store.** One JSON document per run at `${DATA_DIR:-.data}/runs/<runId>.json`, with `schema: "open-soul-studio/run@1"` (`RUN_SCHEMA`, `lib/types.ts`). Files written by code steps live under `.data/runs/<runId>/files/`; the Soul registry lives in `.data/souls/<id>/`. `.data/` is gitignored.
+- A single process owns the store. All writes go through `lib/store.ts` (Wave 2), with a per-run write queue and temp-write + `fsync` + `rename`, so a crash leaves either the old or the new document, never a torn one.
+- Every state transition is one awaited write. Nothing that matters for restart lives only in memory.
+- `GET /api/pipelines/{kind}/{runId}` reads the store; it returns `404` if the document is absent.
+
+**Planning is fixed before persist.** `POST` does all of this before it returns `202`:
+1. upload every `{ "upload": … }` part and rewrite it to `{ "assetId": … }` (the persisted `request` holds no file parts);
+2. resolve seeds and enhancer prompts into concrete step inputs;
+3. build the full DAG (every step, with `timeoutMs`);
+4. persist the run, then answer `202`.
+
+A restarted runner therefore never re-plans: it only executes the persisted steps.
+
+**Submit protocol for a `comfy` step** (normative order):
+1. Mint `submission = { idempotencyKey: randomUUID(), state: "sending", mintedAt, attempts: 1 }`, set `startedAt` and `deadlineAt = startedAt + timeoutMs`, and **persist**.
+2. `submitOnce(client, workflow, { idempotencyKey })` with that key.
+3. On `201`: set `jobId` and `submission.state = "accepted"`, and **persist before polling**.
+4. Definitive reject (validation, insufficient credits, `queue_full` after the SDK's own retry budget, any 4xx except a 422 `idempotency_key_reuse`): `submission.state = "rejected"`, the step becomes `failed`. No resubmit.
+5. Ambiguous (transport error, abort or timeout after the request was sent, any 5xx; `SubmitAmbiguousError`): keep `state: "sending"` and reconcile the step now (table below).
+
+**Reconcile** (on boot, on lazy load, and after an ambiguous submit):
+
+| Step state | Action |
+|---|---|
+| Terminal | Keep as is |
+| `jobId` set | `pollJob` with the remaining deadline (`deadlineAt − now`). If the deadline has passed: one `getJob`; take the result if terminal, else `timed_out`. Never resubmit |
+| `submission.state = "sending"`, no `jobId` | If `now − mintedAt > 23 h`: `unconfirmed`. Otherwise re-send once under the **same** key (`attempts ≤ 3`, persisted before sending): `201` → record as in step 3; 422 `idempotency_key_reuse` → `state: "unconfirmed"`, step `failed` with error `submit_unconfirmed` ("A job may have been created and billed; its id was lost. Not resubmitted. Use Regenerate."); definitive reject → as in step 4; ambiguous again → back off and retry while `attempts < 3`, then `unconfirmed` |
+| No submission | `pending`: schedule normally |
+| `code` step `running` | Re-run it (code steps are idempotent) |
+
+**Why a same-key re-send is not an auto-retry.** The API v2 idempotency key makes the re-send safe: if the first POST landed, the server answers 422 `idempotency_key_reuse` instead of creating a second job, so at most one job is ever billed. A fresh key is minted only by an explicit user Regenerate. The key window is assumed to be about 24 h, hence the 23 h cut-off.
+
+**Lost job ids.** Comfy Cloud cannot list jobs (`GET /api/v2/jobs` returns 501), so a job whose id was lost cannot be recovered. That is why `submit_unconfirmed` exists and is never resubmitted.
+
+**Boot.** `instrumentation.ts` `register()` (nodejs runtime only) calls `resumeRuns()`, which reconciles every non-terminal run in the store. A `GET` of a run that is not loaded yet triggers `resumeRun(id)`. The runner is a `globalThis` singleton, so dev hot reloads and route modules share one instance. `cancelRequested: true` is persisted by the cancel route; on reconcile, such a run schedules nothing new, cancels jobs it holds ids for, and ends `canceled`.
+
+**Run status.** `submit_unconfirmed` counts as `failed` when deciding `partial` / `failed`.
+
+**Storage choice.** A JSON document per run, not `better-sqlite3`, to avoid a native build under pnpm 10. `node:sqlite` is the upgrade path if runs outgrow files.
+
+Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/types.ts`). `deadlineAt` survives a restart, so a restart never extends a step's budget.
 
 ### 2.1 `POST /api/pipelines/soul`
 
 | | |
 |---|---|
-| Request | `SoulRequest` (`lib/types.ts:304-310`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
+| Request | `SoulRequest` (`lib/types.ts:357-363`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
 | Steps | photo QA (code) → `cutout` per kept photo → crop + pHash dedupe (code) → choose the best 3–6 → `klein_edit_multiref` preview sheet (optional) → write `soul.json` (code) |
-| Result | `SoulResult` (`lib/types.ts:321-326`): `{ soul: Soul, rejected: [{index, reason}], preview: OutputRef \| null }` |
+| Result | `SoulResult` (`lib/types.ts:374-379`): `{ soul: Soul, rejected: [{index, reason}], preview: OutputRef \| null }` |
 
-`Soul` (`lib/types.ts:293-302`) is the exact contents of `soul.json`:
+`Soul` (`lib/types.ts:346-355`) is the exact contents of `soul.json`:
 
 ```json
 { "schema": "open-soul-studio/soul@1", "id": "…", "name": "Maya", "createdAt": "…",
@@ -142,16 +186,16 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 - **Registry routes (planned):**
   - `GET /api/souls` → `Soul[]`;
   - `GET /api/souls/{id}` → `Soul`;
-  - `GET /api/souls/{id}/export` → a zip of `soul.json` plus `refs/NN.png`;
-  - `POST /api/souls/import` (multipart zip) → `201 Soul`.
+  - `GET /api/souls/{id}/export` → a zip of `soul.json` plus `refs/ref_N.png` (no `assetId`s or Comfy URLs);
+  - `POST /api/souls/import` (multipart zip) → `201 Soul`. Import validates `refs[].sha256`, uploads every ref and assigns fresh `assetId`s (`docs/spec/soul.md` §6.5, §6.6).
 
 ### 2.2 `POST /api/pipelines/photoshoot`
 
 | | |
 |---|---|
-| Request | `PhotoshootRequest` (`lib/types.ts:332-350`): `{ mode, prompt, images: ImageRef[], count, aspectRatio?, soulId?, styleRef?, quality?: "fast"\|"final", transparent?, seed? }` |
+| Request | `PhotoshootRequest` (`lib/types.ts:385-403`): `{ mode, prompt, images: ImageRef[], count, aspectRatio?, soulId?, styleRef?, quality?: "fast"\|"final", transparent?, seed? }` |
 | Steps | `cutout` of the product (cached by content hash) → prompt builder (code) → N × `klein_edit_multiref` (or `klein_t2i` for text-only `product_shot`) → optional N × `upscale` (`final`) → optional `cutout` (`transparent`) |
-| Result | `PhotoshootResult` (`lib/types.ts:363-370`): `{ mode, aspectRatio, count, notices[], items: [{ index, seed, status, variation: {preset, lighting, angle, palette}, output, error }] }` |
+| Result | `PhotoshootResult` (`lib/types.ts:416-423`): `{ mode, aspectRatio, count, notices[], items: [{ index, seed, status, variation: {preset, lighting, angle, palette}, output, error }] }` |
 
 - **Field names.** The request fields follow Higgsfield's `{mode, prompt, images[], count, aspect_ratio}` (`docs/spec/photoshoot.md:314`), written in camelCase (`aspectRatio`).
 - **Prompt.** `prompt` is the user's short intent, never the assembled prompt.
@@ -162,9 +206,9 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 
 | | |
 |---|---|
-| Request | `CardsRequest` (`lib/types.ts:374-403`): `scope?` or `assets?: CardAssetId[]` (assets win; default `main`), `mainJobId?`, `productImages: ImageRef[1..6]`, plus the copy fields from `docs/spec/marketplace.md:197-220` (`productName`, `bullets`, `painPoints`, `efficacyClaims` + `efficacySource`, `howToUse`, `endorsement`, …) |
+| Request | `CardsRequest` (`lib/types.ts:427-456`): `scope?` or `assets?: CardAssetId[]` (assets win; default `main`), `mainJobId?`, `productImages: ImageRef[1..6]`, plus the copy fields from `docs/spec/marketplace.md:197-220` (`productName`, `bullets`, `painPoints`, `efficacyClaims` + `efficacySource`, `howToUse`, `endorsement`, …) |
 | Steps | main: `cutout` → trim (code) → `upscale` if needed → compose + compliance checks (code). Then the fan-out, in parallel, per asset: `klein_edit_multiref` (anchor cutout → `image_1`, node 54) or `klein_t2i` → render the card (code). |
-| Result | `CardsResult` (`lib/types.ts:428-434`): `{ assets, main: MainImageResult \| null, tiles: [{ asset, state, seed, url, missing[], error }], styleBlock }` |
+| Result | `CardsResult` (`lib/types.ts:481-487`): `{ assets, main: MainImageResult \| null, tiles: [{ asset, state, seed, url, missing[], error }], styleBlock }` |
 
 - **Tile states.** `CardTile.state` is `queued | running | done | needs_input | failed`.
 - **Missing copy.** A tile whose user copy is missing is `needs_input`, and `missing` lists the request fields it needs. The run then ends `partial` (`docs/spec/marketplace.md:246`, T-T3).
@@ -175,9 +219,9 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 
 | | |
 |---|---|
-| Request | `MotionRequest` (`lib/types.ts:439-455`): `{ soulId? \| personImage?, productImage, prompt, duration?, aspectRatio?, quality?: "preview"\|"final", refFidelity?: "match"\|"max", seed? }` |
+| Request | `MotionRequest` (`lib/types.ts:492-508`): `{ soulId? \| personImage?, productImage, prompt, duration?, aspectRatio?, quality?: "preview"\|"final", refFidelity?: "match"\|"max", seed? }` |
 | Steps | resolve `<Picture 1>` (the Soul's best ref, or the uploaded person) → prompt builder (code; adds `<Picture N>` role tags) → `h3_r2v` |
-| Result | `MotionResult` (`lib/types.ts:457-461`): `{ video: OutputRef \| null, seed, frames }` |
+| Result | `MotionResult` (`lib/types.ts:510-514`): `{ video: OutputRef \| null, seed, frames }` |
 
 - **Person reference.** Exactly one of `soulId` or `personImage` is required.
 - **Quality.** `quality: "final"` (the default) sets `turbo=false` with 20 base steps. `preview` uses the 4-step turbo LoRA (`docs/spikes/h3-r2v.md:104`).

@@ -43,7 +43,7 @@ describe("mock control endpoints", () => {
   test("health lists every scenario", async () => {
     const body = (await (await fetch(`${mock.url}/__mock/health`)).json()) as { ok: boolean; scenarios: string[] };
     assert.equal(body.ok, true);
-    for (const s of ["multi_output", "slow_progress", "queued_20s"]) assert.ok(body.scenarios.includes(s));
+    for (const s of ["multi_output", "slow_progress", "queued_20s", "asset_missing", "drop_after_create"]) assert.ok(body.scenarios.includes(s));
   });
 
   test("unknown scenario is refused, state unchanged", async () => {
@@ -120,5 +120,93 @@ describe("queued_20s", () => {
     const done = await poll(id);
     assert.equal(done.status, "succeeded");
     assert.equal(done.outputs.length, 1);
+  });
+});
+
+async function uploadAsset(): Promise<string> {
+  const form = new FormData();
+  form.set("file", new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }), "ref_0.png");
+  form.set("content_type", "image/png");
+  form.set("file_path", "ref_0.png");
+  const response = await fetch(`${mock.url}/api/v2/assets`, { method: "POST", body: form });
+  assert.equal(response.status, 201);
+  return ((await response.json()) as { id: string }).id;
+}
+
+function graphUsing(assetId: string) {
+  return {
+    "1": { class_type: "LoadImage", inputs: { image: { __type: "core/ASSET", info: { id: assetId } } } },
+    "2": { class_type: "SaveImage", inputs: { images: ["1", 0] } },
+  };
+}
+
+describe("asset_missing", () => {
+  test("named asset ids answer 404, others stay available; job POSTs record the asset ids they used", async () => {
+    const stale = await uploadAsset();
+    const fresh = await uploadAsset();
+    await setMockScenario({ scenario: "asset_missing", missingAssetIds: [stale] }, mock.url);
+
+    assert.equal((await fetch(`${mock.url}/api/v2/assets/${stale}`)).status, 404);
+    assert.equal((await fetch(`${mock.url}/api/v2/assets/${stale}/content`)).status, 404);
+    assert.equal((await fetch(`${mock.url}/api/v2/assets/${fresh}`)).status, 200);
+
+    const post = (workflow: unknown) =>
+      fetch(`${mock.url}/api/v2/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ workflow }),
+      });
+    const refused = await post(graphUsing(stale));
+    assert.equal(refused.status, 422);
+    assert.equal(((await refused.json()) as { error: { code: string } }).error.code, "asset_not_found");
+    const accepted = await post(graphUsing(fresh));
+    assert.equal(accepted.status, 201);
+    const jobId = ((await accepted.json()) as { id: string }).id;
+
+    const seen = await mockRequests(mock.url);
+    assert.deepEqual(
+      seen.jobPosts.map((p) => [p.assetIds, p.jobId]),
+      [
+        [[stale], null],
+        [[fresh], jobId],
+      ],
+    );
+    let job = await poll(jobId);
+    while (job.status !== "succeeded") job = await poll(jobId);
+  });
+
+  test("reset clears the missing set", async () => {
+    const id = await uploadAsset();
+    await setMockScenario({ scenario: "asset_missing", missingAssetIds: [id] }, mock.url);
+    await resetMock(mock.url);
+    assert.equal(mock.state.missingAssetIds.size, 0);
+    assert.equal((await fetch(`${mock.url}/api/v2/assets/${id}`)).status, 200);
+  });
+});
+
+describe("drop_after_create", () => {
+  test("creates the job but drops the connection; a same-key re-send gets 422 reuse", async () => {
+    await setMockScenario({ scenario: "drop_after_create" }, mock.url);
+    const key = crypto.randomUUID();
+    const send = () =>
+      fetch(`${mock.url}/api/v2/jobs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+        body: JSON.stringify({ workflow: GRAPH }),
+      });
+    await assert.rejects(send(), TypeError, "the first POST gets no response");
+    const again = await send();
+    assert.equal(again.status, 422);
+    assert.equal(((await again.json()) as { error: { code: string } }).error.code, "idempotency_key_reuse");
+
+    const seen = await mockRequests(mock.url);
+    assert.equal(seen.jobPosts.length, 2);
+    assert.deepEqual(
+      seen.jobPosts.map((p) => p.idempotencyKey),
+      [key, key],
+    );
+    const created = seen.jobPosts.filter((p) => p.jobId !== null);
+    assert.equal(created.length, 1, "exactly one job exists");
+    assert.equal((await poll(created[0].jobId!)).status, "running");
   });
 });

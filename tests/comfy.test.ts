@@ -82,7 +82,7 @@ describe("createClient", () => {
 describe("submit + poll against the mock", () => {
   it("succeeded: uploads the input, submits once without metadata, polls to success, re-hosts output", async () => {
     const { client, wf } = await smokeWorkflow();
-    const submitted = await comfy.submitOnce(client, wf);
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
     assert.equal(submitted.status, "queued");
     assert.equal(submitted.terminal, false);
 
@@ -120,7 +120,7 @@ describe("submit + poll against the mock", () => {
   it("cloud-style output: follows the signed URL without sending the bearer token", async () => {
     mock.state.contentMode = "cloud";
     const { client, wf } = await smokeWorkflow();
-    const submitted = await comfy.submitOnce(client, wf);
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
     const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
     const dir = await mkdtemp(join(tmpdir(), "oss-test-"));
     try {
@@ -138,7 +138,7 @@ describe("submit + poll against the mock", () => {
   it("failed: returns a terminal job carrying the node error", async () => {
     mock.setScenario("failed");
     const { client, wf } = await smokeWorkflow();
-    const submitted = await comfy.submitOnce(client, wf);
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
     const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
     assert.equal(done.status, "failed");
     assert.equal(done.terminal, true);
@@ -150,7 +150,7 @@ describe("submit + poll against the mock", () => {
   it("expired: treated as terminal with an error", async () => {
     mock.setScenario("expired");
     const { client, wf } = await smokeWorkflow();
-    const submitted = await comfy.submitOnce(client, wf);
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
     const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
     assert.equal(done.status, "expired");
     assert.equal(done.terminal, true);
@@ -160,7 +160,7 @@ describe("submit + poll against the mock", () => {
   it("unknown forever: the poll deadline fires and yields terminal-with-error", async () => {
     mock.setScenario("unknown_forever");
     const { client, wf } = await smokeWorkflow();
-    const submitted = await comfy.submitOnce(client, wf);
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
     const started = Date.now();
     const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 300, intervalMs: 20 });
     const elapsed = Date.now() - started;
@@ -182,13 +182,14 @@ describe("submit + poll against the mock", () => {
     await assert.rejects(comfy.pollJob(client, "any-id", { timeoutMs: Number.POSITIVE_INFINITY }), TypeError);
   });
 
-  it("422 idempotency_key_reuse: surfaces SubmitRejectedError and does NOT resubmit", async () => {
+  it("422 idempotency_key_reuse: surfaces SubmitRejectedError (keyReused) and does NOT resubmit", async () => {
     mock.setScenario("reject_idempotency");
     const { client, wf } = await smokeWorkflow();
-    await assert.rejects(comfy.submitOnce(client, wf), (error: unknown) => {
+    await assert.rejects(comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() }), (error: unknown) => {
       assert.ok(error instanceof comfy.SubmitRejectedError);
       assert.equal(error.code, "idempotency_key_reuse");
       assert.equal(error.httpStatus, 422);
+      assert.equal(error.keyReused, true);
       return true;
     });
     assert.equal(mock.state.jobPosts.length, 1, "exactly one POST /api/v2/jobs");
@@ -196,8 +197,74 @@ describe("submit + poll against the mock", () => {
 
   it("unknown output id raises OutputNotFoundError", async () => {
     const { client, wf } = await smokeWorkflow();
-    const submitted = await comfy.submitOnce(client, wf);
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
     await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
     await assert.rejects(comfy.fetchOutput(client, submitted.id, "nope"), comfy.OutputNotFoundError);
+  });
+
+  it("passes the caller's idempotency key through to the POST", async () => {
+    const key = crypto.randomUUID();
+    const { client, wf } = await smokeWorkflow();
+    await comfy.submitOnce(client, wf, { idempotencyKey: key });
+    assert.equal(mock.state.jobPosts.length, 1);
+    assert.equal(mock.state.jobPosts[0].idempotencyKey, key);
+  });
+
+  it("refuses to submit without an idempotency key", async () => {
+    const { client, wf } = await smokeWorkflow();
+    // @ts-expect-error idempotencyKey is required
+    await assert.rejects(comfy.submitOnce(client, wf, {}), TypeError);
+    await assert.rejects(comfy.submitOnce(client, wf, { idempotencyKey: " " }), TypeError);
+    assert.equal(mock.state.jobPosts.length, 0);
+  });
+
+  it("drop_after_create: SubmitAmbiguousError; a same-key re-send gets 422 reuse, one job exists", async () => {
+    mock.setScenario("drop_after_create");
+    const key = crypto.randomUUID();
+    const { client, wf } = await smokeWorkflow();
+    await assert.rejects(comfy.submitOnce(client, wf, { idempotencyKey: key }), (error: unknown) => {
+      assert.ok(error instanceof comfy.SubmitAmbiguousError, `got ${String(error)}`);
+      assert.equal(error.idempotencyKey, key);
+      return true;
+    });
+    await assert.rejects(comfy.submitOnce(client, wf, { idempotencyKey: key }), (error: unknown) => {
+      assert.ok(error instanceof comfy.SubmitRejectedError);
+      assert.equal(error.keyReused, true);
+      return true;
+    });
+    assert.equal(mock.state.jobPosts.length, 2, "two POSTs");
+    assert.deepEqual(
+      mock.state.jobPosts.map((p) => p.idempotencyKey),
+      [key, key],
+      "the re-send reused the key",
+    );
+    assert.equal(mock.state.jobPosts.filter((p) => p.jobId !== null).length, 1, "exactly one job created");
+  });
+});
+
+describe("toSubmitError classification", () => {
+  it("4xx -> SubmitRejectedError; keyReused only for idempotency_key_reuse", async () => {
+    const { ComfyError } = await import("@comfyorg/sdk");
+    const credits = comfy.toSubmitError(new ComfyError("no credits", { code: "insufficient_credits", httpStatus: 402 }), "k");
+    assert.ok(credits instanceof comfy.SubmitRejectedError);
+    assert.equal(credits.keyReused, false);
+    const reuse = comfy.toSubmitError(new ComfyError("reused", { code: "idempotency_key_reuse", httpStatus: 422 }), "k");
+    assert.ok(reuse instanceof comfy.SubmitRejectedError);
+    assert.equal(reuse.keyReused, true);
+  });
+
+  it("5xx, status-less ComfyError and transport errors -> SubmitAmbiguousError carrying the key", async () => {
+    const { ComfyError } = await import("@comfyorg/sdk");
+    for (const error of [
+      new ComfyError("bad gateway", { code: "internal", httpStatus: 502 }),
+      new ComfyError("no response", { code: "request_timeout" }),
+      new TypeError("fetch failed"),
+      new DOMException("aborted", "AbortError"),
+      "weird",
+    ]) {
+      const mapped = comfy.toSubmitError(error, "key-1");
+      assert.ok(mapped instanceof comfy.SubmitAmbiguousError, `for ${String(error)}`);
+      assert.equal(mapped.idempotencyKey, "key-1");
+    }
   });
 });

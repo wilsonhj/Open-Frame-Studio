@@ -2,11 +2,17 @@
  * Helpers for driving the mock Comfy server from Playwright specs (or any HTTP client).
  * The mock is started by playwright.config.ts on E2E_MOCK_PORT (default 8190).
  */
-import type { Scenario } from "./server.ts";
+import type { JobPost, Scenario } from "./server.ts";
 
 export const MOCK_URL = process.env.E2E_MOCK_URL ?? `http://127.0.0.1:${process.env.E2E_MOCK_PORT ?? 8190}`;
 
-export type MockControl = { scenario?: Scenario; contentMode?: "proxy" | "cloud"; queuedMs?: number };
+export type MockControl = {
+  scenario?: Scenario;
+  contentMode?: "proxy" | "cloud";
+  queuedMs?: number;
+  /** Asset ids that answer 404 under the `asset_missing` scenario. */
+  missingAssetIds?: string[];
+};
 
 /** Switch the scenario for jobs submitted from now on (global to the mock process). */
 export async function setMockScenario(control: MockControl, base = MOCK_URL): Promise<MockControl> {
@@ -28,7 +34,8 @@ export async function resetMock(base = MOCK_URL): Promise<MockControl> {
 
 export type MockRequests = {
   assetPosts: number;
-  jobPosts: Array<{ idempotencyKey: string | null; body: Record<string, unknown> }>;
+  /** Each POST /api/v2/jobs, with the asset ids its workflow used. */
+  jobPosts: JobPost[];
 };
 
 /** Everything the app sent to the mock since the last reset (e.g. "exactly one job per click"). */

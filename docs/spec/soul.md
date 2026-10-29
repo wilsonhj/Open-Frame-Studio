@@ -1,6 +1,6 @@
 # Spec: Soul ID, Instant (Open Soul Studio)
 
-Status: Wave 1 behavioural spec. It covers photo intake, automated photo QA, reference selection, the portable `soul.json` format, how a Soul feeds the generation graphs, and privacy. It follows the Wave 0 override in `docs/PLAN.md:1-14`: **Soul ID is Instant only.** A Soul is a curated set of reference crops plus a style card, with no trained LoRA (`docs/PLAN.md:7`). **FLUX.2 Klein 4B distilled** is the default model (`docs/PLAN.md:6`).
+Status: Wave 1 behavioural spec. It covers photo intake, automated photo QA, reference selection, the portable `soul.json` format, how a Soul feeds the generation graphs, and privacy. It follows the Wave 0 override in `docs/PLAN.md:1-15`: **Soul ID is Instant only.** A Soul is a curated set of reference crops plus a style card, with no trained LoRA (`docs/PLAN.md:7`). **FLUX.2 Klein 4B distilled** is the default model (`docs/PLAN.md:6`).
 
 ## Conventions
 
@@ -28,7 +28,7 @@ Status: Wave 1 behavioural spec. It covers photo intake, automated photo QA, ref
 | Output | An opaque id (`reference_id` / `custom_reference_id`) that Soul models consume (`SID:10-12`, `SID:67`) | `soul.json` plus PNG crops, as a folder or `.soul.zip` (§6) |
 | Portability | No export or download operation exists in any public surface: the SDK has create, get and list only (`RE-F F17–F19`); the CLI has create, wait, list and get (`SID:51-73`). The weights stay on Higgsfield's servers. **Not exportable** (inferred from that absence; `RE-F F20`) | Fully portable. Any FLUX.2 Klein or H3 graph can consume it, on Cloud or self-hosted |
 | Consumers | `text2image_soul_v2`, `soul_cinematic` via `--soul-id` (`MD:303`, `MD:324`), and Marketing Studio `custom` avatars | Klein multi-reference edit (Photoshoot, preview, Cards tiles with a person) and H3 reference-to-video (Motion) (§7) |
-| Identity strength | Trained model, so likely stronger. Not measured by us | Zero-shot references. Weaker on unseen angles; the identity score is logged, not gated (`docs/PLAN.md` Verification) |
+| Identity strength | Trained model, so likely stronger. Not measured by us | Zero-shot references. Weaker on unseen angles; gated by the identity eval (`docs/eval/identity.md`) |
 
 **Why Instant only.** Comfy Cloud has no `SaveLoRA` node, so a trained LoRA can't leave the job that trained it (`docs/spikes/lora-training.md:6`, `:19`, `:71`). A "trained Soul you own" can't run on Cloud. Instant Soul gives the user the portable artefact instead: their own curated references.
 
@@ -84,7 +84,7 @@ Each rule maps to an automated check (§4) with one of three outcomes:
 - **Fewer than 3 photos pass QA:** the Soul cannot be created (`contract`: `SOUL_MIN_REFS = 3`). The UI lists each rejection reason and asks for more photos. This mirrors HF's "swap in better photos and retry" (`TS:16`).
 - **3–4 photos pass:** allowed, with an advisory: "Higgsfield asks for at least 5. More variety gives better likeness."
 - **No pose variety** (every photo in one pose bucket, Q9): advisory to add 3/4 views.
-- **Contract mismatch:** `SoulRequest.photos` is documented as "3–12 candidate photos" (`lib/types.ts:306`). HF allows up to 20. We propose raising the documented cap to 20 (§10).
+- **Contract mismatch:** `SoulRequest.photos` is documented as "3–12 candidate photos" (`lib/types.ts:359`). HF allows up to 20. We propose raising the documented cap to 20 (§10).
 
 ## 4. Automated photo QA (runs without a GPU)
 
@@ -193,7 +193,7 @@ Inside a bundle each ref has a `path` relative to `soul.json`. In the server reg
 | `refs[].crop` | `{x,y,width,height}` | contract | Source pixels, top-left origin, after EXIF orientation |
 | `refs[].phash` | 16 hex chars | contract | Q6 pHash of the crop |
 | `refs[].qaScore` | 0..1 | contract | §4.1 |
-| `refs[].sha256` | 64 hex chars | **proposed** | Hash of the PNG file. Integrity check on import, and a Comfy asset dedup key |
+| `refs[].sha256` | 64 hex chars | contract (required) | Hash of the PNG file. Integrity check on import, and the asset-cache key (§7.1 Upload) |
 | `refs[].pose` | `front`/`three_quarter_left`/`three_quarter_right`/`profile` | **proposed** | Q9. Lets prompt builders say "image 2 shows her left profile" |
 | `styleCard.description` | string ≤400 chars | contract | Appended to every prompt that uses the Soul |
 | `styleCard.traits` | `{skinTone, hair, eyes, faceShape, ageRange, accessories, wardrobe}` (all optional) | contract | Plain descriptors, for example `hair: "shoulder-length curly dark auburn"` |
@@ -240,9 +240,27 @@ Inside a bundle each ref has a `path` relative to `soul.json`. In the server reg
 
 ### 6.5 Import
 
-- Validate `schema`, the ref count (3–6), file presence, and `sha256` when present.
+- Validate `schema`, the ref count (3–6), file presence, and `refs[].sha256` (required; each must equal the SHA-256 of its PNG file).
 - Run Q1, Q2 and Q7 again on each ref. An imported bundle is untrusted input.
 - Never execute or fetch anything named in a bundle. `path` must be relative, with no `..`.
+- Import always uploads every ref to the current backend and assigns fresh `assetId`s. A bundle never carries `assetId`s or Comfy URLs.
+
+### 6.6 S-R1: Soul reuse across separate jobs
+
+A Soul counts as reusable only after this test passes (`docs/PLAN.md`, Update after Wave 0). The mock version runs in CI (`tests/e2e/soul.spec.ts`, mock scenario `asset_missing`); the Cloud version is a Wave 3 sign-off.
+
+| Step | Action | Check |
+|---|---|---|
+| 1 | Create a Soul (job A: preview) | Soul saved with 3–6 refs, each with `sha256` |
+| 2 | Export `.soul.zip` | Contains `soul.json` + `refs/ref_N.png`; no `assetId`s or Comfy URLs; every `refs[].sha256` matches its file |
+| 3 | Cold restart | Stop the app, wipe `.data/souls/`, delete the cached Comfy assets |
+| 4 | Import the `.soul.zip` | Refs re-uploaded; fresh `assetId`s cached |
+| 5 | Photoshoot `closeup_product_with_person`, count 2, as separate job(s) B | Soul slots (image 1–3) bound to the imported refs; uploaded hashes match `refs[].sha256` |
+| 6 | Motion, job C | `<Picture 1>` (node 137) bound to the Soul's `refs[0]` |
+| 7 | Stale cache: make one cached `assetId` return 404, then run again | The run re-uploads that ref by `sha256` and succeeds with exactly one job submit |
+| 8 | Optional: proxy-backend portability | Import the same bundle with `COMFY_BASE_URL` set; refs re-upload to the proxy |
+
+**Pass criteria:** B and C succeed in separate requests after the restart; slot bindings and hashes match; step 7 recovers with no 4xx/5xx shown to the user. Identity is scored per the identity gate (`docs/eval/identity.md`).
 
 ## 7. How a Soul feeds the graphs
 
@@ -270,7 +288,9 @@ Graph: `workflows/klein_edit_multiref.api.json`. Bindings are in `lib/bindings/k
 
 **Reference resolution:** `17.resolution.megapixels`, default 1.0 (`docs/spikes/klein-multiref.md:69`). How the number of refs and their megapixels affect identity and cost is **not measured**: Wave 0 had zero runs (`docs/spikes/klein-multiref.md:3`, `:23`). Wave 2 should A/B 3 vs 4 vs 6 refs.
 
-**Upload.** Each ref is uploaded once per Soul as a Comfy asset and its `assetId` cached in the registry. The cache is keyed by `sha256`; the Comfy assets API itself dedups by hash (`scratchpad/web/comfy-sdk/comfy-api-proxy/src/comfy_api_proxy/assets.py:6`, `:38`). Refs are set with `wf.set_input(node, "image", asset)` (`docs/spikes/klein-multiref.md:64`).
+**Upload.** Each ref is uploaded once per Soul as a Comfy asset and its `assetId` cached in the registry. The cache key is (backend base URL, `sha256`); the Comfy assets API itself dedups by hash (`scratchpad/web/comfy-sdk/comfy-api-proxy/src/comfy_api_proxy/assets.py:6`, `:38`). Refs are set with `wf.set_input(node, "image", asset)` (`docs/spikes/klein-multiref.md:64`).
+
+**Cache miss.** Before a submit that uses a Soul, check each cached asset (`GET /api/v2/assets/{id}`). If it is missing (404), or the backend base URL changed since it was cached, re-upload that ref from the local PNG and update the cache. This is one upload, never a job resubmit. Import always uploads and assigns fresh `assetId`s (§6.5). Test S-R1 (§6.6) covers it.
 
 ### 7.2 MiniMax H3 reference-to-video (Motion)
 
@@ -291,10 +311,10 @@ Graph: `workflows/h3_r2v.api.json`. Node ids are from `docs/spikes/h3-r2v.md:62-
 
 On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom_reference_id` (`SID:67`). Only Soul models accept it (`text2image_soul_v2`, `soul_cinematic`; `MD:303`, `MD:324`). Those models take at most one extra image reference (`MD:307`, `MD:328`). Our Soul is plain images, so it works with any multi-reference model, and alongside a product reference.
 
-## 8. Privacy and data handling (`ours`; Wave 3 reviewer #39 checks these, `docs/PLAN.md:187`)
+## 8. Privacy and data handling (`ours`; Wave 3 reviewer #39 checks these, `docs/PLAN.md:188`)
 
 1. **Local by default.**
-   - Souls live on the app server under `data/souls/<id>/`, which is gitignored and outside `public/`.
+   - Souls live on the app server under `${DATA_DIR:-.data}/souls/<id>/`, which is gitignored and outside `public/`.
    - Originals go to a temp directory during QA and are **deleted when QA finishes**. Only the 3–6 crops are kept.
    - No database, no third-party storage, no analytics on faces.
 2. **Strip metadata.** Re-encode crops from raw pixels, which drops EXIF, GPS and maker notes. Only `crop` coordinates are kept.
@@ -308,12 +328,13 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
    - retries 409s once the referencing jobs are gone, and reports any asset it couldn't delete.
 
    Comfy Cloud's own job and output retention is outside our control. **Gap:** not documented in the sources read; README must say so.
-5. **No secrets or PII in logs.** Log Soul ids and hashes only. Never log file names, the user-given name, signed URLs or the API key. The key stays server-side (`docs/PLAN.md:183`).
+5. **No secrets or PII in logs.** Log Soul ids and hashes only. Never log file names, the user-given name, signed URLs or the API key. The key stays server-side (`docs/PLAN.md:178`).
 6. **Export is the user's copy.** The `.soul.zip` holds crops plus `soul.json` only. The UI warns that anyone holding the bundle can generate this face.
 7. **Consent and misuse.**
    - The consent checkbox is required (§2).
    - Don't ship a public gallery of Souls.
    - The demo uses only the consenting demo face set (Wave 1 agent 11).
+8. **Eval faces.** Synthetic or consenting only; no scraped or celebrity images (`docs/eval/identity.md`).
 
 ## 9. Error and status vocabulary
 
@@ -325,7 +346,7 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
 
 ## 10. Contract changes proposed (for the `lib/types.ts` owner)
 
-1. `SoulRef.sha256?: string` and `SoulRef.pose?: "front" | "three_quarter_left" | "three_quarter_right" | "profile"`.
+1. `SoulRef.sha256: string` (done: required in `lib/types.ts`) and `SoulRef.pose?: "front" | "three_quarter_left" | "three_quarter_right" | "profile"`.
 2. `Soul.preferredAspect?: AspectRatio` and `Soul.generator?: { model: string; workflow: string; app: string }`.
 3. `SoulRequest.photos` doc comment: change "3–12" to "up to 20 (HF: 5–20, 8–12 ideal)".
 4. `SoulRequest.consent: true` (required literal), so the API refuses requests without it.
@@ -334,6 +355,6 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
 ## 11. Open questions
 
 - The blur, pHash and face-size thresholds need calibration on real photos. The golden face set does not exist yet (`docs/spikes/klein-multiref.md:104`).
-- Identity quality of 3 vs 4 vs 6 refs on Klein 4B distilled, and 1 vs 2 refs on H3, has not been measured (0 Cloud runs in Wave 0).
+- Identity quality of 3 vs 4 vs 6 refs on Klein 4B distilled, and 1 vs 2 refs on H3, has not been measured (0 Cloud runs in Wave 0). It is now decided by the identity gate (`docs/eval/identity.md`), not by eye.
 - YuNet's licence and its packaging in `onnxruntime-node` need checking before vendoring.
 - Higgsfield's claim of 20–80 photos in 3–5 min (`RD` block `.15557`) contradicts the skill's 5–20 (`PG:7`). We follow the skill, which is the public contract the CLI agent uses.

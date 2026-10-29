@@ -281,7 +281,7 @@ These are all modes except `social_carousel` and `ad_creative_pack`.
 - `gpt_image_2` takes repeated `--image-references` (`MD:58`).
 - Higgsfield's photoshoot "does not chain"; it owns its pipeline (`HFC:155`). To keep a face consistent, the cookbook suggests switching to Soul models instead of `gpt_image_2` (`CB:64`).
 
-**Ours: deliberate extension.** A Soul can feed straight into Photoshoot. This is the headline feature (`docs/PLAN.md:30`). A Soul is a curated set of 3–6 reference crops plus a style card, stored as `soul.json` (`docs/PLAN.md:7`).
+**Ours: deliberate extension.** A Soul can feed straight into Photoshoot. This is the headline feature (`docs/PLAN.md:31`). A Soul is a curated set of 3–6 reference crops plus a style card, stored as `soul.json` (`docs/PLAN.md:7`).
 
 The Klein multi-ref graph has slots for 3 face refs and 1 product ref, and more can be added (`docs/spikes/klein-multiref.md:47`, `docs/spikes/klein-multiref.md:64-73`). FLUX.2 prompts refer to references as "image 1…4" in plain words (`docs/spikes/klein-multiref.md:83`).
 
@@ -326,7 +326,7 @@ Our API mirrors the HF command shape: `{mode, prompt, images[], count, aspect_ra
 **Ours**
 - Results appear as a gallery grid with a one-line header ("N <mode label> ready"), in the user's language.
 - A progress bar is shown, with no step-by-step chatter.
-- Failed items appear as greyed tiles with "Failed — retry". A retry submits a new job with a new seed; submits are never retried automatically (`docs/PLAN.md:134`).
+- Failed items appear as greyed tiles with "Failed — retry". A retry submits a new job with a new seed; submits are never retried automatically (`docs/PLAN.md:135`).
 - The assembled prompt sits behind a "Details" disclosure for open-source transparency. It is collapsed by default and never shown inline.
 
 ## 10. Acceptance tests
@@ -373,3 +373,4 @@ Expected aspect and count use our defaults unless HF fixes them. "Qs" is the max
 - The assembled prompt is never shown in the reply (`PS:214`).
 - Free-variation outputs differ pairwise on at least 2 of the 4 variation axes.
 - Style-locked packs pass the palette-consistency check (§6.3).
+- Cases with a Soul (#11, #17 and the person modes) must pass the identity gate (`docs/eval/identity.md`).

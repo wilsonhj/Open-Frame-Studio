@@ -1,6 +1,6 @@
 # Spec: Studio UX (Open Soul Studio)
 
-Status: Wave 1 UX spec, text only (`docs/PLAN.md:168`). The Wave 2 frontend team builds from it (`docs/PLAN.md:178`). It follows the Wave 0 update: FLUX.2 Klein 4B distilled is the default model, and a Soul is Instant only. A Soul is a curated set of 3–6 reference crops plus a style card, saved as a portable `soul.json` with its images. There is no trained LoRA, no "train" toggle and no training progress bar (`docs/PLAN.md:5-7`).
+Status: Wave 1 UX spec, text only (`docs/PLAN.md:169`). The Wave 2 frontend team builds from it (`docs/PLAN.md:179`). It follows the Wave 0 update: FLUX.2 Klein 4B distilled is the default model, and a Soul is Instant only. A Soul is a curated set of 3–6 reference crops plus a style card, saved as a portable `soul.json` with its images. There is no trained LoRA, no "train" toggle and no training progress bar (`docs/PLAN.md:5-7`).
 
 ## 0. Conventions and clean-room note
 
@@ -108,7 +108,7 @@ Three columns: the **Rail** (sidebar) on the left, the **Sheet** (canvas) in the
 
 The pill shows whether the server can reach Comfy. It never shows or collects a key.
 - `● Cloud ok` means the server has `COMFY_API_KEY` set.
-- `● Self-hosted` means `COMFY_BASE_URL` is set (`docs/PLAN.md:114`).
+- `● Self-hosted` means `COMFY_BASE_URL` is set (`docs/PLAN.md:116`).
 - `● Not configured` maps to a `503` from the API. Clicking it opens setup help that points to the README.
 - `● Plan limit` maps to a `402` (`API:15`, `API:19`).
 
@@ -313,7 +313,7 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 7. **Quality**: `Fast` (Klein 4B distilled only) or `Final` (adds the SeedVR2 upscale; `API:153`).
 8. **Transparent PNG**: a checkbox that adds the cutout step (`API:153`).
 9. **Intent**: a single-line text field (2 lines on focus), ≤ 200 characters, with placeholder "What should these shots say? e.g. on a sunlit kitchen counter". This is the short intent, not the prompt (`API:157`).
-10. **Estimate line**: "4 jobs · ~90 s", plus credits when the meter can tell (`docs/PLAN.md:178`, cost HUD).
+10. **Estimate line**: "4 jobs · ~90 s", plus "≈ N credits (estimate)" only when a calibration exists; otherwise no credit figure (`docs/PLAN.md`, Backend row: latency meter; §16 item 1).
 11. **Primary action**: `SHOOT n` (`SHOOT 5 SLIDES` for Carousel, `SHOOT n VARIANTS` for Ad pack). While the run is live it becomes `CANCEL RUN` in outline style. Cancel stops new steps and cancels running jobs (`API:87`), and asks once: "Cancel 2 unfinished frames? Finished frames stay."
 
 ### 5.3 Results
@@ -402,7 +402,7 @@ Every frame tile and every pipeline-step row renders the same state machine. The
 
 ### 7.1 Retry without double billing: the copy and the rules
 
-- **Rule**: the app never resubmits on its own (`API:20`, `docs/PLAN.md:134`). Each retry, regenerate or "start again" creates exactly one new job with a new seed (`API:159`).
+- **Rule**: the app never resubmits on its own (`API:20`, `docs/PLAN.md:135`). Each retry, regenerate or "start again" creates exactly one new job with a new seed (`API:159`).
 - **Button labels say what a click costs**: `Retry · 1 job`, `Regenerate · 1 job`, `Start again · 1 job`.
 - **Tooltip and first-time hint on Retry**: "Retry starts one new job. The failed one is not resubmitted, so you're never billed twice for one click."
 - **`unknown` and `timed_out` hint**: "The original job may still be running on the GPU. 'Keep waiting' checks it again for free. 'Start again' makes a new job, which costs another run."
@@ -451,7 +451,7 @@ Every frame tile and every pipeline-step row renders the same state machine. The
 - **Aspect**: the H3 options (`API:184`).
 - **Quality**: `Preview` is the turbo 4-step render: fast, with a weaker likeness. `Final` is 20 steps and the default (`API:183`; `docs/PLAN.md:6-8`). The Preview chip carries a hint: "Faster, likeness may drift".
 - **Likeness**: `Match` or `Max` (`refFidelity`, `API:178`).
-- **Primary action**: `ROLL CLIP`. The estimate line reads "1 job · ~2–3 min" (target < 3 min, `docs/PLAN.md:189`).
+- **Primary action**: `ROLL CLIP`. The estimate line reads "1 job · ~2–3 min" (target < 3 min, `docs/PLAN.md:190`).
 - **Result**: an inline player that loops muted and unmutes on click, with `[Download MP4]` and `[Roll final]` (shown on Preview results only: "same seed, 20 steps · 1 job").
 
 ---
@@ -572,7 +572,7 @@ Single-key shortcuts are disabled while a text field has focus. `⌘` means `Ctr
 
 ## 13. The 3-minute live demo path
 
-This is the path through the UI the demo script (`docs/PLAN.md:198`) relies on. The time targets come from `docs/PLAN.md:189`: Soul preview < 60 s, 4-image shoot < 90 s, 13 cards < 4 min, H3 clip < 3 min. Serially these add up to more than 3 minutes. So the path **overlaps runs** with the run HUD, and switches Motion to Preview quality when the queue is long.
+This is the path through the UI the demo script (`docs/PLAN.md:199`) relies on. The time targets come from `docs/PLAN.md:190`: Soul preview < 60 s, 4-image shoot < 90 s, 13 cards < 4 min, H3 clip < 3 min. Serially these add up to more than 3 minutes. So the path **overlaps runs** with the run HUD, and switches Motion to Preview quality when the queue is long.
 
 | t | Screen | User does | UI shows |
 |---|---|---|---|
@@ -591,7 +591,7 @@ This is the path through the UI the demo script (`docs/PLAN.md:198`) relies on. 
 | 3:00 | – | Close line: "Your Soul is a file you own." | – |
 
 **Demo-safety requirements [OURS]**
-- **Pre-run results** (`docs/PLAN.md:190`, golden demo assets) can be loaded into History from `fixtures/golden/`. They always carry a visible `pre-run` tag. The UI never passes them off as live.
+- **Pre-run results** (`docs/PLAN.md:191`, golden demo assets) can be loaded into History from `fixtures/golden/`. They always carry a visible `pre-run` tag. The UI never passes them off as live.
 - When a tool has no live run, its Slate remembers the last inputs, so a re-take of the demo needs no retyping.
 - If Comfy queues for long, "Waiting for GPU · #n in line" is the honest state. The presenter can switch to the pre-run without cancelling the live run.
 
@@ -635,7 +635,7 @@ Rules: safelight appears only on the one primary action per screen, on focus and
 
 ### 15.2 Type
 
-All three families are OFL and self-hosted; the card renderer already bundles OFL fonts (`docs/PLAN.md:177`).
+All three families are OFL and self-hosted; the card renderer already bundles OFL fonts (`docs/PLAN.md:178`).
 - **Display**: *Fraunces* (soft serif, opsz axis), used for page titles, empty-state headlines and the Soul name.
 - **UI**: *IBM Plex Sans*.
 - **Captions and data**: *IBM Plex Mono*, used for frame numbers, seeds, run ids, percentages and the shortcut sheet.
@@ -672,6 +672,6 @@ On mobile, `--t-display` drops to 32/36 and `--t-h1` to 24/30.
 
 ## 16. Open points for Wave 2
 
-1. **Running-time estimates.** These need the cost and latency meter (`docs/PLAN.md:177`). Until real timings exist, the estimate line shows the plan targets with a `~`.
+1. **Running-time estimates.** These need the latency meter (`docs/PLAN.md`, Backend row). Until real timings exist, the estimate line shows the plan targets with a `~`. **Per-job cost is an estimate or unavailable:** `X-Comfy-Credits-Used` exists only on some Router responses, and its absence does not mean free (Comfy docs `development/comfy-router/billing.mdx:23`); our graphs run as API v2 jobs, not Router calls. The workspace usage endpoint is drawn from invoices, so recent usage may be missing: a reporting surface, not a real-time meter (`openapi-cloud.yaml:2356-2358`). So the UI shows "≈ N credits (estimate)" from the Wave 3 calibration table (#41), or no credit figure at all; never an exact per-job cost.
 2. **Photo checks in the browser.** Client-side face counting needs a small open face detector, such as MediaPipe Face Detection in WASM. If that is too heavy, the browser checks only size and type, and the face checks show after the server QA step, with the same tile badges.
 3. **Saving refs before the preview.** The demo overlap in §13 assumes the Soul's refs are persisted before the optional preview step finishes. Today's step order is "preview → write `soul.json`" (`API:127`). The registry should save refs first and attach the preview later. Raise this with the API owner.

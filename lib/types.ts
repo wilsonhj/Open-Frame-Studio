@@ -179,6 +179,10 @@ export const TERMINAL_STEP_STATUSES: readonly PipelineStepStatus[] = [
 type PipelineStepBase = {
   id: string;
   dependsOn: readonly string[];
+  /**
+   * Concrete at plan time: seeds and enhancer prompts are resolved before the
+   * run is persisted, so a resumed run never re-plans (docs/spec/api.md §2.0).
+   */
   inputs: Record<string, string | number | boolean | StepInputRef>;
   /**
    * REQUIRED wall-clock budget for this step (ms). For a comfy step this is
@@ -186,19 +190,53 @@ type PipelineStepBase = {
    * auto-resubmitted.
    */
   timeoutMs: number;
-  status?: PipelineStepStatus;
+  status: PipelineStepStatus;
   /** ISO-8601 timestamps. */
   startedAt?: string;
+  /**
+   * ISO-8601: `startedAt + timeoutMs`, persisted with `startedAt`. It survives
+   * a restart, so a resumed step polls only for the time that remains.
+   */
+  deadlineAt?: string;
   finishedAt?: string;
   error?: JobErrorInfo | null;
   outputs?: OutputRef[];
 };
 
+/**
+ * Lifecycle of one submit (docs/spec/api.md §2.0):
+ * - `sending`: key minted and persisted; the POST may or may not have landed.
+ * - `accepted`: 201 received and `jobId` persisted.
+ * - `rejected`: definitive 4xx; the step failed and is never resubmitted.
+ * - `unconfirmed`: a same-key re-send got 422 `idempotency_key_reuse` (or the
+ *   re-send budget ran out) with no job id stored; never resubmitted.
+ */
+export type SubmissionState = "sending" | "accepted" | "rejected" | "unconfirmed";
+
+export type StepSubmission = {
+  /** Minted once per step and persisted BEFORE the POST; re-sends reuse it. */
+  idempotencyKey: string;
+  state: SubmissionState;
+  /** ISO-8601. Re-sends stop being attempted 23 h after this. */
+  mintedAt: string;
+  /** POSTs sent under this key (1..3). */
+  attempts: number;
+  lastError?: JobErrorInfo | null;
+};
+
+/** Step error code when a job may exist but its id was lost (see StepSubmission). */
+export const SUBMIT_UNCONFIRMED = "submit_unconfirmed" as const;
+
 export type ComfyPipelineStep = PipelineStepBase & {
   kind: "comfy";
   /** Graph in `workflows/` (its binding lives in lib/bindings/<workflow>.ts). */
   workflow: WorkflowName;
-  /** Set once submitted; a resumed run polls this id instead of resubmitting. */
+  /** Present once a submit has been attempted; persisted before the POST. */
+  submission?: StepSubmission;
+  /**
+   * Persisted as soon as the submit returns 201 (before polling). A resumed
+   * run polls this id; it never resubmits a step that has one.
+   */
   jobId?: string;
 };
 
@@ -238,7 +276,11 @@ export type PipelineResultMap = {
   motion: MotionResult;
 };
 
+export const RUN_SCHEMA = "open-soul-studio/run@1" as const;
+
+/** One durable document per run: `${DATA_DIR:-.data}/runs/<id>.json` (docs/spec/api.md §2.0). */
 export type PipelineRun<K extends PipelineKind = PipelineKind> = {
+  schema: typeof RUN_SCHEMA;
   id: string;
   kind: K;
   status: PipelineRunStatus;
@@ -250,10 +292,16 @@ export type PipelineRun<K extends PipelineKind = PipelineKind> = {
   /** 0..1, derived from finished steps (and Comfy progress of running steps). */
   progress: number;
   steps: PipelineStep[];
+  /**
+   * As persisted: every `{ upload }` ImageRef has already been uploaded and
+   * rewritten to `{ assetId }`, so the stored request holds no file parts.
+   */
   request: PipelineRequestMap[K];
   /** Present once the run is terminal (possibly partial). */
   result: PipelineResultMap[K] | null;
   error: JobErrorInfo | null;
+  /** Set by the cancel route; honoured on reconcile after a restart. */
+  cancelRequested?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -275,6 +323,11 @@ export type SoulRef = ({ assetId: string; path?: undefined } | { path: string; a
   crop: CropBox;
   /** 64-bit perceptual hash, 16 lowercase hex chars; used for near-duplicate rejection. */
   phash: string;
+  /**
+   * SHA-256 of the ref's PNG file, 64 lowercase hex chars. Integrity check on
+   * import, and (with the backend base URL) the key of the asset cache.
+   */
+  sha256: string;
   /** Photo-QA score 0..1 (higher is better); refs are stored best-first. */
   qaScore?: number;
 };

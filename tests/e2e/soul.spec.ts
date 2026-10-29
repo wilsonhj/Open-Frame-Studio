@@ -48,9 +48,24 @@ test.describe("Soul ID wizard", () => {
     await page.goto("/soul");
   });
 
-  test.fixme("re-import a saved soul.json and reuse it in Photoshoot", async ({ page }) => {
-    // TODO(wave2 Soul registry): import soul.json -> Soul library lists it -> "Use in Photoshoot"
-    // navigates to /photoshoot with the Soul preselected.
+  test.fixme("S-R1: Soul reuse across separate jobs after export/import (docs/spec/soul.md §6.6)", async ({ page }) => {
+    test.skip(faces.length < 5, `needs >=5 consented/AI face images in ${FACES_DIR}`);
+    // TODO(wave2 Soul registry + frontend): the UI and /api/souls routes do not exist yet.
+    // 1. Create a Soul (job A: preview). Each ref has sha256.
+    // 2. Export .soul.zip: contains soul.json + refs/ref_N.png; no assetIds or Comfy/mock URLs;
+    //    every refs[].sha256 matches its PNG.
+    // 3. Cold restart: wipe .data/souls/ and delete the cached assets (or restart the mock).
+    // 4. Import the .soul.zip: refs re-uploaded (mockRequests().assetPosts grows by the ref count),
+    //    fresh assetIds cached.
+    // 5. Photoshoot closeup_product_with_person, count 2, as separate job(s) B: the Soul slots
+    //    (image 1-3) are bound to the imported refs; mockRequests().jobPosts[i].assetIds name them
+    //    and the uploaded hashes match refs[].sha256.
+    // 6. Motion job C: <Picture 1> (node 137) binds the Soul's refs[0].
+    // 7. Stale cache: setMockScenario({ scenario: "asset_missing", missingAssetIds: [<one cached
+    //    ref id>] }), run again: the app re-uploads that ref by sha256 and succeeds with exactly one
+    //    new job POST and no 4xx/5xx shown to the user.
+    // 8. Optional (Cloud sign-off only): the same bundle on a proxy backend.
+    // Pass: B and C succeed in separate requests after the restart; bindings and hashes match.
     await page.goto("/soul");
   });
 

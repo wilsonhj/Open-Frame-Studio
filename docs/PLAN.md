@@ -4,11 +4,12 @@ Wave 0 findings are in `docs/spikes/`. They change the plan below as follows:
 
 - **Account:** the Comfy Cloud key was on a free tier, which refuses job submission (403). The user is moving to a paid key; a new session is needed to load it.
 - **Model:** FLUX.3 Klein is not deployed on Comfy Cloud. **FLUX.2 Klein 4B distilled** (Apache-2.0, on Cloud) is the default everywhere; FLUX.3 stays behind a flag.
-- **Soul ID is Instant only.** Comfy Cloud has no `SaveLoRA` node, so a trained LoRA can't be downloaded. A Soul is the curated reference set (3–6 best crops after photo QA) plus a style card, saved as a portable `soul.json` with images. The trained-LoRA path and the `soul_train` graph agent are dropped; `spikes/lora-training/` stays as research.
+- **Soul ID is Instant only.** Comfy Cloud has no `SaveLoRA` node, so a trained LoRA can't be downloaded. A Soul is the curated reference set (3–6 best crops after photo QA) plus a style card, saved as a portable `soul.json` with images. The trained-LoRA path and the `soul_train` graph agent are dropped; `spikes/lora-training/` stays as research. Body references to a trained Soul, Soul LoRA, `soul_train` or a train toggle are superseded. **Reuse gate:** a Soul counts as reusable only after test S-R1 passes (`docs/spec/soul.md` §6.6).
 - **H3:** use `minimax_h3_video_vae_fp16` (the int8 VAE is not on Cloud). Turbo weakens reference fidelity, so use 20–25 steps for hero clips.
 - **Upscale:** SeedVR2 3B with `wavelet` colour correction (`lab` streaks flat colour).
 - **Starting graphs for Wave 2:** `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`, `spikes/h3-r2v/h3_r2v.api.json`, `spikes/cutout-upscale/{cutout,upscale}.api.json`.
 - **Schedule:** Wave 1 (specs, no Cloud) now; Cloud spike re-run once the paid key works; Wave 2 from ~21:30 UTC; submit by 12:00 UTC Oct 30.
+- **Identity gate:** identity preservation is an acceptance gate (`docs/eval/identity.md`): blind 2-reviewer same-person review on a fixed synthetic set (Soul preview, 3 person photoshoot modes, 1 H3 frame); pass ≥80% overall, every surface ≥2/3, decoys rejected. SFace/YuNet cosine is reported with its calibration but is advisory. Blocks feature freeze and the v1.0.0 tag.
 
 ---
 
@@ -32,7 +33,7 @@ Comfy's **Open Source Higgsfield** challenge closes **Oct 30, 9am PT (16:00 UTC)
 
 Re-shoot and Cinema Studio clones are saturated. Nobody builds around MiniMax H3.
 
-**The pitch.** "Higgsfield's Soul ID costs $2.50 or 25 credits per training and is locked to their platform. Ours trains on open weights, runs on Comfy, and the Soul is a `.safetensors` file you own."
+**The pitch.** "Higgsfield's Soul ID costs $2.50 or 25 credits per training and is locked to their platform. Ours needs no training, runs open weights on Comfy, and the Soul is a portable `soul.json` + reference images you own."
 
 **Decisions already made by the user:**
 - **Compute:** Comfy Cloud on a paid plan. Self-hosted `comfy-api-proxy` is a documented fallback using the same code.
@@ -56,8 +57,7 @@ Re-shoot and Cinema Studio clones are saturated. Nobody builds around MiniMax H3
 
    Add them under the cloud environment menu → Edit → Network access → Allowed domains ([docs](https://code.claude.com/docs/en/cloud-environments#network-access)). Without this, agents can build and mock-test but cannot run real generations.
 2. **Secret.** Add `COMFY_API_KEY` (from platform.comfy.org/profile/api-keys) as an environment secret. Never commit it.
-3. **Plan tier.** Comfy Cloud must be **Creator or higher** if we want to import the demo Soul LoRA from Hugging Face.
-4. **Repo.** Create `wilsonhj/open-soul-studio` (MIT), or let me create it. Add it to the session with push access.
+3. **Repo.** Create `wilsonhj/open-soul-studio` (MIT), or let me create it. Add it to the session with push access.
 
 ## What we reverse-engineer: behavioural spec
 
@@ -108,7 +108,9 @@ lib/enhancer/                      deterministic mode templates + variation engi
 lib/cards/                         sharp/canvas text+badge renderer with real fonts, compliance checker
 workflows/*.api.json               API-format exports (subgraphs UNPACKED before export)
 apps/*.app.json                    App Mode versions of each workflow (shown in demo + README)
-comfy-pack/                        node pack: example_workflows/ + subgraphs/ blueprints (H3 r2v, Soul train)
+comfy-pack/                        node pack: example_workflows/ + subgraphs/ blueprints (H3 r2v)
+lib/store.ts                       durable run store (.data/, JSON per run)
+instrumentation.ts                 boot: resumeRuns()
 ```
 
 **Runtime switch.** With no `COMFY_BASE_URL`, the app runs on Comfy Cloud. With `COMFY_BASE_URL=http://127.0.0.1:8189` it runs on self-hosted ComfyUI behind `comfy-api-proxy` (proves open weights end to end).
@@ -118,8 +120,7 @@ comfy-pack/                        node pack: example_workflows/ + subgraphs/ bl
 | Tool | Steps | Base templates (`comfyui-workflow-templates` 0.11.98) |
 |---|---|---|
 | **Soul ID: Instant** (zero-shot, always available) | Photo QA (face count, size; client and server) → BiRefNet crops → pick best 3–6 refs → FLUX.3 Klein edit with `ReferenceMultiLatent` → identity preview sheet | `image_flux3_klein_image_edit.json` (no subgraph; inputs `LoadImage` 54, prompt 4/`Flux3LayoutPrompt` 49, `KSampler` 7) |
-| **Soul ID: Trained** | One Cloud job: `LoadImage`×N → `ImageBatch` → resize → `MakeTrainingDataset` (trigger caption) → `TrainLoraNode` (Klein base int8, `bypass_mode` on, rank 16, lr 2e-4, ~400 steps, grad-ckpt) → `SaveLoRA` (job output = downloadable `.safetensors`) **and** in-graph `LoraModelLoader` → preview grid | `comfy_extras/nodes_train.py:955,1313,1364`; `nodes_dataset.py:1854` |
-| **Photoshoot** | Mode router + interview chips → enhancer builds N varied prompts with a style lock → Klein edit with refs [product cutout, (+Soul refs or Soul LoRA)] → optional SeedVR2 2k upscale | Klein edit; BiRefNet `utility_birefnet_remove_background.json` (flatten); SeedVR2 `utility_seedvr2_7b_int8_upscale_image.json` (flatten) |
+| **Photoshoot** | Mode router + interview chips → enhancer builds N varied prompts with a style lock → Klein edit with refs [product cutout, (+Soul refs)] → optional SeedVR2 2k upscale | Klein edit; BiRefNet `utility_birefnet_remove_background.json` (flatten); SeedVR2 `utility_seedvr2_7b_int8_upscale_image.json` (flatten) |
 | **Marketplace Cards** | Main: BiRefNet cutout → deterministic composite on #FFFFFF at 85% fill (code, not diffusion) → compliance check. Secondary/A+: Klein edit conditioned on the main image + asset template → text/badges/infographic copy rendered in code | Klein edit + BiRefNet |
 | **Motion** (H3 prize) | Soul still + product still → H3 reference-to-video (`<Picture 1>`, `<Picture 2>` prompt), turbo 4-step for live, 20-step for hero | `video_minimax_h3_r2v.json` (no subgraph; `LoadImage` 137/139, prompt 138, `MiniMaxH3ReferenceToVideo` 136, seed 129, duration 132, turbo 146) |
 
@@ -131,13 +132,13 @@ comfy-pack/                        node pack: example_workflows/ + subgraphs/ bl
 
 **Known traps** (verified in SDK/proxy source). Bake each into `lib/comfy.ts`:
 - Always pass a `timeout`. A proxy job can sit at `unknown` forever.
-- Never auto-retry `submit()`. A reused idempotency key returns 422, and a fresh key double-bills.
+- Never auto-retry `submit()` under a new key. Mint the key, persist it, then submit. After an ambiguous failure, re-send only under the same key (API v2 rejects it with 422 if the first POST landed). A 422 reuse with no stored job id is `submit_unconfirmed` and is never resubmitted (Cloud cannot list jobs: 501).
 - Don't pass `metadata`.
 - Poll; don't rely on SSE.
 - Re-host outputs.
 - Export workflows in API format with subgraphs unpacked.
 
-## Team plan: Workflow tool, 48 agents in 5 waves
+## Team plan: Workflow tool, 47 agents in 5 waves (ids run to #48; one Graphs slot was dropped)
 
 **General rules:**
 - **Contracts are frozen at the end of Wave 1.** These are `lib/types.ts`, the binding maps, the pipeline step interface and the API routes.
@@ -149,13 +150,13 @@ comfy-pack/                        node pack: example_workflows/ + subgraphs/ bl
 
 | # | Agent | Deliverable / definition of done |
 |---|---|---|
-| 1 | Spike: Cloud LoRA training | Minimal Klein-base `TrainLoraNode` graph runs on Cloud. Record wall time for 100/400 steps, whether `SaveLoRA` appears as a downloadable output, and whether in-graph `LoraModelLoader` works. **This sets go/no-go for trained Soul.** |
+| 1 | Spike: Cloud LoRA training | Minimal Klein-base `TrainLoraNode` graph runs on Cloud. Record wall time for 100/400 steps, whether `SaveLoRA` appears as a downloadable output, and whether in-graph `LoraModelLoader` works. **Result: no `SaveLoRA` on Cloud; Instant Soul only (see top).** |
 | 2 | Spike: Klein multi-ref identity | Export `image_flux3_klein_image_edit` in API format. Run with 3 face refs + 1 product ref. Measure identity quality and seconds per image. |
-| 3 | Spike: H3 r2v on Cloud | Run `video_minimax_h3_r2v` turbo at 0.4 MP, 5 s. Record latency, cost and output. Confirm that commercial rights come with Cloud outputs. |
+| 3 | Spike: H3 r2v on Cloud | Run `video_minimax_h3_r2v` turbo at 0.4 MP, 5 s. Record latency; record cost from the workspace usage endpoint after an isolated run (hourly bucket, after it settles). Record the output. Confirm that commercial rights come with Cloud outputs. |
 | 4 | Spike: BiRefNet + SeedVR2 flattened | Unpack the subgraphs, export API JSON, run both, and record node ids. |
 | 5 | Scaffold | Repo skeleton: Next.js, `lib/comfy.ts` with traps handled, a mock Comfy server for offline tests (statuses `queued`/`running`/`succeeded`/`failed`/`unknown`), CI (lint, typecheck, `node --test`), MIT LICENSE. |
 
-**Human checkpoint (15 min).** Choose a trained or instant Soul based on spike 1. If training on Cloud takes more than 10 min or fails, the trained Soul becomes a pre-trained demo character imported via Hugging Face, and Instant Soul carries the live demo.
+**Human checkpoint (15 min).** Decided: Instant Soul only (spike 1 found no `SaveLoRA` on Cloud; see the top section).
 
 ### Wave 1: reverse-engineering specs and contracts (T+2 → T+4h, 6 agents)
 
@@ -168,38 +169,38 @@ comfy-pack/                        node pack: example_workflows/ + subgraphs/ bl
 | 10 | UX spec | `docs/spec/ux.md`: written description of the studio layout (sidebar, hero, prompt dock with mode rail and chips, gallery, Soul library). Text spec only, no copied code. |
 | 11 | Test harness | Golden fixtures (sample product photos and a consenting demo face set), `tests/e2e/*.spec.ts` skeletons (Playwright), mock-server scenarios |
 
-### Wave 2: parallel build (T+4 → T+14h, 24 agents)
+### Wave 2: parallel build (T+4 → T+14h, 23 agents)
 
 | Team | Agents | Owned paths | Definition of done |
 |---|---|---|---|
-| **Graphs** | 8: `soul_train`, `soul_instant`, `photoshoot_edit`, `restyle_relight` (Qwen-2509 relight, optional), `cutout`, `upscale`, `motion_r2v`, `motion_i2v` (fallback) | `workflows/<name>.api.json`, `lib/bindings/<name>.ts`, `tests/graphs/<name>.test.ts` | Validates against Cloud `/object_info` (no unknown classes). One real golden run is saved to `fixtures/golden/`. Binding test proves every exposed input changes the graph. |
+| **Graphs** | 7: `soul_instant`, `photoshoot_edit`, `restyle_relight` (Qwen-2509 relight, optional), `cutout`, `upscale`, `motion_r2v`, `motion_i2v` (fallback) | `workflows/<name>.api.json`, `lib/bindings/<name>.ts`, `tests/graphs/<name>.test.ts` | Validates against Cloud `/object_info` (no unknown classes). One real golden run is saved to `fixtures/golden/`. Binding test proves every exposed input changes the graph. |
 | **Enhancer** | 4: modes 1–5, modes 6–10, marketplace 13 templates, variation/style-lock engine + optional open LLM upsampler (Klein's `qwen3.5_9b_flux3_prompt_upsampler` via `TextGenerate`, keeping open weights) | `lib/enhancer/**` | Snapshot tests per mode. N variants differ in preset, light, angle and palette. Carousel shares a style block. |
-| **Backend** | 5: job routes + output re-hosting; pipeline DAG runner (fan-out, per-step timeout, no auto-resubmit, resumable by job id); Soul registry (refs, LoRA file, export/download, HF-import guide); cards renderer (sharp + bundled OFL fonts, badges, infographic layouts) + compliance checker; cost/latency meter (Router `X-Comfy-Credits-Used`, timings) | `app/api/**`, `lib/pipeline.ts`, `lib/soul/**`, `lib/cards/**`, `lib/metrics.ts` | Unit tests against the mock server. No key appears in client bundles (grep the build output). |
-| **Frontend** | 5: studio shell + gallery + history; Soul wizard (upload, live photo-quality checks, train/instant toggle, progress); Photoshoot dock (mode rail, interview chips, count, aspect); Cards board (scope picker, 13-tile grid, per-tile regenerate, ZIP export); Motion panel + job progress/cost HUD | `app/(studio)/**`, `components/**` | Playwright happy-path per tool on the mock server. Mobile layout passes. |
-| **DevEx** | 2: README (quickstart for Cloud and self-host via `comfy-api-proxy`, `model-files.md` with HF URLs and sizes, H3 licence note, Klein gated-repo note); `apps/*.app.json` + `comfy-pack/` (example_workflows, subgraph blueprints for H3 r2v and Soul train, missing from official blueprints today) | `README.md`, `docs/setup/**`, `apps/**`, `comfy-pack/**` | A fresh clone reaches a running app in ≤10 min with only `COMFY_API_KEY` set. |
+| **Backend** | 5: job routes + output re-hosting; pipeline DAG runner (fan-out, per-step timeout, no auto-resubmit, durable run store (`lib/store.ts`, `.data/runs/<id>.json`, temp+fsync+rename) with boot reconciliation per `docs/spec/api.md` §2.0); Soul registry (refs, soul.zip export/import, asset re-upload on cache miss; S-R1 mock test); cards renderer (sharp + bundled OFL fonts, badges, infographic layouts) + compliance checker; latency meter (v2 job `metrics.queue_ms`/`execution_ms`, `started_at`/`completed_at`) + optional workspace-spend panel (deprecated v1 `GET /api/billing/usage/timeseries`, invoice-derived and lagged; balance fields are cents). No cost per job: show 'not reported' or a labelled estimate. `X-Comfy-Credits-Used` applies only if a step calls Router directly | `app/api/**`, `lib/pipeline.ts`, `lib/store.ts`, `instrumentation.ts`, `lib/soul/**`, `lib/cards/**`, `lib/metrics.ts` | Unit tests against the mock server. No key appears in client bundles (grep the build output). Runner tests: crash after the key is persisted but before the POST → re-send gets 201, one job; `drop_after_create` → 422 → `submit_unconfirmed`, 2 POSTs, 1 job; restart with a `jobId` → polled, never re-POSTed; deadline not extended across a restart; a 13-step cards run killed mid fan-out finishes after `resumeRuns()`. |
+| **Frontend** | 5: studio shell + gallery + history; Soul wizard (upload, live photo-quality checks, progress); Photoshoot dock (mode rail, interview chips, count, aspect); Cards board (scope picker, 13-tile grid, per-tile regenerate, ZIP export); Motion panel + job progress/time HUD (cost: estimate or unavailable) | `app/(studio)/**`, `components/**` | Playwright happy-path per tool on the mock server. Mobile layout passes. |
+| **DevEx** | 2: README (quickstart for Cloud and self-host via `comfy-api-proxy`, `model-files.md` with HF URLs and sizes, H3 licence note, Klein gated-repo note); `apps/*.app.json` + `comfy-pack/` (example_workflows, subgraph blueprint for H3 r2v, missing from official blueprints today) | `README.md`, `docs/setup/**`, `apps/**`, `comfy-pack/**` | A fresh clone reaches a running app in ≤10 min with only `COMFY_API_KEY` set. |
 
 ### Wave 3: integration and QA (T+14 → T+20h, 8 agents)
 
 | # | Agent | Deliverable |
 |---|---|---|
-| 35–37 | E2E per tool on real Cloud | Soul → Photoshoot (6 modes) → Cards (full-set 13) → Motion. Fix-forward PRs. |
+| 35–37 | E2E per tool on real Cloud | Soul → Photoshoot (6 modes) → Cards (full-set 13) → Motion, plus S-R1 (Soul reuse across separate jobs after export/import). Fix-forward PRs. |
 | 38 | Reviewer: correctness | Adversarial diff review: retry and double-billing, timeouts, binding drift |
 | 39 | Reviewer: security and privacy | Key never client-side; upload validation (type, size, origin); face data deleted after the job; no PII in logs |
-| 40 | Eval harness | Run the skills repo's eval scenarios (`evals/scenarios.md:99-200`) against our mode router. Report the pass rate. |
-| 41 | Perf/cost tuning | Turbo vs full step counts, batch sizes. Target: Instant Soul preview <60 s, 4-image photoshoot <90 s, card set <4 min, H3 clip <3 min. |
-| 42 | Golden demo assets | Pre-generate the hero set (trained demo Soul, product, 13 cards, 2 H3 clips) as the backup for the live demo |
+| 40 | Eval harness | Run the skills repo's eval scenarios (`evals/scenarios.md:99-200`) against our mode router. Report the pass rate. Add the identity eval (`docs/eval/identity.md`, `scripts/eval-identity.mjs`) and run it. |
+| 41 | Perf/cost tuning | Turbo vs full step counts, batch sizes. Target: Instant Soul preview <60 s, 4-image photoshoot <90 s, card set <4 min, H3 clip <3 min. Record latency; record cost from the workspace usage endpoint after an isolated run (hourly bucket, after it settles). Produce the calibration table for cost estimates. |
+| 42 | Golden demo assets | Pre-generate the hero set (demo Soul (.soul.zip), product, 13 cards, 2 H3 clips) as the backup for the live demo |
 
-**Human checkpoint.** Feature freeze at T+20h.
+**Human checkpoint.** Feature freeze at T+20h. Requires an identity-gate pass (`docs/eval/identity.md`).
 
 ### Wave 4: demo and submission (T+20 → T+26h, 5 agents)
 
 | # | Agent | Deliverable |
 |---|---|---|
-| 43 | Demo script | 3-minute live script: upload selfies → Instant Soul in ~1 min → photoshoot with you holding the product → 13-card Amazon set → H3 clip → "download your Soul". Trained-Soul results from a pre-run, plus a live training progress bar. |
+| 43 | Demo script | 3-minute live script: upload selfies → Instant Soul in ~1 min → photoshoot with you holding the product → 13-card Amazon set → H3 clip → "download your Soul" (.soul.zip), then re-import it and shoot again. |
 | 44 | Demo video | ffmpeg-cut 2-minute recording from real runs (fallback if the live demo fails) |
 | 45 | Comparison page | Higgsfield vs Open Soul Studio: features, price per output (Higgsfield API prices from research), ownership, open weights. Facts sourced. |
 | 46 | Submission pack | Form text, licence check of all deps/models (FLUX.3 Klein licence, H3 commercial note, BiRefNet, SeedVR2), repo topics `open-source-higgsfield` |
-| 47 | Final verifier | Fresh clone → setup → run all 4 tools on Cloud and on the self-hosted proxy path (if a GPU is available) → sign-off checklist |
+| 47 | Final verifier | Fresh clone → setup → run all 4 tools on Cloud and on the self-hosted proxy path (if a GPU is available) → `pnpm eval:identity --check` → sign-off checklist |
 | 48 | Orchestrator/merger | Merges, CI, tags `v1.0.0` |
 
 **Buffer.** T+26 → T+33h covers slippage, live-demo rehearsal, and submission before 16:00 UTC Oct 30.
@@ -226,7 +227,7 @@ Run each wave as its own Workflow invocation, so a failure resumes with `resumeF
   - outputs exist;
   - main card background ≥99% #FFFFFF in border pixels and product bbox ≥80% of frame;
   - carousel style lock (palette distance);
-  - identity score: face-embedding cosine between Soul refs and outputs, logged rather than gated.
+  - identity: gated by the identity eval (`docs/eval/identity.md`): blind 2-reviewer review, ≥80% of genuine items pass, every surface ≥2/3, decoys rejected; SFace cosine reported as advisory.
 - **Open-weights proof:**
   - same pipelines via `COMFY_BASE_URL` → `comfy-api-proxy` on a rented GPU, if one becomes available;
   - grep confirms no partner/API nodes in `workflows/*.api.json`.
@@ -236,8 +237,9 @@ Run each wave as its own Workflow invocation, so a failure resumes with `resumeF
 
 | Risk | Fallback |
 |---|---|
-| Cloud can't run `TrainLoraNode`, or it is too slow | Instant Soul (Klein multi-ref + H3 refs) is the live path. A trained LoRA from a GPU or pre-run is imported via HF and shown as "Trained Soul". |
+| Instant Soul identity too weak | More refs (A/B 3/4/6), 20-step H3 final; identity gate (docs/eval/identity.md). No trained Soul (Cloud has no SaveLoRA). |
 | H3 latency or cost too high live | Turbo 4-step at 0.4 MP; a pre-rendered hero clip. |
 | Subgraph export id drift | Unpack before export; binding tests catch drift. |
 | Network or key not provided | Agents finish everything against the mock server; real runs move to the user's machine. |
+| v1 billing endpoint deprecated or drifted | Spend panel optional; hides on error; jobs never depend on it. |
 | Judges question "open weights on Cloud" | Self-hosted proxy path documented and, ideally, demonstrated. No partner nodes anywhere. |

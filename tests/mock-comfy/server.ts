@@ -9,10 +9,10 @@
  *   GET  /api/v2/assets/:id/content        (inline bytes, or 302 to /signed/:id in "cloud" mode)
  *   POST /api/v2/jobs                      (scripted scenarios, idempotency-key tracking)
  *   GET  /api/v2/jobs/:id                  (advances the scenario one step per poll)
- *   POST /__mock/scenario {"scenario": ..., "contentMode"?: ..., "queuedMs"?: n} (control endpoint)
+ *   POST /__mock/scenario {"scenario": ..., "contentMode"?: ..., "queuedMs"?: n, "missingAssetIds"?: [...]} (control endpoint)
  *   GET  /__mock/health                    (readiness probe for Playwright's webServer)
- *   GET  /__mock/requests                  (recorded job POSTs + asset upload count, for assertions)
- *   POST /__mock/reset                     (defaults: succeeded/proxy/20 s; clears recorded requests)
+ *   GET  /__mock/requests                  (recorded job POSTs, each with the asset ids it used, + asset upload count)
+ *   POST /__mock/reset                     (defaults: succeeded/proxy/20 s; clears recorded requests and missingAssetIds)
  *
  * Scenarios:
  *   succeeded          queued -> running -> succeeded, one PNG output
@@ -27,6 +27,13 @@
  *   queued_20s         wall-clock: "queued" (queue_position counting down) until
  *                      state.queuedMs (default 20000) has elapsed since submit, then one
  *                      "running" poll, then succeeded ("still queued" UX, cold starts)
+ *   asset_missing      like succeeded, but every asset id in state.missingAssetIds is gone:
+ *                      GET /api/v2/assets/{id} (and /content) answer 404 asset_not_found, and a
+ *                      job POST that references one is refused with 422 asset_not_found
+ *                      (stale asset cache; Soul reuse test S-R1 step 7)
+ *   drop_after_create  records the Idempotency-Key, creates the job (like succeeded), then
+ *                      destroys the socket without responding (ambiguous submit). A same-key
+ *                      re-send then gets 422 idempotency_key_reuse.
  *
  * Run standalone: `pnpm mock-comfy` (PORT=8189), then COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev.
  */
@@ -42,7 +49,9 @@ export type Scenario =
   | "reject_idempotency"
   | "multi_output"
   | "slow_progress"
-  | "queued_20s";
+  | "queued_20s"
+  | "asset_missing"
+  | "drop_after_create";
 
 export const SCENARIOS: readonly Scenario[] = [
   "succeeded",
@@ -53,6 +62,8 @@ export const SCENARIOS: readonly Scenario[] = [
   "multi_output",
   "slow_progress",
   "queued_20s",
+  "asset_missing",
+  "drop_after_create",
 ];
 
 /** Running polls in the slow_progress scenario before it succeeds. */
@@ -101,12 +112,35 @@ export type MockState = {
   jobs: Map<string, MockJob>;
   idempotencyKeys: Set<string>;
   /** Every POST /api/v2/jobs request received (including rejected ones). */
-  jobPosts: Array<{ idempotencyKey: string | null; body: Record<string, unknown> }>;
+  jobPosts: JobPost[];
+  /** Asset ids that answer 404 while the scenario is `asset_missing`. */
+  missingAssetIds: Set<string>;
   assetPosts: number;
   authHeaders: Array<string | null>;
   /** Requests to the fake storage host; a bearer token must never appear here. */
   signedFetches: Array<{ authorization: string | null }>;
 };
+
+export type JobPost = {
+  idempotencyKey: string | null;
+  body: Record<string, unknown>;
+  /** `core/ASSET` ids referenced by the submitted workflow, in graph order. */
+  assetIds: string[];
+  /** Id of the job this POST created (null if it was refused). */
+  jobId: string | null;
+};
+
+/** Collect the ids of every `core/ASSET` reference in a workflow graph. */
+export function assetIdsIn(graph: unknown): string[] {
+  if (Array.isArray(graph)) return graph.flatMap(assetIdsIn);
+  if (graph === null || typeof graph !== "object") return [];
+  const record = graph as Record<string, unknown>;
+  if (record.__type === "core/ASSET") {
+    const id = (record.info as { id?: unknown } | undefined)?.id;
+    return typeof id === "string" ? [id] : [];
+  }
+  return Object.values(record).flatMap(assetIdsIn);
+}
 
 export type MockComfy = {
   url: string;
@@ -171,6 +205,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     jobs: new Map(),
     idempotencyKeys: new Set(),
     jobPosts: [],
+    missingAssetIds: new Set(),
     assetPosts: 0,
     authHeaders: [],
     signedFetches: [],
@@ -207,7 +242,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       }
       case "multi_output":
       default: {
-        const key = job.scenario === "multi_output" ? "succeeded" : job.scenario;
+        const key = ["multi_output", "asset_missing", "drop_after_create"].includes(job.scenario) ? "succeeded" : job.scenario;
         const seq = PROGRESSIONS[key as keyof typeof PROGRESSIONS] ?? ["unknown"];
         const status = seq[Math.min(job.polls, seq.length - 1)];
         if (status === "queued") return queued();
@@ -281,6 +316,10 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     };
   }
 
+  function isMissing(assetId: string): boolean {
+    return state.scenario === "asset_missing" && state.missingAssetIds.has(assetId);
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? "/", base);
     const path = url.pathname;
@@ -292,6 +331,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
         scenario?: Scenario;
         contentMode?: "proxy" | "cloud";
         queuedMs?: number;
+        missingAssetIds?: unknown;
       };
       if (body.scenario && !SCENARIOS.includes(body.scenario)) {
         return send(res, 422, envelope("unknown_scenario", `Unknown scenario ${JSON.stringify(body.scenario)}.`, { scenarios: SCENARIOS }));
@@ -299,7 +339,15 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       if (body.scenario) state.scenario = body.scenario;
       if (body.contentMode) state.contentMode = body.contentMode;
       if (typeof body.queuedMs === "number" && Number.isFinite(body.queuedMs) && body.queuedMs >= 0) state.queuedMs = body.queuedMs;
-      return send(res, 200, { scenario: state.scenario, contentMode: state.contentMode, queuedMs: state.queuedMs });
+      if (Array.isArray(body.missingAssetIds)) {
+        state.missingAssetIds = new Set(body.missingAssetIds.filter((id): id is string => typeof id === "string"));
+      }
+      return send(res, 200, {
+        scenario: state.scenario,
+        contentMode: state.contentMode,
+        queuedMs: state.queuedMs,
+        missingAssetIds: [...state.missingAssetIds],
+      });
     }
     if (method === "GET" && path === "/__mock/health") {
       return send(res, 200, { ok: true, scenario: state.scenario, scenarios: SCENARIOS });
@@ -312,6 +360,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       state.contentMode = "proxy";
       state.queuedMs = DEFAULT_QUEUED_MS;
       state.jobPosts.length = 0;
+      state.missingAssetIds.clear();
       state.assetPosts = 0;
       state.signedFetches.length = 0;
       return send(res, 200, { scenario: state.scenario, contentMode: state.contentMode, queuedMs: state.queuedMs });
@@ -349,7 +398,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       return send(res, 201, assetJson(asset, base));
     }
     if (method === "GET" && (m = path.match(/^\/api\/v2\/assets\/([^/]+)\/content$/))) {
-      const asset = state.assets.get(decodeURIComponent(m[1]));
+      const asset = isMissing(decodeURIComponent(m[1])) ? undefined : state.assets.get(decodeURIComponent(m[1]));
       if (!asset) return send(res, 404, envelope("asset_not_found", "No such asset."));
       if (state.contentMode === "cloud") {
         // A different origin (localhost vs 127.0.0.1) stands in for the storage host.
@@ -370,13 +419,14 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       return res.end(asset.bytes);
     }
     if (method === "GET" && (m = path.match(/^\/api\/v2\/assets\/([^/]+)$/))) {
-      const asset = state.assets.get(decodeURIComponent(m[1]));
+      const asset = isMissing(decodeURIComponent(m[1])) ? undefined : state.assets.get(decodeURIComponent(m[1]));
       return asset ? send(res, 200, assetJson(asset, base)) : send(res, 404, envelope("asset_not_found", "No such asset."));
     }
     if (method === "POST" && path === "/api/v2/jobs") {
       const key = (req.headers["idempotency-key"] as string | undefined) ?? null;
       const body = JSON.parse((await readBody(req)).toString()) as Record<string, unknown>;
-      state.jobPosts.push({ idempotencyKey: key, body });
+      const post: JobPost = { idempotencyKey: key, body, assetIds: assetIdsIn(body.workflow), jobId: null };
+      state.jobPosts.push(post);
       if (state.scenario === "reject_idempotency" || (key && state.idempotencyKeys.has(key))) {
         return send(res, 422, envelope("idempotency_key_reuse", "Idempotency-Key was already used."));
       }
@@ -386,6 +436,8 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       if ("nodes" in workflow && "links" in workflow) {
         return send(res, 422, envelope("workflow_format_ui", "Submit the API-format graph."));
       }
+      const gone = post.assetIds.find(isMissing);
+      if (gone) return send(res, 422, envelope("asset_not_found", `Asset ${gone} does not exist.`, { asset_id: gone }));
       const job: MockJob = {
         id: randomUUID(),
         scenario: state.scenario,
@@ -396,6 +448,12 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
         createdAt: new Date().toISOString(),
       };
       state.jobs.set(job.id, job);
+      post.jobId = job.id;
+      if (state.scenario === "drop_after_create") {
+        // The job exists and the key is spent, but the client never hears back.
+        req.socket.destroy();
+        return;
+      }
       return send(res, 201, jobJson(job, false));
     }
     if (method === "GET" && (m = path.match(/^\/api\/v2\/jobs\/([^/]+)$/))) {
