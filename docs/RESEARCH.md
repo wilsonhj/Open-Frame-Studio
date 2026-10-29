@@ -5,6 +5,11 @@ Background research for [PLAN.md](PLAN.md), collected Oct 28–29, 2026.
 - **Research doc (main findings):** (private planning document, not published) — challenge rules, Higgsfield vs ComfyUI feature map, Comfy Developer Platform traps, Higgsfield API prices, competing entries.
 - **Challenge:** https://comfy.org/open-source-higgsfield/ — deadline Oct 30, 9am PT. Cutoff wording issue: https://github.com/Comfy-Org/ComfyUI_frontend/issues/21346
 
+## Supplemental research (shared Oct 28–29)
+
+- [Higgsfield and ComfyUI: Research Report](research/higgsfield-comfyui-research.md) — platform comparison, how each works, GitHub popularity snapshot.
+- [Higgsfield and ComfyUI: Repository Research and Reconstruction Guide](research/higgsfield-comfyui-repository-research.md) — 101-repo inventory (higgsfield-ai and Comfy-Org), Comfy reference apps, reconstruction method.
+
 ## Sources to re-clone (all public)
 
 | What | Where |
