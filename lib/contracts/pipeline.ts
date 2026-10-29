@@ -10,7 +10,7 @@ import type { PhotoshootRequest, PhotoshootResult } from "./photoshoot.ts";
 import type { SoulRequest, SoulResult } from "./soul.ts";
 
 // ---------------------------------------------------------------------------
-// Pipelines (multi-step DAGs: soul, photoshoot, cards, motion)
+// Pipelines (flat step lists with dependsOn: soul, photoshoot, cards, motion)
 // ---------------------------------------------------------------------------
 
 export type PipelineKind = "soul" | "photoshoot" | "cards" | "motion";

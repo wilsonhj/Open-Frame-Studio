@@ -109,4 +109,19 @@ export type CardAsset = {
   /** Copy rendered in code (never by diffusion). Empty for main_image. */
   textSlots: readonly string[];
   scopes: readonly CardScope[];
+  // Additive (PR #1 review): CARD_SPECS table columns (`lib/cards/assets.ts`,
+  // docs/spec/marketplace.md §4.2). The planner derives steps from these.
+  /** Diffusion used for this asset, if any. */
+  diffusion?: "none" | "klein_edit" | "klein_t2i" | "backdrop_optional";
+  /** How the product appears: pasted cutout, regenerated from ref, or absent. */
+  product?: "pasted" | "regenerated" | "none";
+  /** Diffusion generation size in px, or null when there is no diffusion. */
+  genPx?: readonly [number, number] | null;
+  /** Exported card size in px. */
+  exportPx?: readonly [number, number];
+  /** Request fields that must be present, else the tile is `needs_input`. */
+  copyRequired?: readonly string[];
+  /** Key of the pure layout function in `LAYOUTS`. */
+  layout?: string;
+  format?: "jpeg" | "png";
 };

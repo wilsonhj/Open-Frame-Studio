@@ -8,13 +8,13 @@ Status: Wave 1 behavioural spec. It covers photo intake, automated photo QA, ref
 - **`ours`** marks a decision we make because Higgsfield's behaviour is server-side or doesn't apply to an untrained Soul.
 - **`contract`** marks something already in `lib/contracts/*.ts` (barrel `lib/types.ts`), which another Wave 1 agent owns. **`proposed`** marks a field or value this spec needs that the contract doesn't have yet (listed in §10).
 - Source abbreviations:
-  - `SID` = `higgsfield-ai/skills (local clone)/higgsfield-soul-id/SKILL.md` (v0.13.0). Upstream 0.14.0 differs only in the `version:` line (checked with `diff -r`), so these line numbers also hold for `.../scratchpad/web/hf-gh/skills/higgsfield-soul-id/`.
+  - `SID` = `higgsfield-ai/skills (local clone)/higgsfield-soul-id/SKILL.md` (v0.13.0). Upstream 0.14.0 differs only in the `version:` line (checked with `diff -r`), so these line numbers also hold for upstream `higgsfield-ai/skills` 0.14.0 `higgsfield-soul-id/`.
   - `PG` = `higgsfield-ai/skills (local clone)/higgsfield-soul-id/references/photo-guide.md`
   - `TS` = `higgsfield-ai/skills (local clone)/higgsfield-soul-id/references/troubleshooting.md`
-  - `MD` = `<scratchpad>`
-  - `OI` = Comfy Cloud `GET /api/object_info`, saved on 2026-10-29 at `<scratchpad>` (3,857 node classes). This file is a scratchpad snapshot, so re-fetch it to re-check.
-  - `RD` = the main research doc, (private planning document, not published) (a Claude Docs doc, indexed from `docs/RESEARCH.md:5`). Citations use its block ids.
-  - The Higgsfield platform contract (REST, SDK, CLI) is in `docs/RE-FINDINGS.md`. Citations of the form `RE-F Fn` point to finding ids there.
+  - `MD` = `higgsfield-ai/cli` `MODELS.md` (https://github.com/higgsfield-ai/cli)
+  - `OI` = Comfy Cloud `GET /api/object_info`, as fetched on 2026-10-29 (3,857 node classes). The snapshot was not committed, so re-fetch it to re-check.
+  - `RD` = the main research findings, [`docs/research/main-findings.md`](../research/main-findings.md). Citations link to its sections.
+  - The Higgsfield platform contract (REST, SDK, CLI) is in `docs/research/re-findings.md`. Citations of the form `RE-F Fn` point to finding ids there.
 - Licence: the skills repo is MIT (`higgsfield-ai/skills (local clone)/LICENSE:1-3`). This spec paraphrases it and copies nothing. Nothing here comes from `higgsfield-ai/app-templates`, which has no licence and no Soul-training UI anyway (only the Soul 2 and Soul Cinema generation models; see `RE-F F26`).
 
 ## 1. Higgsfield Soul ID vs our Instant Soul
@@ -23,8 +23,8 @@ Status: Wave 1 behavioural spec. It covers photo intake, automated photo QA, ref
 |---|---|---|
 | What it is | A trained "Soul Character", a personalised model of one face (`SID:5-6`, `SID:21`) | A curated set of 3–6 reference crops plus a style card, with no training (`docs/PLAN.md:7`) |
 | Input | 5–20 photos, 8–12 ideal (`PG:7-8`, `SID:44`) | The same guidance; we accept up to 20 and need at least 3 that pass QA (§3) |
-| Time to ready | "Minutes", with polling kept silent (`SID:39`). The CLI's default wait timeout is 30 min (`SID:55`, `TS:22-24`). Higgsfield's product page claims about 3–5 min (`docs/PLAN.md:86`; `RD` block `.15557`) | Photo QA on CPU takes seconds. The optional identity preview is one Klein job; its time is not yet measured (`docs/spikes/klein-multiref.md:23`) |
-| Price | $2.50 per training on the API (`RD` block `.14772`), or 25 credits (`RD` block `.15557`). Needs a paid Basic+ plan (`SID:32`, `SID:78`) | No training cost. Each generation costs the normal Comfy Cloud price |
+| Time to ready | "Minutes", with polling kept silent (`SID:39`). The CLI's default wait timeout is 30 min (`SID:55`, `TS:22-24`). Higgsfield's product page claims about 3–5 min (`docs/PLAN.md:86`; [`RD` Higgsfield today](../research/main-findings.md#higgsfield-today)) | Photo QA on CPU takes seconds. The optional identity preview is one Klein job; its time is not yet measured (`docs/spikes/klein-multiref.md:23`) |
+| Price | $2.50 per training on the API ([`RD` Higgsfield today](../research/main-findings.md#higgsfield-today)), or 25 credits ([`RD` Higgsfield today](../research/main-findings.md#higgsfield-today)). Needs a paid Basic+ plan (`SID:32`, `SID:78`) | No training cost. Each generation costs the normal Comfy Cloud price |
 | Output | An opaque id (`reference_id` / `custom_reference_id`) that Soul models consume (`SID:10-12`, `SID:67`) | `soul.json` plus PNG crops, as a folder or `.soul.zip` (§6) |
 | Portability | No export or download operation exists in any public surface: the SDK has create, get and list only (`RE-F F17–F19`); the CLI has create, wait, list and get (`SID:51-73`). The weights stay on Higgsfield's servers. **Not exportable** (inferred from that absence; `RE-F F20`) | Fully portable. Any FLUX.2 Klein or H3 graph can consume it, on Cloud or self-hosted |
 | Consumers | `text2image_soul_v2`, `soul_cinematic` via `--soul-id` (`MD:303`, `MD:324`), and Marketing Studio `custom` avatars | Klein multi-reference edit (Photoshoot, preview, Cards tiles with a person) and H3 reference-to-video (Motion) (§7) |
@@ -205,7 +205,7 @@ Inside a bundle each ref has a `path` relative to `soul.json`. In the server reg
 
 - **Default:** chips in the wizard (hair length and colour, eye colour, glasses yes/no, typical wardrobe), plus a free-text `keep` list. The user fills them in or confirms them.
 - **No automatic labels for sensitive traits:** we do not infer ethnicity or exact age automatically. `skinTone` and `ageRange` are only filled from the user's own choice.
-- **Optional auto-fill:** a VLM caption of `refs[0]` prefills hair, wardrobe and accessories for the user to confirm. Candidates in `OI`: `AILab_QwenVL` (custom node on Cloud) or a self-hosted open VLM. Off by default; Cloud only.
+- **Optional auto-fill (cut from v1, PR #1 review; the style card is filled by hand):** a VLM caption of `refs[0]` prefills hair, wardrobe and accessories for the user to confirm. Candidates in `OI`: `AILab_QwenVL` (custom node on Cloud) or a self-hosted open VLM. Off by default; Cloud only.
 - **Rendering:** the `description` comes from `traits` with a fixed template ("a woman with shoulder-length curly dark auburn hair, hazel eyes, gold hoop earrings"), followed by `keep`.
 
 ### 6.4 Example
@@ -288,7 +288,7 @@ Graph: `workflows/klein_edit_multiref.api.json`. Bindings are in `lib/bindings/k
 
 **Reference resolution:** `17.resolution.megapixels`, default 1.0 (`docs/spikes/klein-multiref.md:69`). How the number of refs and their megapixels affect identity and cost is **not measured**: Wave 0 had zero runs (`docs/spikes/klein-multiref.md:3`, `:23`). Wave 2 should A/B 3 vs 4 vs 6 refs.
 
-**Upload.** Each ref is uploaded once per Soul as a Comfy asset and its `assetId` cached in the registry. The cache key is (backend base URL, `sha256`); the Comfy assets API itself dedups by hash (`scratchpad/web/comfy-sdk/comfy-api-proxy/src/comfy_api_proxy/assets.py:6`, `:38`). Refs are set with `wf.set_input(node, "image", asset)` (`docs/spikes/klein-multiref.md:64`).
+**Upload.** Each ref is uploaded once per Soul as a Comfy asset and its `assetId` cached in the registry. The cache key is (backend base URL, `sha256`); the Comfy assets API itself dedups by hash (Comfy-Org/comfy-api-proxy `src/comfy_api_proxy/assets.py:6`, `:38`). Refs are set with `wf.set_input(node, "image", asset)` (`docs/spikes/klein-multiref.md:64`).
 
 **Cache miss.** Before a submit that uses a Soul, check each cached asset (`GET /api/v2/assets/{id}`). If it is missing (404), or the backend base URL changed since it was cached, re-upload that ref from the local PNG and update the cache. This is one upload, never a job resubmit. Import always uploads and assigns fresh `assetId`s (§6.5). Test S-R1 (§6.6) covers it.
 
@@ -324,7 +324,7 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
    - Nothing goes to Higgsfield or any other service. QA needs no network.
 4. **Delete on request.** `DELETE /api/souls/:id` does three things:
    - removes the local folder;
-   - calls `DELETE /api/v2/assets/{id}` for each cached Comfy asset (Comfy API contract: 204 on success, 409 `asset_in_use` while a job's outputs reference it; `scratchpad/web/comfy-sdk/comfy-typescript-sdk/src/low/generated/types.gen.ts:386-425`);
+   - calls `DELETE /api/v2/assets/{id}` for each cached Comfy asset (Comfy API contract: 204 on success, 409 `asset_in_use` while a job's outputs reference it; Comfy-Org/comfy-typescript-sdk `src/low/generated/types.gen.ts:386-425`);
    - retries 409s once the referencing jobs are gone, and reports any asset it couldn't delete.
 
    Comfy Cloud's own job and output retention is outside our control. **Gap:** not documented in the sources read; README must say so.
@@ -357,4 +357,4 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
 - The blur, pHash and face-size thresholds need calibration on real photos. The golden face set does not exist yet (`docs/spikes/klein-multiref.md:104`).
 - Identity quality of 3 vs 4 vs 6 refs on Klein 4B distilled, and 1 vs 2 refs on H3, has not been measured (0 Cloud runs in Wave 0). It is now decided by the identity gate (`docs/eval/identity.md`), not by eye.
 - YuNet's licence and its packaging in `onnxruntime-node` need checking before vendoring.
-- Higgsfield's claim of 20–80 photos in 3–5 min (`RD` block `.15557`) contradicts the skill's 5–20 (`PG:7`). We follow the skill, which is the public contract the CLI agent uses.
+- Higgsfield's claim of 20–80 photos in 3–5 min ([`RD` Higgsfield today](../research/main-findings.md#higgsfield-today)) contradicts the skill's 5–20 (`PG:7`). We follow the skill, which is the public contract the CLI agent uses.

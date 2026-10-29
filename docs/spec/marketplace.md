@@ -6,7 +6,7 @@ This is a behavioural, clean-room spec. It describes what Higgsfield Marketplace
 
 **Source abbreviations**
 - `hf-skills/` = `higgsfield-ai/skills (local clone)` (v0.13.0; MIT, `LICENSE:1-3`). The marketplace skill is identical in upstream 0.14.0 except the version line.
-- `hf-cli/` = `<scratchpad>`.
+- `hf-cli/` = the public repo `higgsfield-ai/cli` (https://github.com/higgsfield-ai/cli).
 - `spike/` = `./docs/spikes/cutout-upscale.md`; `proto/` = `./spikes/cutout-upscale/marketplace_main.py`.
 
 **Labels.** Every rule is tagged:
@@ -92,7 +92,7 @@ The ids are Higgsfield's ([HF] `SKILL.md:50-62`). The purpose of each is our rea
   - **pasted**: the deterministic RGBA cutout from §6, unchanged; or
   - **regenerated**: Klein edit with the main cutout as reference image 1.
   Pasted is preferred, because it gives exact fidelity.
-- **G3. Diffusion model:** FLUX.2 Klein 4B distilled (Apache-2.0), using `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`.
+- **G3. Diffusion model:** FLUX.2 Klein 4B distilled (Apache-2.0), using `workflows/klein_edit_multiref.api.json` (canonical; first recorded as `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`).
   - The main cutout goes in `LoadImage 54`. Unused reference `LoadImage` nodes are removed.
   - Output size is set by `EmptyFlux2LatentImage 44` (multiples of 16), and the prompt goes in `4.text` (`docs/spikes/klein-multiref.md`, bindings table).
   - Distilled Klein runs at cfg 1 with a zeroed negative, so "no text" must be phrased in the positive prompt.
@@ -137,6 +137,8 @@ The ids are Higgsfield's ([HF] `SKILL.md:50-62`). The purpose of each is our rea
 | `aplus_how_to_use` | 1464×600 | Klein edit: one panel per step (2–4) showing the action with the product (ref = main cutout), each at 704×704 → upscale; or numbered icons if diffusion is turned off | Panels laid out left to right with step numbers and captions | Captions ← `howToUse[]` (2–4 steps, ≤60 chars each); copy-required |
 | `aplus_endorsement` | 1464×600 | optional soft brand backdrop (Klein t2i, no people, no text) | Quote card or certification badge **drawn in code**; **pasted** product | Quote ← `endorsement.text`; attribution ← `endorsement.by`; type ∈ `review\|expert\|certification`; requires `endorsement.rightsConfirmed = true`; copy-required |
 
+This table is `CARD_SPECS` (`lib/cards/assets.ts`). The planner derives steps from its diffusion/product/genPx/copyRequired columns; only the code layout is per-asset, as a pure function in `LAYOUTS`. Canonical ids: `CARD_ASSETS` in `lib/contracts/marketplace.ts`.
+
 **Why these sizes [OURS]:** square 2000² meets the ≥2000 px main-image rule (§5) and is a common zoom-friendly size for marketplace galleries. 1464×600 matches a common wide A+ module width; we also keep the 2× master. Both should be checked against current marketplace documentation before release; they are configurable in `lib/cards/sizes.ts`.
 
 ---
@@ -179,7 +181,7 @@ A failed main image **stops the run before fan-out**. The UI shows the failing c
 
 ## 6. Main-image pipeline and anchoring [OURS]
 
-1. **Cutout:** `spikes/cutout-upscale/cutout.api.json`. User photo → `LoadImage 17` → BiRefNet → RGBA from `SaveImage 18` (`cutout-upscale.md:15-21,36-37`).
+1. **Cutout:** `workflows/cutout.api.json` (first recorded as `spikes/cutout-upscale/cutout.api.json`). User photo → `LoadImage 17` → BiRefNet → RGBA from `SaveImage 18` (`cutout-upscale.md:15-21,36-37`).
 2. **Trim:** crop to the alpha bbox (alpha ≥ 8); compute A4 and A5.
 3. **Upscale if needed:** if `bbox_long < 1700`, run `upscale.api.json` on the RGBA cutout. The multiplier is the smallest of {2, 4} that reaches ≥ 1700 (`57.resize_type.multiplier`). The model is SeedVR2 3B and `59.color_correction_method = wavelet` (`cutout-upscale.md:38-42`; PLAN update, Upscale line). If even ×4 cannot reach 1700 (input bbox < 425 px), reject with "photo too small".
 4. **Composite:** in code (`lib/cards/compose.ts`, a port of `proto/marketplace_main.py:15-28`), centred at 85% on a 2000² #FFFFFF canvas, then flattened to RGB.

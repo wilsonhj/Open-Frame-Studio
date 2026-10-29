@@ -89,4 +89,20 @@ export type ModeTemplate = {
   sharedStyle: boolean;
   /** Needs a person reference (Soul ID or photos). */
   needsPerson: boolean;
+  // Additive (PR #1 review): MODE_TEMPLATES table columns read by the router,
+  // chips and enhancer (`lib/enhancer/modes.ts`, docs/spec/photoshoot.md).
+  /** Router tie-break priority; higher wins. */
+  priority?: number;
+  /** Keyword / intent cues the router matches. */
+  cues?: readonly string[];
+  /** Output count range, default and the chip values offered. */
+  count?: { min: number; max: number; def: number; chips: readonly number[] };
+  /** Number of Soul refs fed to the graph (0 = Soul not used). */
+  soulK?: 0 | 2 | 3;
+  /** Which product image is the graph reference. */
+  productRef?: "cutout" | "source" | "none";
+  /** Variation value pools per axis. */
+  pools?: Partial<Record<VariationAxis, readonly string[]>>;
+  /** Per-output roles for style-locked sets (e.g. carousel slides). */
+  roles?: readonly string[];
 };

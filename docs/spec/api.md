@@ -31,6 +31,8 @@ Every route is a Next.js route handler with `runtime = "nodejs"`. The Comfy API 
 
 These routes run one registered graph. Wave 2 pipelines use the same job and output routes for their Comfy steps.
 
+`POST /api/jobs` is a single-shot smoke and debug route: it keeps no run state, so an ambiguous submit returns 502 `submit_ambiguous` and cannot be safely re-sent. Product flows go through `/api/pipelines`, which persists the key before submitting (§2.0).
+
 ### `POST /api/jobs`
 
 Source: `app/api/jobs/route.ts:19-78`.
@@ -71,7 +73,7 @@ Source: `app/api/jobs/[id]/outputs/[outputId]/route.ts:10-32`.
 
 ## 2. Pipelines (planned, Wave 2)
 
-A pipeline is a small DAG of `PipelineStep`s (`lib/contracts/pipeline.ts:27-110`):
+A pipeline is a flat list of `PipelineStep`s (`lib/contracts/pipeline.ts:27-110`). Each step names the steps it waits on in `dependsOn`, fixed when the run is created. The runner starts every ready step (pending, with all `dependsOn` succeeded) in parallel; a step whose dependency failed becomes `skipped`. There is no general graph engine. Step kinds:
 
 - **`comfy` steps** run one graph from `workflows/<WorkflowName>.api.json`. Their inputs go through `applyBindings` (`lib/bindings/apply.ts`), with the binding in `lib/bindings/<workflow>.ts`.
 - **`code` steps** run in process: photo QA, crop, prompt building, compose, compliance checks and card rendering.
@@ -129,7 +131,7 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 **Planning is fixed before persist.** `POST` does all of this before it returns `202`:
 1. upload every `{ "upload": … }` part and rewrite it to `{ "assetId": … }` (the persisted `request` holds no file parts);
 2. resolve seeds and enhancer prompts into concrete step inputs;
-3. build the full DAG (every step, with `timeoutMs`);
+3. build the full step list (every step, with `dependsOn` and `timeoutMs`);
 4. persist the run, then answer `202`.
 
 A restarted runner therefore never re-plans: it only executes the persisted steps.
@@ -168,7 +170,7 @@ Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/contracts/pipeline.t
 | | |
 |---|---|
 | Request | `SoulRequest` (`lib/contracts/soul.ts:57-63`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
-| Steps | photo QA (code) → `cutout` per kept photo → crop + pHash dedupe (code) → choose the best 3–6 → `klein_edit_multiref` preview sheet (optional) → write `soul.json` (code) |
+| Steps | photo QA + crop + pHash dedupe (code, CPU) → choose the best 3–6 → `klein_edit_multiref` preview sheet (optional; the only Comfy step) → write `soul.json` (code) |
 | Result | `SoulResult` (`lib/contracts/soul.ts:74-79`): `{ soul: Soul, rejected: [{index, reason}], preview: OutputRef \| null }` |
 
 `Soul` (`lib/contracts/soul.ts:46-55`) is the exact contents of `soul.json`:
@@ -236,11 +238,11 @@ There is one binding model. Each `lib/bindings/<workflow>.ts` exports a `GraphBi
 | Workflow | Inputs | Outputs | Graph source |
 |---|---|---|---|
 | `image_resize_smoke` | `image` 1 (required), `scale` 2.scale_by (0.05–2), `method` 2.upscale_method (`nearest-exact`, `bilinear`, `area`, `bicubic`, `lanczos`) | `image` 3 | `workflows/image_resize_smoke.api.json` (plumbing smoke test) |
-| `klein_edit_multiref` | `image_1..image_4` (54, 60, 61, 62), `prompt` 4.text, `width`/`height` 44 (mirrored to 71), `batch_size`, `seed` 70.noise_seed, `steps` 71, `cfg` 72, `ref_megapixels` 17.resolution.megapixels, `model` 59.unet_name | `image` 9 | `spikes/klein-multiref/flux2_klein_edit_multiref.api.json` |
-| `klein_t2i` | `prompt` p4.text, `width`/`height` p44 (mirrored to p71), `batch_size`, `seed` p70, `steps` p71, `cfg` p72, `model` 59 | `image` p9 | `p*` chain of `spikes/klein-multiref/flux2_klein_t2i_fixtures.api.json` |
-| `cutout` | `image` 17 | `cutout` 18, `mask` 21 | `spikes/cutout-upscale/cutout.api.json` |
-| `upscale` | `image` 1, `scale` 57.resize_type.multiplier, `model` 52.unet_name (3B int8 default), `seed` 54, `color_correction` 59 (`wavelet`) | `image` 9 | `spikes/cutout-upscale/upscale.api.json` |
-| `h3_r2v` | `image_1` 137, `image_2` 139, `prompt` 138.value, `seed` 129, `duration` 132, `turbo` 146, `steps_base` 143, `steps_turbo` 144, `aspect_ratio`/`megapixels` 115, `ref_image_size` 136 | `video` 92 | `spikes/h3-r2v/h3_r2v.api.json` |
+| `klein_edit_multiref` | `image_1..image_4` (54, 60, 61, 62), `prompt` 4.text, `width`/`height` 44 (mirrored to 71), `batch_size`, `seed` 70.noise_seed, `steps` 71, `cfg` 72, `ref_megapixels` 17.resolution.megapixels, `model` 59.unet_name | `image` 9 | `workflows/klein_edit_multiref.api.json` (from `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`) |
+| `klein_t2i` | `prompt` p4.text, `width`/`height` p44 (mirrored to p71), `batch_size`, `seed` p70, `steps` p71, `cfg` p72, `model` 59 | `image` p9 | `workflows/klein_t2i.api.json` (the `p*` chain of `spikes/klein-multiref/flux2_klein_t2i_fixtures.api.json`) |
+| `cutout` | `image` 17 | `cutout` 18, `mask` 21 | `workflows/cutout.api.json` (from `spikes/cutout-upscale/cutout.api.json`) |
+| `upscale` | `image` 1, `scale` 57.resize_type.multiplier, `model` 52.unet_name (3B int8 default), `seed` 54, `color_correction` 59 (`wavelet`) | `image` 9 | `workflows/upscale.api.json` (from `spikes/cutout-upscale/upscale.api.json`) |
+| `h3_r2v` | `image_1` 137, `image_2` 139, `prompt` 138.value, `seed` 129, `duration` 132, `turbo` 146, `steps_base` 143, `steps_turbo` 144, `aspect_ratio`/`megapixels` 115, `ref_image_size` 136 | `video` 92 | `workflows/h3_r2v.api.json` (from `spikes/h3-r2v/h3_r2v.api.json`) |
 
 - **`applyBindings(graph, binding, values)`** returns a structured clone of the graph. It rejects:
   - unknown logical names;

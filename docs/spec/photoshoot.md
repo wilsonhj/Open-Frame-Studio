@@ -7,13 +7,13 @@ Status: Wave 1 behavioural spec. It describes how Higgsfield Product Photoshoot 
 - **`HF`** marks a fact taken from a Higgsfield source. Every `HF` fact cites `path:line`.
 - **`ours`** marks a decision we author because Higgsfield keeps it server-side (prompt templates, default aspect ratios, variation scheme). The plan lists these as ours: `docs/PLAN.md:72`.
 - Source abbreviations:
-  - `PS` = `higgsfield-ai/skills (local clone)/higgsfield-product-photoshoot/SKILL.md` (v0.13.0). Upstream 0.14.0 at `.../scratchpad/web/hf-gh/skills/higgsfield-product-photoshoot/SKILL.md` matches it apart from the `version:` line (checked with `diff`), so the line numbers hold for both.
+  - `PS` = `higgsfield-ai/skills (local clone)/higgsfield-product-photoshoot/SKILL.md` (v0.13.0). Upstream `higgsfield-ai/skills` 0.14.0 `higgsfield-product-photoshoot/SKILL.md` matches it apart from the `version:` line (checked with `diff`), so the line numbers hold for both.
   - `EV` = `higgsfield-ai/skills (local clone)/evals/scenarios.md`
-  - `MD` = `<scratchpad>`
+  - `MD` = `higgsfield-ai/cli` `MODELS.md` (https://github.com/higgsfield-ai/cli)
   - `CB` = `higgsfield-ai/skills (local clone)/COOKBOOK.md`
   - `HFC` = `higgsfield-ai/skills (local clone)/CLAUDE.md`
 - Licence: the skills repo is MIT (`higgsfield-ai/skills (local clone)/LICENSE:1-3`). Even so, this spec paraphrases it rather than copying prose. Nothing here comes from `higgsfield-ai/app-templates`, which has no licence and contains no photoshoot code anyway (a grep for `photoshoot|moodboard_pin|product_shot` finds nothing).
-- Model: FLUX.2 Klein 4B distilled is the default (`docs/PLAN.md:6`). The graph is `spikes/klein-multiref/flux2_klein_edit_multiref.api.json` (`docs/spikes/klein-multiref.md:33`).
+- Model: FLUX.2 Klein 4B distilled is the default (`docs/PLAN.md:6`). The graph is `workflows/klein_edit_multiref.api.json` (canonical; first recorded as `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`, `docs/spikes/klein-multiref.md:33`).
 
 ## 1. What the feature is
 
@@ -25,7 +25,8 @@ Status: Wave 1 behavioural spec. It describes how Higgsfield Product Photoshoot 
 - `gpt_image_2` is described as high-fidelity generation and editing for product photography, graphic design and on-image text (`MD:52`).
 
 **Ours**
-- `lib/enhancer/` is a deterministic template engine that turns `(mode, interview answers, refs, i/N)` into N prompts. It is the equivalent of Higgsfield's enhancer. An open LLM upsampler is optional and off by default.
+- `lib/enhancer/` is a deterministic template engine that turns `(mode, interview answers, refs, i/N)` into N prompts. It is the equivalent of Higgsfield's enhancer. No LLM upsampler in v1.
+- §2, §4, §5.3 and §6 are columns of one table, `MODE_TEMPLATES` (`lib/enhancer/modes.ts`); the router, chips and enhancer all read it. Canonical mode ids: `PHOTOSHOOT_MODES` in `lib/contracts/photoshoot.ts`.
 - Each prompt drives one Klein edit job with references.
 - The user never sees the assembled prompt in the default UI (§9).
 

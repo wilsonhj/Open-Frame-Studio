@@ -7,9 +7,10 @@ Wave 0 findings are in `docs/spikes/`. They change the plan below as follows:
 - **Soul ID is Instant only.** Comfy Cloud has no `SaveLoRA` node, so a trained LoRA can't be downloaded. A Soul is the curated reference set (3–6 best crops after photo QA) plus a style card, saved as a portable `soul.json` with images. The trained-LoRA path and the `soul_train` graph agent are dropped; `spikes/lora-training/` stays as research. Body references to a trained Soul, Soul LoRA, `soul_train` or a train toggle are superseded. **Reuse gate:** a Soul counts as reusable only after test S-R1 passes (`docs/spec/soul.md` §6.6).
 - **H3:** use `minimax_h3_video_vae_fp16` (the int8 VAE is not on Cloud). Turbo weakens reference fidelity, so use 20–25 steps for hero clips.
 - **Upscale:** SeedVR2 3B with `wavelet` colour correction (`lab` streaks flat colour).
-- **Starting graphs for Wave 2:** `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`, `spikes/h3-r2v/h3_r2v.api.json`, `spikes/cutout-upscale/{cutout,upscale}.api.json`.
+- **Starting graphs for Wave 2:** `workflows/*.api.json` (canonical); `spikes/**/*.api.json` are frozen spike records, not sources.
 - **Schedule:** Wave 1 (specs, no Cloud) now; Cloud spike re-run once the paid key works; Wave 2 from ~21:30 UTC; submit by 12:00 UTC Oct 30.
 - **Identity gate:** identity preservation is an acceptance gate (`docs/eval/identity.md`): blind 2-reviewer same-person review on a fixed synthetic set (Soul preview, 3 person photoshoot modes, 1 H3 frame); pass ≥80% overall, every surface ≥2/3, decoys rejected. SFace/YuNet cosine is reported with its calibration but is advisory. Blocks feature freeze and the v1.0.0 tag.
+- **Critical path (PR #1 review):** P0 = first Cloud batch (`cutout`, `klein_edit_multiref`, one H3 turbo smoke clip to de-risk) → Instant Soul → Photoshoot (table-driven; E2E covers product_shot, lifestyle_scene+Soul, virtual_model_tryout+Soul, social_carousel) → identity gate. P1 = Cards main_image + lifestyle, multi_angle, infographic, aplus_hero_banner; Motion (turbo preview + one pre-rendered 20-step hero clip, H3 track). P2 = the other 8 card assets, SeedVR2 on photoshoot outputs, self-host proxy demo, apps/*.app.json and comfy-pack, spend panel. Cut from v1: `restyle_relight`, `motion_i2v`, the LLM upsampler, VLM style-card auto-fill.
 
 ---
 
@@ -59,38 +60,12 @@ Re-shoot and Cinema Studio clones are saturated. Nobody builds around MiniMax H3
 2. **Secret.** Add `COMFY_API_KEY` (from platform.comfy.org/profile/api-keys) as an environment secret. Never commit it.
 3. **Repo.** Create `wilsonhj/open-soul-studio` (MIT), or let me create it. Add it to the session with push access.
 
-## What we reverse-engineer: behavioural spec
+## Behaviour specs and provenance
 
-Sources are the local skills (`higgsfield-ai/skills (local clone)`), the CLI `README.md` and `MODELS.md`, and the app-templates UX.
-
-### Product Photoshoot
-Source: `higgsfield-product-photoshoot/SKILL.md:50-200`.
-
-- **10 modes:** `product_shot`, `lifestyle_scene`, `closeup_product_with_person`, `moodboard_pin` (2:3), `hero_banner` (≥16:9), `social_carousel` (3–10 slides, one shared style), `ad_creative_pack`, `virtual_model_tryout`, `conceptual_product`, `restyle`.
-- **Request handling:** keyword/intent routing with tie-breakers. A ≤4-question interview with labelled chips across request types A–F.
-- **Count and format:** 1–10 outputs that vary preset, lighting, angle and palette. Fixed 2k resolution. Aspect whitelist `1:1,4:5,5:4,3:4,4:3,2:3,3:2,9:16,16:9`.
-- **Hidden on Higgsfield's side:** the per-mode prompt templates, default aspect ratios and the variation scheme. **We author these.**
-
-### Marketplace Cards
-Source: `higgsfield-marketplace-cards/SKILL.md:40-85`.
-
-- **Scopes:** `main`, `product-images` (main + 5), `aplus` (main + 7), `full-set` (13).
-- **Assets:** `main_image`, `infographic`, `multi_angle`, `detail_shot`, `lifestyle`, `whats_in_box`, `aplus_{hero_banner,pain_points,features,ingredients,efficacy,how_to_use,endorsement}`.
-- **Main-image anchor:** secondary and A+ images are conditioned on the main image (`--main-job`).
-- **Hidden on Higgsfield's side:** compliance rules and templates. **We author these:** pure-white background, product filling ~85% of the frame, no text on the main image.
-
-### Soul ID
-Source: `higgsfield-soul-id/SKILL.md` and `references/photo-guide.md:5-37`.
-
-- **Input:** 5–20 photos, 8–12 ideal. One face per photo, varied angles and lighting, ≥1024 px. Reject group shots and sunglasses.
-- **Output:** an id that generation consumes, `custom_reference_id`. Higgsfield's own product page says training takes 3–5 minutes.
-
-### Coordinates
-Every spec line in `docs/RE-FINDINGS.md` cites `file:line`, following `assets/findings-template.md` from the reverse-engineering skill. The findings doc also maps:
-- Higgsfield's REST contract: `POST /<model>`, `GET /requests/{id}/status`, upload URL;
-- CLI internals: `fnf-api-gw.higgsfield.ai/fnf`, Clerk PKCE;
-
-and tags each claim *read in source*, *read in binary strings* or *inferred*.
+- Behaviour specs live in `docs/spec/{photoshoot,marketplace,soul,ux,api}.md`.
+- Runtime lists (modes, aspects, card assets) live in `lib/contracts/*.ts` as the single source; specs and code read them from there.
+- Provenance (what was studied, with `file:line` coordinates and confidence tags) lives in `docs/research/re-findings.md`. It is a record, not a runtime contract.
+- The clean-room rules are in Context above: public contracts only, no auth or billing bypass, no `higgsfield-ai/app-templates` code.
 
 ## Architecture
 
@@ -101,17 +76,19 @@ Next.js 16 App Router + React 19 + TS, Tailwind/shadcn (our own components)
 app/api/jobs/route.ts              POST  validate → assets.fromBytes → setInput → comfy.submit → 202
 app/api/jobs/[id]/route.ts         GET   jobs.get(id) → normalized {status, progress, outputs}
 app/api/jobs/[id]/outputs/[oid]    GET   getDownloadUrl → fetch → stream (re-host; signed URLs die in ~6h)
-app/api/pipelines/*                multi-step DAGs (soul, photoshoot, cards, motion) built on lib/pipeline.ts
+app/api/pipelines/[kind]/*         one route set for soul|photoshoot|cards|motion: a flat PipelineStep[] (dependsOn, fixed at plan time) run by lib/pipeline/ (step runner)
 lib/comfy.ts                       @comfyorg/sdk 0.5.0 client (pattern from comfy-reshoot lib/comfy.ts)
 lib/bindings/<workflow>.ts         typed node-id/field maps per workflow (pattern from openjutsu lib/swap.ts)
-lib/enhancer/                      deterministic mode templates + variation engine (+ optional open LLM upsampler)
-lib/cards/                         sharp/canvas text+badge renderer with real fonts, compliance checker
-workflows/*.api.json               API-format exports (subgraphs UNPACKED before export)
-apps/*.app.json                    App Mode versions of each workflow (shown in demo + README)
-comfy-pack/                        node pack: example_workflows/ + subgraphs/ blueprints (H3 r2v)
+lib/enhancer/                      one MODE_TEMPLATES table (10 rows) + INTERVIEW table (A–F) + one pure variation/style-lock engine
+lib/cards/                         sharp/canvas text+badge renderer with real fonts, compliance checker, CARD_SPECS table (13 rows), per-asset pure layout functions
+workflows/*.api.json               CANONICAL. API format, subgraphs unpacked. The only graphs the app loads.
+apps/*.app.json                    DERIVED, stretch. App Mode wrappers for judges; never loaded by the app.
+comfy-pack/                        DERIVED, stretch. example_workflows/ copied from workflows/, plus the H3 r2v subgraph blueprint.
 lib/store.ts                       durable run store (.data/, JSON per run)
 instrumentation.ts                 boot: resumeRuns()
 ```
+
+A CI check (`scripts/check-derived.mjs`) must show node ids, class_type and bound inputs in apps/ and comfy-pack/ match workflows/; without it they don't ship.
 
 **Runtime switch.** With no `COMFY_BASE_URL`, the app runs on Comfy Cloud. With `COMFY_BASE_URL=http://127.0.0.1:8189` it runs on self-hosted ComfyUI behind `comfy-api-proxy` (proves open weights end to end).
 
@@ -119,8 +96,8 @@ instrumentation.ts                 boot: resumeRuns()
 
 | Tool | Steps | Base templates (`comfyui-workflow-templates` 0.11.98) |
 |---|---|---|
-| **Soul ID: Instant** (zero-shot, always available) | Photo QA (face count, size; client and server) → BiRefNet crops → pick best 3–6 refs → FLUX.3 Klein edit with `ReferenceMultiLatent` → identity preview sheet | `image_flux3_klein_image_edit.json` (no subgraph; inputs `LoadImage` 54, prompt 4/`Flux3LayoutPrompt` 49, `KSampler` 7) |
-| **Photoshoot** | Mode router + interview chips → enhancer builds N varied prompts with a style lock → Klein edit with refs [product cutout, (+Soul refs)] → optional SeedVR2 2k upscale | Klein edit; BiRefNet `utility_birefnet_remove_background.json` (flatten); SeedVR2 `utility_seedvr2_7b_int8_upscale_image.json` (flatten) |
+| **Soul ID: Instant** (zero-shot, always available) | Photo QA (face count, size; client and server) + crop + pHash dedupe (code, CPU) → pick best 3–6 refs → FLUX.2 Klein 4B edit with `ReferenceMultiLatent` → identity preview sheet (optional; the only Comfy step) → `soul.json` | `workflows/klein_edit_multiref.api.json` (FLUX.2 Klein 4B edit, multi-ref; bindings in `lib/bindings/klein_edit_multiref.ts`) |
+| **Photoshoot** | Mode router + interview chips → enhancer builds N varied prompts with a style lock → Klein edit with refs [product cutout, (+Soul refs)] → optional SeedVR2 2k upscale (P2) | Klein edit; BiRefNet `utility_birefnet_remove_background.json` (flatten); SeedVR2 `utility_seedvr2_7b_int8_upscale_image.json` (flatten) |
 | **Marketplace Cards** | Main: BiRefNet cutout → deterministic composite on #FFFFFF at 85% fill (code, not diffusion) → compliance check. Secondary/A+: Klein edit conditioned on the main image + asset template → text/badges/infographic copy rendered in code | Klein edit + BiRefNet |
 | **Motion** (H3 prize) | Soul still + product still → H3 reference-to-video (`<Picture 1>`, `<Picture 2>` prompt), turbo 4-step for live, 20-step for hero | `video_minimax_h3_r2v.json` (no subgraph; `LoadImage` 137/139, prompt 138, `MiniMaxH3ReferenceToVideo` 136, seed 129, duration 132, turbo 146) |
 
@@ -130,18 +107,17 @@ instrumentation.ts                 boot: resumeRuns()
 - openjutsu's `swapWorkflow` graph-editing pattern.
 - The official templates listed in the table.
 
-**Known traps** (verified in SDK/proxy source). Bake each into `lib/comfy.ts`:
+**Known traps** (verified in SDK/proxy source). `lib/comfy.ts` is a thin SDK wrapper (client, submit-once, poll with a required timeout, re-host outputs, reject UI-format graphs). It never retries. The run store and step runner own the key discipline below:
 - Always pass a `timeout`. A proxy job can sit at `unknown` forever.
 - Never auto-retry `submit()` under a new key. Mint the key, persist it, then submit. After an ambiguous failure, re-send only under the same key (API v2 rejects it with 422 if the first POST landed). A 422 reuse with no stored job id is `submit_unconfirmed` and is never resubmitted (Cloud cannot list jobs: 501).
 - Don't pass `metadata`.
 - Poll; don't rely on SSE.
 - Re-host outputs.
-- Export workflows in API format with subgraphs unpacked.
 
-## Team plan: Workflow tool, 47 agents in 5 waves (ids run to #48; one Graphs slot was dropped)
+## Team plan: Workflow tool, ~45 agents (Wave 2: 26)
 
 **General rules:**
-- **Contracts are frozen at the end of Wave 1.** These are `lib/contracts/*.ts` (re-exported by the barrel `lib/types.ts`), the binding maps, the pipeline step interface and the API routes.
+- **Contracts freeze in two stages:** public types and APIs at `contracts-v1`; graph node ids at `bindings-v1` after golden runs. Public types are `lib/contracts/*.ts` (re-exported by the barrel `lib/types.ts`).
 - **Each agent owns explicit paths only.** All agents run with `isolation: "worktree"`. The orchestrator merges team branches into `main` after each wave and runs the full checks.
 - **Each brief includes:** the goal, owned paths, the contract files to import, the reference sources (paths above), the definition of done, and "no code from higgsfield-ai/app-templates".
 - **Load the `workflow-authoring` skill before writing the script.**
@@ -151,7 +127,7 @@ instrumentation.ts                 boot: resumeRuns()
 | # | Agent | Deliverable / definition of done |
 |---|---|---|
 | 1 | Spike: Cloud LoRA training | Minimal Klein-base `TrainLoraNode` graph runs on Cloud. Record wall time for 100/400 steps, whether `SaveLoRA` appears as a downloadable output, and whether in-graph `LoraModelLoader` works. **Result: no `SaveLoRA` on Cloud; Instant Soul only (see top).** |
-| 2 | Spike: Klein multi-ref identity | Export `image_flux3_klein_image_edit` in API format. Run with 3 face refs + 1 product ref. Measure identity quality and seconds per image. |
+| 2 | Spike: Klein multi-ref identity | Export `image_flux3_klein_image_edit` in API format (superseded: FLUX.2 Klein 4B, see top). Run with 3 face refs + 1 product ref. Measure identity quality and seconds per image. |
 | 3 | Spike: H3 r2v on Cloud | Run `video_minimax_h3_r2v` turbo at 0.4 MP, 5 s. Record latency; record cost from the workspace usage endpoint after an isolated run (hourly bucket, after it settles). Record the output. Confirm that commercial rights come with Cloud outputs. |
 | 4 | Spike: BiRefNet + SeedVR2 flattened | Unpack the subgraphs, export API JSON, run both, and record node ids. |
 | 5 | Scaffold | Repo skeleton: Next.js, `lib/comfy.ts` with traps handled, a mock Comfy server for offline tests (statuses `queued`/`running`/`succeeded`/`failed`/`unknown`), CI (lint, typecheck, `node --test`), MIT LICENSE. |
@@ -164,20 +140,34 @@ instrumentation.ts                 boot: resumeRuns()
 |---|---|---|
 | 6 | RE: Photoshoot spec | `docs/spec/photoshoot.md`: modes, routing rules, interview trees A–F, counts, aspects, with `file:line` citations |
 | 7 | RE: Marketplace spec | `docs/spec/marketplace.md`: 13 assets, scopes, our compliance rules (main image: white, 85% fill, no text), per-asset aspect ratios |
-| 8 | RE: Soul + platform contract | `docs/spec/soul.md` + `docs/RE-FINDINGS.md`: Higgsfield REST/CLI/SDK contract map and photo rules, with confidence tags |
+| 8 | RE: Soul + platform contract | `docs/spec/soul.md` + `docs/research/re-findings.md`: Higgsfield REST/CLI/SDK contract map and photo rules, with confidence tags |
 | 9 | Contracts | `lib/contracts/*.ts`, barrel `lib/types.ts` (Job, Asset, PipelineStep, ModeTemplate, CardAsset), `lib/bindings/*.ts` from spike node ids, OpenAPI for our routes |
 | 10 | UX spec | `docs/spec/ux.md`: written description of the studio layout (sidebar, hero, prompt dock with mode rail and chips, gallery, Soul library). Text spec only, no copied code. |
 | 11 | Test harness | Golden fixtures (sample product photos and a consenting demo face set), `tests/e2e/*.spec.ts` skeletons (Playwright), mock-server scenarios |
 
-### Wave 2: parallel build (T+4 → T+14h, 23 agents)
+### Wave 2: vertical slices (≈21:30 → 05:30 UTC, 18 builders + 7 verifiers)
 
-| Team | Agents | Owned paths | Definition of done |
-|---|---|---|---|
-| **Graphs** | 7: `soul_instant`, `photoshoot_edit`, `restyle_relight` (Qwen-2509 relight, optional), `cutout`, `upscale`, `motion_r2v`, `motion_i2v` (fallback) | `workflows/<name>.api.json`, `lib/bindings/<name>.ts`, `tests/graphs/<name>.test.ts` | Validates against Cloud `/object_info` (no unknown classes). One real golden run is saved to `fixtures/golden/`. Binding test proves every exposed input changes the graph. |
-| **Enhancer** | 4: modes 1–5, modes 6–10, marketplace 13 templates, variation/style-lock engine + optional open LLM upsampler (Klein's `qwen3.5_9b_flux3_prompt_upsampler` via `TextGenerate`, keeping open weights) | `lib/enhancer/**` | Snapshot tests per mode. N variants differ in preset, light, angle and palette. Carousel shares a style block. |
-| **Backend** | 5: job routes + output re-hosting; pipeline DAG runner (fan-out, per-step timeout, no auto-resubmit, durable run store (`lib/store.ts`, `.data/runs/<id>.json`, temp+fsync+rename) with boot reconciliation per `docs/spec/api.md` §2.0); Soul registry (refs, soul.zip export/import, asset re-upload on cache miss; S-R1 mock test); cards renderer (sharp + bundled OFL fonts, badges, infographic layouts) + compliance checker; latency meter (v2 job `metrics.queue_ms`/`execution_ms`, `started_at`/`completed_at`) + optional workspace-spend panel (deprecated v1 `GET /api/billing/usage/timeseries`, invoice-derived and lagged; balance fields are cents). No cost per job: show 'not reported' or a labelled estimate. `X-Comfy-Credits-Used` applies only if a step calls Router directly | `app/api/**`, `lib/pipeline.ts`, `lib/store.ts`, `instrumentation.ts`, `lib/soul/**`, `lib/cards/**`, `lib/metrics.ts` | Unit tests against the mock server. No key appears in client bundles (grep the build output). Runner tests: crash after the key is persisted but before the POST → re-send gets 201, one job; `drop_after_create` → 422 → `submit_unconfirmed`, 2 POSTs, 1 job; restart with a `jobId` → polled, never re-POSTed; deadline not extended across a restart; a 13-step cards run killed mid fan-out finishes after `resumeRuns()`. |
-| **Frontend** | 5: studio shell + gallery + history; Soul wizard (upload, live photo-quality checks, progress); Photoshoot dock (mode rail, interview chips, count, aspect); Cards board (scope picker, 13-tile grid, per-tile regenerate, ZIP export); Motion panel + job progress/time HUD (cost: estimate or unavailable) | `app/(studio)/**`, `components/**` | Playwright happy-path per tool on the mock server. Mobile layout passes. |
-| **DevEx** | 2: README (quickstart for Cloud and self-host via `comfy-api-proxy`, `model-files.md` with HF URLs and sizes, H3 licence note, Klein gated-repo note); `apps/*.app.json` + `comfy-pack/` (example_workflows, subgraph blueprint for H3 r2v, missing from official blueprints today) | `README.md`, `docs/setup/**`, `apps/**`, `comfy-pack/**` | A fresh clone reaches a running app in ≤10 min with only `COMFY_API_KEY` set. |
+**Ownership.** Every path has exactly one owner, listed in `docs/OWNERS.md`. `scripts/check-owners.mjs` runs in CI and fails a branch that touches paths outside its slice. The orchestrator alone owns `lib/contracts/**`, `lib/types.ts`, `lib/pipeline/{types,kinds}.ts`, `package.json`, `pnpm-lock.yaml`, `next.config.ts`, `tsconfig.json`, `eslint.config.mjs`, `fixtures/products/**` and `docs/PLAN.md`. Slices request contract or dependency changes in their handbacks; the orchestrator applies them additively at checkpoints.
+
+**W2.0 Skeleton (orchestrator, serial).** Commit Wave 1 and tag `contracts-v1`. Add all Wave 2 dependencies at once (sharp, a zip library, OFL fonts, a face detector). Freeze `lib/pipeline/types.ts` `PipelineDefinition<K>` `{validate, plan, handlers, buildResult, actions}`. Put stubs at every cross-slice import point: `lib/pipeline/kinds.ts` → `lib/{soul,photoshoot,cards,motion}/pipeline.ts`; `lib/soul/registry.ts` signatures (`listSouls`, `getSoul`, `bestRefs`, `ensureAssets`); `lib/bindings/prepare.ts` `prepareGraph`; `components/soul/soul-library.tsx`; `components/ui/*`; `lib/client/use-run.ts`; 501 routes under `app/api/pipelines/[kind]/`.
+
+| Slice | Agents (sub-paths) | Owns | Imports read-only | Definition of done |
+|---|---|---|---|---|
+| **A Runtime** | 3: A1 store, step runner, reconcile; A2 routes, request + upload, action dispatch, runs list; A3 metrics, status, mock scenarios | `lib/pipeline/**` (not `types`/`kinds`), `lib/store.ts`, `instrumentation.ts`, `lib/comfy.ts`, `lib/inputs.ts`, `lib/metrics.ts`, `app/api/{jobs,pipelines,runs,status}/**`, `tests/mock-comfy/**`, `tests/{comfy,inputs}.test.ts`, `tests/{pipeline,store}/**`, `docs/spec/api.md` | `lib/contracts/**`, `lib/pipeline/{types,kinds}.ts`, `lib/bindings/**` | Pipeline step runner: one module, no graph engine; ready = pending steps whose `dependsOn` all succeeded, run with `Promise.all`, persist each transition (≤ ~250 lines). Durable run store (`.data/runs/<id>.json`, temp+fsync+rename) with boot reconciliation per `docs/spec/api.md` §2.0. Runner tests: crash after the key is persisted but before the POST → re-send gets 201, one job; `drop_after_create` → 422 → `submit_unconfirmed`, 2 POSTs, 1 job; restart with a `jobId` → polled, never re-POSTed; deadline not extended across a restart; a full-set cards run (13 tiles, ~17–26 Comfy steps) killed mid fan-out finishes after `resumeRuns()`. A fake definition runs end to end. Latency from v2 job metrics; no cost per job ("not reported" or a labelled estimate). No key in build output (grep). |
+| **B Graphs & Cloud** | 2: B1 bindings, `prepareGraph`, object_info check, golden runner; B2 `apps/`, `comfy-pack/` (stretch) | `workflows/**`, `lib/bindings/**`, `tests/bindings.test.ts`, `tests/graphs/**`, `fixtures/golden/**`, `scripts/{golden-run,check-object-info}.mjs`, `apps/**`, `comfy-pack/**`, `docs/spikes/**` | `lib/contracts/**` | Offline `checkBinding` clean; no partner nodes. With a working key: object_info check + one golden run per workflow → tag `bindings-v1`. |
+| **C Soul** | 3: C1 QA, crop, select; C2 registry, bundle, pipeline, `app/api/souls`; C3 UI + Rail library | `lib/soul/**`, `app/api/souls/**`, `app/soul/**`, `components/soul/**`, `tests/soul/**`, `tests/e2e/soul.spec.ts`, `docs/spec/soul.md` | contracts, `lib/pipeline/types.ts`, `lib/bindings/prepare.ts`, `components/ui/*`, `lib/client/*` | Refs persisted before the preview step; S-R1 on mock; wizard Playwright. |
+| **D Photoshoot** | 3: D1 `lib/enhancer/modes.ts` (all 10 modes); D2 variation/style lock, router, interview, pipeline, item retry; D3 UI | `lib/enhancer/**`, `lib/photoshoot/**`, `app/photoshoot/**`, `components/photoshoot/**`, `tests/{enhancer,photoshoot}/**`, `tests/e2e/photoshoot.spec.ts`, `docs/spec/photoshoot.md` | contracts, `lib/soul/registry.ts`, `lib/pipeline/types.ts`, `lib/bindings/prepare.ts`, `components/{ui,soul}/*`, `lib/client/*` | Snapshot per table row; variants differ on 4 axes; carousel and ad pack share one style block; `photoshoot.md` §10 tests; Playwright for 2 modes. |
+| **E Cards** | 3: E1 main image + compliance; E2 renderer, layouts, fonts; E3 `CARD_SPECS`, pipeline, regenerate/export, board UI | `lib/cards/**`, `assets/fonts/**`, `app/cards/**`, `components/cards/**`, `tests/cards/**`, `tests/e2e/cards.spec.ts`, `docs/spec/marketplace.md` | contracts, `lib/pipeline/types.ts`, `lib/bindings/prepare.ts`, `components/ui/*`, `lib/client/*` | Main image: ≥99% white border, product bbox ≥80%, no text. P1 assets on mock. Regenerate changes only the seed. ZIP + `cards.json`. |
+| **F Motion** | 2: F1 person resolve, `<Picture N>` prompt, pipeline; F2 UI | `lib/motion/**`, `app/motion/**`, `components/motion/**`, `tests/motion/**`, `tests/e2e/motion.spec.ts` | contracts, `lib/soul/registry.ts`, `lib/pipeline/types.ts`, `lib/bindings/prepare.ts`, `components/{ui,soul}/*`, `lib/client/*` | Exactly one person source; final = turbo off, 20 steps; Playwright on mock. |
+| **G Shell & DevEx** | 2: G1 shell, `components/ui`, `lib/client`; G2 README, setup, CI | `app/{layout.tsx,page.tsx,globals.css}`, `app/{runs,smoke}/**`, `components/{shell,ui}/**`, `components/{job-runner,coming-soon}.tsx`, `lib/client/**`, `tests/e2e/{smoke,shell}.spec.ts`, `playwright.config.ts`, `README.md`, `docs/setup/**`, `docs/spec/ux.md`, `.env.example`, `.github/**` | contracts, `app/api/**` responses | Mobile layout; History from server runs; fresh clone → running app in ≤10 min with only `COMFY_API_KEY` set. |
+
+**Freeze rule.** `contracts-v1` freezes `lib/contracts/**`, the `apply.ts` exports, the `BINDINGS`/`getBinding`/`prepareGraph` API, and each workflow's logical input/output names and kinds. `bindings-v1` follows the golden runs and is owned by B only: node ids, field paths, mirrors, ranges/defaults, `workflows/*.api.json` and `DEFAULT_STEP_TIMEOUT_MS` values. After `contracts-v1`, logical names change additively only. Tool slices never use node ids (CI grep).
+
+**Checkpoints.**
+- **CP0 (~21:45):** skeleton merged and the owner check green → fan out.
+- **CP1 (~00:30):** A and B merged; each tool runs plan → persist → run on mock.
+- **CP2 (~03:30):** merge in order A → B → C → D → E → F → G with full checks; each slice's verifier gets ≤2 fix rounds.
+- **CP3 (~05:30):** mock e2e Soul → Photoshoot → Cards → Motion green; golden runs + `bindings-v1` if the key works; then Wave 3.
 
 ### Wave 3: integration and QA (T+14 → T+20h, 8 agents)
 
@@ -199,7 +189,7 @@ instrumentation.ts                 boot: resumeRuns()
 | 43 | Demo script | 3-minute live script: upload selfies → Instant Soul in ~1 min → photoshoot with you holding the product → 13-card Amazon set → H3 clip → "download your Soul" (.soul.zip), then re-import it and shoot again. |
 | 44 | Demo video | ffmpeg-cut 2-minute recording from real runs (fallback if the live demo fails) |
 | 45 | Comparison page | Higgsfield vs Open Soul Studio: features, price per output (Higgsfield API prices from research), ownership, open weights. Facts sourced. |
-| 46 | Submission pack | Form text, licence check of all deps/models (FLUX.3 Klein licence, H3 commercial note, BiRefNet, SeedVR2), repo topics `open-source-higgsfield` |
+| 46 | Submission pack | Form text, licence check of all deps/models (FLUX.2 Klein 4B licence (Apache-2.0), H3 commercial note, BiRefNet, SeedVR2), repo topics `open-source-higgsfield` |
 | 47 | Final verifier | Fresh clone → setup → run all 4 tools on Cloud and on the self-hosted proxy path (if a GPU is available) → `pnpm eval:identity --check` → sign-off checklist |
 | 48 | Orchestrator/merger | Merges, CI, tags `v1.0.0` |
 
@@ -211,8 +201,7 @@ instrumentation.ts                 boot: resumeRuns()
 phases: Spikes → Specs → Build → Integrate → Ship
 - Spikes: parallel(5) → write docs/spikes/*.md; orchestrator pauses for human go/no-go.
 - Specs: parallel(6) → contracts merged → freeze tag `contracts-v1`.
-- Build: pipeline(teams) — each team's agents run in parallel worktrees; as each team finishes, a verifier agent
-  runs its tests and opens fix tasks (bounded to 2 fix rounds) before merge.
+- Build: skeleton (serial) → parallel(7 slices; sub-agents per slice in worktrees) → per-slice verifier (≤2 fix rounds) → ordered merge A→G
 - Integrate: parallel(8) with reviewers' findings fed back as targeted fix agents.
 - Ship: parallel(5).
 ```

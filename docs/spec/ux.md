@@ -5,7 +5,7 @@ Status: Wave 1 UX spec, text only (`docs/PLAN.md:169`). The Wave 2 frontend team
 ## 0. Conventions and clean-room note
 
 - **Source abbreviations**
-  - `AT` = `<scratchpad>`. This repo has no licence. We read only its two layout notes (`AT/layouts/AGENTS.md`, `AT/components/studio/AGENTS.md`) to learn how Higgsfield's studio behaves. No code, class names, copy or tokens come from it. Where this spec deliberately differs from that layout, it says so (§1.2).
+  - `AT` = the public repo `higgsfield-ai/app-templates` (https://github.com/higgsfield-ai/app-templates). This repo has no licence. We read only its two layout notes (`AT/layouts/AGENTS.md`, `AT/components/studio/AGENTS.md`) to learn how Higgsfield's studio behaves. No code, class names, copy or tokens come from it. Where this spec deliberately differs from that layout, it says so (§1.2).
   - `HS` = `higgsfield-ai/skills (local clone)` (v0.13.0, MIT, `HS/LICENSE:1-3`). Even so, we paraphrase it and do not quote it.
   - `API` = `docs/spec/api.md`, `PS-SPEC` = `docs/spec/photoshoot.md`, `MC-SPEC` = `docs/spec/marketplace.md`, `T` = `lib/types.ts` (a barrel over `lib/contracts/*.ts`; line citations point into those files).
 - **Tags.** **[HF]** marks behaviour observed in a Higgsfield source, with a `path:line`. **[OURS]** marks our own design decision. Untagged text is [OURS].

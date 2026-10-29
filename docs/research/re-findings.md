@@ -1,5 +1,7 @@
 # Reverse-engineering findings: Higgsfield Soul ID, Product Photoshoot, Marketplace Cards (and the platform contract behind them)
 
+> Provenance record, not a runtime contract. The app never calls Higgsfield. This file documents what was studied for the clean-room reimplementation.
+
 > This record follows the reverse-engineering skill's findings template (`assets/findings-template.md`). Every claim carries a coordinate (`path:line`, binary-strings line, or doc block id) and a confidence tag:
 > - **[read in source]**: read in published client source code.
 > - **[read in docs]**: read in README, skill or model docs, or the research doc.
@@ -8,7 +10,7 @@
 >
 > The "Not verified" column says what we did not check. Nothing here was confirmed by calling Higgsfield's API: we hold no Higgsfield account or key (§5).
 
-**Path abbreviations.** `SP` = `<scratchpad>`. Paths under `SP` are scratchpad clones of public repos; re-clone them from the URLs in `docs/RESEARCH.md:13-26`.
+**Path abbreviations.** `SP` = a local clone directory of the public repos listed in `docs/RESEARCH.md` ("Sources to re-clone"); paths under `SP` are relative to those clones.
 
 | Abbrev. | Path |
 |---|---|
@@ -22,7 +24,7 @@
 | `BREW` | `SP/web/hf-gh/homebrew-tap/higgsfield.rb` |
 | `SK` | `higgsfield-ai/skills (local clone)/` (skills v0.13.0, MIT, `LICENSE:1-3`). Upstream 0.14.0 at `SP/web/hf-gh/skills` differs in the Soul ID skill only by its `version:` line |
 | `AT` | `SP/web/hf-gh/app-templates/` (**no licence: read for behaviour only, nothing copied**) |
-| `RD` | Main research doc, (private planning document, not published) (Claude Docs). Cited by block id |
+| `RD` | Main research findings, [`main-findings.md`](main-findings.md) (exported from the private planning doc). Cited by section |
 | `RR` | `docs/research/higgsfield-comfyui-research.md` |
 
 ## 1. Target identification
@@ -33,13 +35,13 @@
 | Public REST host | `https://api.higgsfield.ai` (`PY/http/client.py:58`; `JS/config.ts:26`) | [read in source] |
 | SDKs | Python `higgsfield-client` (UA `higgsfield-client-py/1.0`, `PY/http/client.py:59`); JS `@higgsfield/client` 0.2.6 with a recommended v2 client and a deprecated v1 client (`JSR:319-321`) | [read in source] |
 | CLI artefact analysed | `SP/web/hf-gh/bin/hf`: ELF 64-bit x86-64, statically linked Go, **stripped**. Size 19,857,568 B. sha256 `bbbb7147dfeca64ac0c490169eb8758e8f61dca9f8d4f19072ae416b654796e4`. Extracted from `hf.tgz` (sha256 `0ed594ae42646d494b9eaeec4359211f6cfd653ce4f790aa4ca6a48c1a431529`) | [read in binary strings] (`file`, `sha256sum`) |
-| CLI build | ldflags `main.version=1.2.3`, `main.commit=4cdfcbdbc9972c1092f9d8fcb93a00c3a97de84f`, `main.date=2026-10-22T12:47:35Z`, `config.buildDefaultAPIURL=https://fnf-api-gw.higgsfield.ai/fnf`, `config.buildConfigLocked=true`. Toolchain `go1.27.3`. Module path `github.com/higgsfield-ai/cli-src` (a private repo) (`STR:7069`, `STR:6864`; `RD` block `.15938`) | [read in binary strings] |
+| CLI build | ldflags `main.version=1.2.3`, `main.commit=4cdfcbdbc9972c1092f9d8fcb93a00c3a97de84f`, `main.date=2026-10-22T12:47:35Z`, `config.buildDefaultAPIURL=https://fnf-api-gw.higgsfield.ai/fnf`, `config.buildConfigLocked=true`. Toolchain `go1.27.3`. Module path `github.com/higgsfield-ai/cli-src` (a private repo) (`STR:7069`, `STR:6864`; [`RD` Higgsfield today](main-findings.md#higgsfield-today)) | [read in binary strings] |
 | Distribution | Homebrew formula v1.2.2, licence MIT. Installs `hf` as `higgsfield` with aliases `higgs` and `hf` (`BREW:7-19`). The public `cli` repo holds docs and an installer only, no source (`docs/research/higgsfield-comfyui-repository-research.md:298`) | [read in docs] |
 | Packed / obfuscated / signed | Stripped symbols, not packed. The JS v2 SDK builds its User-Agent at runtime "to avoid exposing it in source" (`JS/v2/client.ts:126-130`) | [read in binary strings], [read in source] |
 
 ## 2. Scope and authorization
 
-- **Context:** interoperability research for a **clean-room behavioural reimplementation** on open weights and ComfyUI: Open Soul Studio, for Comfy's Open Source Higgsfield challenge (`docs/PLAN.md:20-50`).
+- **Context:** interoperability research for a **clean-room behavioural reimplementation** on open weights and ComfyUI: Open Soul Studio, for Comfy's Open Source Higgsfield challenge (`docs/PLAN.md`, Context).
 - **Authorisation basis:** public sources only:
   - MIT skills and CLI docs;
   - Apache-2.0 SDK source;
@@ -47,7 +49,7 @@
   - a read-only look at the unlicensed `app-templates`, for behaviour only.
 
   No Higgsfield account or key was used. No auth or billing was bypassed. No Higgsfield endpoint was called. No decompilation was done beyond `strings`.
-- **Clean-room rule:** nothing is copied from `app-templates` (no licence; `docs/PLAN.md:47-49`). Skill and SDK prose is paraphrased, not copied.
+- **Clean-room rule:** nothing is copied from `app-templates` (no licence; `docs/PLAN.md`, Context). Skill and SDK prose is paraphrased, not copied.
 - **Goal:** state the observable contract (inputs, outputs, states, limits) of the three tools and the platform, so our rebuild matches the *behaviour*, and list what is server-side and unknowable.
 - **Secrets handling:** the binary embeds a Sentry DSN (`STR:7069`). Its value is deliberately **not** reproduced here.
 
@@ -92,7 +94,7 @@
 | F20 | `JS/models/SoulId.ts:6-15`; `SK/higgsfield-soul-id/SKILL.md:51-73`; `CLI:243-259`, `:598` | A Soul object is only `{id, name, status}`. The public surfaces are create, wait, list and get. **No export, download or weights endpoint exists** anywhere in the SDKs, CLI docs or skill | Absence across all three surfaces | [inferred] (from absence) | The private FNF API (F31) could have more routes |
 | F21 | `SK/higgsfield-soul-id/SKILL.md:44`; `SK/higgsfield-soul-id/references/photo-guide.md:7-37` | Intake: 5–20 photos, 8–12 ideal. One clear face, eyes visible. No sunglasses or heavy filters. Varied angles, lighting, expressions and distance. Ideally ≥1024². JPEG or PNG. Avoid group shots, costumes and repeated poses | Skill text | [read in docs] | — |
 | F22 | `SK/higgsfield-soul-id/SKILL.md:46-48`, `:55`; `SK/higgsfield-soul-id/references/troubleshooting.md:9-24`; `SK/higgsfield-soul-id/SKILL.md:32`, `:78` | Variants: `--soul-2` (default, images) or `--soul-cinematic`. CLI wait timeout defaults to 30 min. Failure causes: <5 or too-similar photos, occlusion, group photos, a non-image upload. Needs a paid Basic+ plan | Skill text | [read in docs] | What differs between variants (server-side) |
-| F23 | `RD` blocks `.15557`, `.14772`, `.3036`; `docs/PLAN.md:35`, `:86` | The product page claims 3–5 min training for 25 credits from **20–80** photos. API price is $2.50 per training. An older skills-repo text said about 30 min | Research doc | [read in docs] | The photo count conflicts with F21 (5–20). We follow the skill |
+| F23 | [`RD` Higgsfield today](main-findings.md#higgsfield-today), [`RD` Feature map](main-findings.md#feature-map); `docs/PLAN.md` (pitch) | The product page claims 3–5 min training for 25 credits from **20–80** photos. API price is $2.50 per training. An older skills-repo text said about 30 min | Research doc | [read in docs] | The photo count conflicts with F21 (5–20). We follow the skill |
 | F24 | `SK/higgsfield-soul-id/SKILL.md:60-67`; `MD:295-307`, `:316-328` | Consumption: `--soul-id` (alias `--custom-reference-id`) is sent as `custom_reference_id`. Accepted by `text2image_soul_v2` and `soul_cinematic`, which allow at most **one** extra image reference. `--style_id` combines with `--soul-id` but not with `--image` | Skill and model table | [read in docs] | — |
 | F25 | `SK/higgsfield-generate/SKILL.md:171`, `:214` | Marketing Studio can use a `custom` avatar, and for UGC modes "the backend can create a Soul Character automatically" from the brief | Skill text | [read in docs] | How (server-side) |
 | F26 | `JS/client.ts:191-196`; `SK/higgsfield-soul-id/SKILL.md:67`; `AT/generation/catalog/models/soul.ts:24-43` | Soul styles: `GET /v1/text2image/soul-styles` (v1). The CLI equivalent is `preset list soul-v2`. In app-templates, the Soul generation models map to platform paths `higgsfield-ai/soul/v2/standard` and `higgsfield-ai/soul/cinema`. app-templates has **no Soul-training UI** | Code | [read in source] | — |
@@ -105,10 +107,10 @@
 | F28 | `MD:3-7` | Media flags take a local path (auto-uploaded) or a UUID (upload id or previous job id). Snake- and kebab-case flag spellings are equivalent | MODELS.md preamble | [read in docs] | — |
 | F29 | `STR:6870`, `STR:3824`, `STR:7069` | The CLI talks to **`https://fnf-api-gw.higgsfield.ai/fnf`** (the build-time default, with config locked), **not** to the public `api.higgsfield.ai` used by the SDKs | ldflags string and URL strings | [read in binary strings] | The FNF route set; whether `api.higgsfield.ai` fronts the same backend |
 | F30 | `STR:3828`, `STR:3752`, `STR:3776` | Other hosts in the binary: `dev-fnf-gw.higgsfield.ai`, `dev-fnf.higgsfield.ai`, `fnf.higgsfield.ai` | URL strings | [read in binary strings] | Whether these are reachable or used. **Not probed** |
-| F31 | `STR:3842`, `STR:3834`, `STR:3707`, `STR:3756`, `STR:3627`; `RD` block `.15938` | Login uses **Clerk OAuth** (`clerk.higgsfield.ai/oauth/authorize`, `/oauth/token`) with **PKCE** (`code_challenge`, `code_challenge_method`, `S256`). This contradicts the skills repo, which calls it device flow (`SK/CLAUDE.md:75`) | Strings; research doc | [read in binary strings] | The flow at runtime (not executed) |
+| F31 | `STR:3842`, `STR:3834`, `STR:3707`, `STR:3756`, `STR:3627`; [`RD` Higgsfield today](main-findings.md#higgsfield-today) | Login uses **Clerk OAuth** (`clerk.higgsfield.ai/oauth/authorize`, `/oauth/token`) with **PKCE** (`code_challenge`, `code_challenge_method`, `S256`). This contradicts the skills repo, which calls it device flow (`SK/CLAUDE.md:75`) | Strings; research doc | [read in binary strings] | The flow at runtime (not executed) |
 | F32 | `STR:3717`; `SK/CLAUDE.md:75`; `CLI:660` | Tokens persist to `~/.config/higgsfield/credentials.json`. They are short-lived; `Session expired` means log in again | String plus docs | [read in binary strings], [read in docs] | File format |
 | F33 | `STR:3771`, `STR:3787`, `STR:37508`, `STR:3780`, `STR:3736`, `STR:3902` | Strings `/souls`, `/souls/`, `/jobs/`, `custom_reference_id`, `soul_id`. The FNF API probably has `/souls` and `/jobs` resources, unlike the public `/v1/custom-references` | Strings | [inferred] (from strings) | Methods, bodies |
-| F34 | `STR:3674`, `STR:3763`, `STR:3685`, `STR:3713`; `RD` block `.15938` | The CLI checks for coding-agent environment variables (`CLAUDECODE`, `CLAUDE_CODE`, `CODEX_SHELL`, `CODEX_THREAD_ID`) and reports errors to Sentry | Strings; research doc | [read in binary strings] | What it does with them (likely telemetry tagging; **[inferred]**) |
+| F34 | `STR:3674`, `STR:3763`, `STR:3685`, `STR:3713`; [`RD` Higgsfield today](main-findings.md#higgsfield-today) | The CLI checks for coding-agent environment variables (`CLAUDECODE`, `CLAUDE_CODE`, `CODEX_SHELL`, `CODEX_THREAD_ID`) and reports errors to Sentry | Strings; research doc | [read in binary strings] | What it does with them (likely telemetry tagging; **[inferred]**) |
 | F35 | `SK/CLAUDE.md:77` | `product-photoshoot create` waits internally; generate commands use `--wait` | Skill repo guide | [read in docs] | — |
 
 ### 4d. Visible behaviour of the three tools
