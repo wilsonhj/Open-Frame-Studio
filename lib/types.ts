@@ -95,6 +95,61 @@ export type WorkflowBinding = {
 };
 
 // ---------------------------------------------------------------------------
+// Graph bindings (frozen in Wave 1): logical name -> API-format node + field
+// for the Wave 2 graphs in workflows/<WorkflowName>.api.json.
+// See lib/bindings/<workflow>.ts and lib/bindings/apply.ts.
+// ---------------------------------------------------------------------------
+
+/** Every API-format graph shipped in `workflows/`. */
+export const WORKFLOW_NAMES = [
+  "image_resize_smoke",
+  "klein_edit_multiref",
+  "klein_t2i",
+  "cutout",
+  "upscale",
+  "h3_r2v",
+] as const;
+
+export type WorkflowName = (typeof WORKFLOW_NAMES)[number];
+
+export type GraphValueKind = "image" | "text" | "int" | "float" | "bool";
+
+/** A node field in an API-format graph. */
+export type GraphTarget = { node: string; field: string };
+
+export type GraphInputBinding = GraphTarget & {
+  kind: GraphValueKind;
+  /**
+   * Extra fields that must always hold the same value (e.g. Klein's
+   * `EmptyFlux2LatentImage.width` and `Flux2Scheduler.width`).
+   */
+  mirrors?: readonly GraphTarget[];
+};
+
+export type GraphBinding = {
+  workflow: WorkflowName;
+  inputs: Record<string, GraphInputBinding>;
+  /** Logical output name -> node id of the Save* node that produces it. */
+  outputs: Record<string, string>;
+};
+
+/**
+ * A value for a graph input. Images are an uploaded filename / Comfy asset id
+ * (string), or an opaque SDK asset handle when applied through `setInput`.
+ */
+export type GraphValue = string | number | boolean | object;
+
+// ---------------------------------------------------------------------------
+// Image references inside JSON pipeline requests
+// ---------------------------------------------------------------------------
+
+/**
+ * `upload`: the name of a file part in the same multipart request.
+ * `assetId`: an existing Comfy asset (e.g. `OutputRef.id` of an earlier job).
+ */
+export type ImageRef = { upload: string } | { assetId: string };
+
+// ---------------------------------------------------------------------------
 // Pipelines (multi-step DAGs: soul, photoshoot, cards, motion)
 // ---------------------------------------------------------------------------
 
@@ -103,16 +158,306 @@ export type PipelineKind = "soul" | "photoshoot" | "cards" | "motion";
 /** A reference to an earlier step's output, used to wire steps together. */
 export type StepInputRef = { fromStep: string; outputNode?: string; index?: number };
 
-export type PipelineStep = {
+/**
+ * Per-step status. A superset of JobStatus: `pending` (dependencies not done),
+ * `skipped` (not needed / upstream failed), `timed_out` (our per-step deadline
+ * elapsed; the Comfy job is NOT resubmitted), `needs_input` (a code step lacks
+ * user copy, e.g. a cards tile with no `painPoints`).
+ */
+export type PipelineStepStatus = JobStatus | "pending" | "skipped" | "timed_out" | "needs_input";
+
+export const TERMINAL_STEP_STATUSES: readonly PipelineStepStatus[] = [
+  "succeeded",
+  "failed",
+  "canceled",
+  "expired",
+  "skipped",
+  "timed_out",
+  "needs_input",
+];
+
+type PipelineStepBase = {
   id: string;
-  /** Binding registry key (see lib/bindings). Steps that run in code use `kind: "code"`. */
-  workflow: string;
-  kind: "comfy" | "code";
   dependsOn: readonly string[];
   inputs: Record<string, string | number | boolean | StepInputRef>;
-  status?: JobStatus | "pending" | "skipped";
-  jobId?: string;
+  /**
+   * REQUIRED wall-clock budget for this step (ms). For a comfy step this is
+   * the `pollJob` timeout; on expiry the step becomes `timed_out` and is never
+   * auto-resubmitted.
+   */
+  timeoutMs: number;
+  status?: PipelineStepStatus;
+  /** ISO-8601 timestamps. */
+  startedAt?: string;
+  finishedAt?: string;
+  error?: JobErrorInfo | null;
   outputs?: OutputRef[];
+};
+
+export type ComfyPipelineStep = PipelineStepBase & {
+  kind: "comfy";
+  /** Graph in `workflows/` (its binding lives in lib/bindings/<workflow>.ts). */
+  workflow: WorkflowName;
+  /** Set once submitted; a resumed run polls this id instead of resubmitting. */
+  jobId?: string;
+};
+
+export type CodePipelineStep = PipelineStepBase & {
+  kind: "code";
+  /** Name of an in-process handler (photo QA, crop, compose, render card, ...). */
+  workflow: string;
+  jobId?: undefined;
+};
+
+export type PipelineStep = ComfyPipelineStep | CodePipelineStep;
+
+/** Default per-step budgets (ms). Ours, provisional until Cloud timings exist. */
+export const DEFAULT_STEP_TIMEOUT_MS: Record<WorkflowName, number> = {
+  image_resize_smoke: 60_000,
+  klein_edit_multiref: 180_000,
+  klein_t2i: 120_000,
+  cutout: 120_000,
+  upscale: 300_000,
+  h3_r2v: 900_000,
+};
+
+/** `partial`: finished, but some steps failed / timed out / need input. */
+export type PipelineRunStatus = "pending" | "running" | "succeeded" | "partial" | "failed" | "canceled";
+
+export type PipelineRequestMap = {
+  soul: SoulRequest;
+  photoshoot: PhotoshootRequest;
+  cards: CardsRequest;
+  motion: MotionRequest;
+};
+
+export type PipelineResultMap = {
+  soul: SoulResult;
+  photoshoot: PhotoshootResult;
+  cards: CardsResult;
+  motion: MotionResult;
+};
+
+export type PipelineRun<K extends PipelineKind = PipelineKind> = {
+  id: string;
+  kind: K;
+  status: PipelineRunStatus;
+  /** ISO-8601. */
+  createdAt: string;
+  updatedAt: string;
+  /** Overall budget (ms); defaults to the sum of the critical path's step timeouts. */
+  timeoutMs: number;
+  /** 0..1, derived from finished steps (and Comfy progress of running steps). */
+  progress: number;
+  steps: PipelineStep[];
+  request: PipelineRequestMap[K];
+  /** Present once the run is terminal (possibly partial). */
+  result: PipelineResultMap[K] | null;
+  error: JobErrorInfo | null;
+};
+
+// ---------------------------------------------------------------------------
+// Soul ID (Instant): curated refs + style card, portable as soul.json
+// ---------------------------------------------------------------------------
+
+export const SOUL_SCHEMA = "open-soul-studio/soul@1" as const;
+export const SOUL_MIN_REFS = 3;
+export const SOUL_MAX_REFS = 6;
+
+/** Pixel rectangle in the source photo (top-left origin). */
+export type CropBox = { x: number; y: number; width: number; height: number };
+
+/**
+ * One curated reference. Exactly one of `assetId` (Comfy asset, server-side
+ * Soul registry) or `path` (relative to soul.json, in an exported bundle).
+ */
+export type SoulRef = ({ assetId: string; path?: undefined } | { path: string; assetId?: undefined }) & {
+  crop: CropBox;
+  /** 64-bit perceptual hash, 16 lowercase hex chars; used for near-duplicate rejection. */
+  phash: string;
+  /** Photo-QA score 0..1 (higher is better); refs are stored best-first. */
+  qaScore?: number;
+};
+
+export type StyleTrait = "skinTone" | "hair" | "eyes" | "faceShape" | "ageRange" | "accessories" | "wardrobe";
+
+export type StyleCard = {
+  /** Text block appended to every prompt that uses this Soul (≤ 400 chars). */
+  description: string;
+  traits: Partial<Record<StyleTrait, string>>;
+  /** Features that must never change, e.g. "small mole above the left lip". */
+  keep: readonly string[];
+};
+
+/** The contents of `soul.json`. */
+export type Soul = {
+  schema: typeof SOUL_SCHEMA;
+  id: string;
+  name: string;
+  /** ISO-8601. */
+  createdAt: string;
+  /** SOUL_MIN_REFS..SOUL_MAX_REFS crops, best first. */
+  refs: SoulRef[];
+  styleCard: StyleCard;
+};
+
+export type SoulRequest = {
+  name: string;
+  /** 3–12 candidate photos; QA picks the best 3–6. */
+  photos: ImageRef[];
+  /** Render an identity preview sheet with klein_edit_multiref (default true). */
+  preview?: boolean;
+};
+
+export type PhotoQaReason =
+  | "no_face"
+  | "multiple_faces"
+  | "face_too_small"
+  | "too_small"
+  | "blurry"
+  | "duplicate"
+  | "unsupported_type";
+
+export type SoulResult = {
+  soul: Soul;
+  /** Candidate photos not used, by index into `SoulRequest.photos`. */
+  rejected: { index: number; reason: PhotoQaReason }[];
+  preview: OutputRef | null;
+};
+
+// ---------------------------------------------------------------------------
+// Pipeline requests / results: Photoshoot, Cards, Motion
+// ---------------------------------------------------------------------------
+
+export type PhotoshootRequest = {
+  mode: PhotoshootMode;
+  /** The user's short intent, never the assembled prompt. */
+  prompt: string;
+  /** Product photo(s); the first is the hero. Optional only for text-only `product_shot`. */
+  images: ImageRef[];
+  /** Clamped to the mode's range (with a notice). */
+  count: number;
+  /** Snapped to the whitelist (with a notice); defaults per mode. */
+  aspectRatio?: AspectRatio;
+  soulId?: string;
+  /** Optional moodboard / "like this" reference (at most 1). */
+  styleRef?: ImageRef;
+  /** `fast` skips the SeedVR2 upscale. */
+  quality?: "fast" | "final";
+  /** product_shot only: run the cutout graph on the result. */
+  transparent?: boolean;
+  seed?: number;
+};
+
+export type VariationPick = Record<VariationAxis, string>;
+
+export type PhotoshootItem = {
+  index: number;
+  seed: number;
+  status: PipelineStepStatus;
+  variation: VariationPick;
+  output: OutputRef | null;
+  error: JobErrorInfo | null;
+};
+
+export type PhotoshootResult = {
+  mode: PhotoshootMode;
+  aspectRatio: AspectRatio;
+  count: number;
+  /** One-line user notices (count clamped, aspect snapped, Soul ignored, ...). */
+  notices: string[];
+  items: PhotoshootItem[];
+};
+
+export type CardTileState = "queued" | "running" | "done" | "needs_input" | "failed";
+
+export type CardsRequest = {
+  /** Default `main` when neither scope nor assets is given; `assets` wins over `scope`. */
+  scope?: CardScope;
+  assets?: CardAssetId[];
+  /** Reuse a stored main result instead of regenerating `main_image`. */
+  mainJobId?: string;
+  /** 1–6; the first is the hero. */
+  productImages: ImageRef[];
+  productName?: string;
+  brandName?: string;
+  category?: string;
+  bullets?: string[];
+  ingredients?: { name: string; amount?: string; benefit?: string }[];
+  specs?: { label: string; value: string }[];
+  /** 1–3 `#rrggbb`. */
+  brandColors?: string[];
+  visualStyle?: string;
+  tagline?: string;
+  logo?: ImageRef;
+  boxContents?: { qty: number; name: string; imageIndex?: number }[];
+  painPoints?: { problem: string; solution: string }[];
+  efficacyClaims?: { value: string; label: string }[];
+  efficacySource?: string;
+  howToUse?: string[];
+  endorsement?: { type: "review" | "expert" | "certification"; text: string; by: string; rightsConfirmed: boolean };
+  soulId?: string;
+  /** BCP-47. */
+  language?: string;
+  seed?: number;
+};
+
+export type MainImageCheck = { id: string; ok: boolean; level: "error" | "warn"; value?: number; message?: string };
+
+export type MainImageResult = {
+  jobId: string;
+  compositeUrl: string;
+  /** The anchor every secondary / A+ asset is conditioned on. */
+  cutoutRgbaUrl: string;
+  cutoutBbox: CropBox;
+  checks: MainImageCheck[];
+  ok: boolean;
+};
+
+export type CardTile = {
+  asset: CardAssetId;
+  state: CardTileState;
+  seed: number | null;
+  /** App-relative URL of the rendered card (`/api/...`). */
+  url: string | null;
+  /** Request fields this tile still needs (state `needs_input`). */
+  missing: string[];
+  error: JobErrorInfo | null;
+};
+
+export type CardsResult = {
+  /** Assets in output order (main first). */
+  assets: CardAssetId[];
+  main: MainImageResult | null;
+  tiles: CardTile[];
+  styleBlock: string;
+};
+
+/** Values accepted by `ResolutionSelector.aspect_ratio` in h3_r2v. */
+export type MotionAspect = "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "9:16" | "16:9";
+
+export type MotionRequest = {
+  /** `<Picture 1>`: a Soul's best ref, or an uploaded person photo. One is required. */
+  soulId?: string;
+  personImage?: ImageRef;
+  /** `<Picture 2>`. */
+  productImage: ImageRef;
+  /** User intent; the app adds the `<Picture N>` role tags. */
+  prompt: string;
+  /** Seconds, ~5–15 (snapped to the 17k+5 frame grid at 24 fps). */
+  duration?: number;
+  aspectRatio?: MotionAspect;
+  /** `preview` = 4-step turbo LoRA; `final` = 20 base steps (default). */
+  quality?: "preview" | "final";
+  /** `match` (fast) or `max` (best identity, slower). */
+  refFidelity?: "match" | "max";
+  seed?: number;
+};
+
+export type MotionResult = {
+  video: OutputRef | null;
+  seed: number;
+  frames: number;
 };
 
 // ---------------------------------------------------------------------------
