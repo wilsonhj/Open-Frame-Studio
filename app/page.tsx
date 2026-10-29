@@ -4,7 +4,7 @@ const TOOLS = [
   {
     href: "/soul",
     title: "Soul ID",
-    body: "Turn 5–20 photos into an identity: instant (reference-based) or trained into a LoRA you download and own.",
+    body: "Turn 5–20 photos into an identity: the best reference crops plus a style card, saved as a portable soul.json you own.",
   },
   {
     href: "/photoshoot",
@@ -29,8 +29,8 @@ export default function Home() {
       <section className="space-y-3">
         <h1 className="text-4xl font-semibold tracking-tight">Open Soul Studio</h1>
         <p className="max-w-2xl text-lg text-muted">
-          Open-weights identity and product imagery on ComfyUI. Train a Soul once, reuse it everywhere, and keep
-          the <code>.safetensors</code> file.
+          Open-weights identity and product imagery on ComfyUI. Build a Soul once, reuse it everywhere, and keep
+          the <code>soul.json</code> file.
         </p>
       </section>
       <section className="grid gap-4 sm:grid-cols-2">

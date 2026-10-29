@@ -7,7 +7,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Open Soul Studio",
   description:
-    "Open-weights Soul ID, product photoshoots and marketplace cards on ComfyUI. Your Soul is a .safetensors file you own.",
+    "Open-weights Soul ID, product photoshoots and marketplace cards on ComfyUI. Your Soul is a portable soul.json you own.",
 };
 
 const NAV = [

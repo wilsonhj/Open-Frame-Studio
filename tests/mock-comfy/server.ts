@@ -11,6 +11,8 @@
  *   GET  /api/v2/jobs/:id                  (advances the scenario one step per poll)
  *   POST /__mock/scenario {"scenario": ..., "contentMode"?: ..., "queuedMs"?: n} (control endpoint)
  *   GET  /__mock/health                    (readiness probe for Playwright's webServer)
+ *   GET  /__mock/requests                  (recorded job POSTs + asset upload count, for assertions)
+ *   POST /__mock/reset                     (defaults: succeeded/proxy/20 s; clears recorded requests)
  *
  * Scenarios:
  *   succeeded          queued -> running -> succeeded, one PNG output
@@ -301,6 +303,18 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     }
     if (method === "GET" && path === "/__mock/health") {
       return send(res, 200, { ok: true, scenario: state.scenario, scenarios: SCENARIOS });
+    }
+    if (method === "GET" && path === "/__mock/requests") {
+      return send(res, 200, { assetPosts: state.assetPosts, jobPosts: state.jobPosts });
+    }
+    if (method === "POST" && path === "/__mock/reset") {
+      state.scenario = "succeeded";
+      state.contentMode = "proxy";
+      state.queuedMs = DEFAULT_QUEUED_MS;
+      state.jobPosts.length = 0;
+      state.assetPosts = 0;
+      state.signedFetches.length = 0;
+      return send(res, 200, { scenario: state.scenario, contentMode: state.contentMode, queuedMs: state.queuedMs });
     }
 
     let m: RegExpMatchArray | null;

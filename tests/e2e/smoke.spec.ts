@@ -1,0 +1,58 @@
+/**
+ * Smoke: these must pass today. Landing page renders and links to all four tools, each tool
+ * route renders, and the generic /smoke job runner round-trips a real upload through the mock.
+ */
+import { join } from "node:path";
+
+import { expect, test } from "@playwright/test";
+
+import { mockRequests, resetMock } from "../mock-comfy/control.ts";
+
+const TOOLS = [
+  { href: "/soul", name: /soul/i },
+  { href: "/photoshoot", name: /photoshoot/i },
+  { href: "/cards", name: /marketplace|cards/i },
+  { href: "/motion", name: /motion/i },
+] as const;
+
+test.beforeEach(async () => {
+  await resetMock();
+});
+
+test("landing page renders and links to the 4 tools", async ({ page }) => {
+  const response = await page.goto("/");
+  expect(response?.status()).toBe(200);
+  await expect(page).toHaveTitle(/Open Soul Studio/);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+
+  const main = page.getByRole("main");
+  for (const tool of TOOLS) {
+    const link = main.locator(`a[href="${tool.href}"]`).first();
+    await expect(link, `landing links to ${tool.href}`).toBeVisible();
+    await expect(link).toHaveText(tool.name);
+  }
+});
+
+for (const tool of TOOLS) {
+  test(`landing link navigates to ${tool.href}`, async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("main").locator(`a[href="${tool.href}"]`).first().click();
+    await expect(page).toHaveURL(new RegExp(`${tool.href}$`));
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(tool.name);
+  });
+}
+
+test("/smoke runs image_resize_smoke end to end against the mock", async ({ page }) => {
+  await page.goto("/smoke");
+  await page.locator('input[type="file"]').setInputFiles(join(process.cwd(), "fixtures/products/product-box-checker.png"));
+  await page.getByRole("button", { name: "Run" }).click();
+  await expect(page.getByRole("status")).toHaveText("Done.", { timeout: 30_000 });
+  const output = page.locator("form img").first();
+  await expect(output).toBeVisible();
+  // Re-hosted through our own route, never a signed/mock URL.
+  await expect(output).toHaveAttribute("src", /^\/api\/jobs\/[^/]+\/outputs\/[^/]+$/);
+  // Submitted exactly once (never auto-retried); the input is uploaded at most once (hash dedup may skip it).
+  const seen = await mockRequests();
+  expect(seen.jobPosts).toHaveLength(1);
+  expect(seen.assetPosts).toBeLessThanOrEqual(1);
+});
