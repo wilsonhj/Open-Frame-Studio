@@ -1,0 +1,17 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": { "image": "example.png" },
+    "_meta": { "title": "Input image" }
+  },
+  "2": {
+    "class_type": "ImageScaleBy",
+    "inputs": { "image": ["1", 0], "upscale_method": "lanczos", "scale_by": 0.5 },
+    "_meta": { "title": "Scale" }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": { "images": ["2", 0], "filename_prefix": "open-soul-studio/smoke" },
+    "_meta": { "title": "Save" }
+  }
+}

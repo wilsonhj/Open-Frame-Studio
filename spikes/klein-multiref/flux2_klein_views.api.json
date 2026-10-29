@@ -1,0 +1,301 @@
+{
+  "59": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "flux2",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    }
+  },
+  "54": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_0.png"
+    }
+  },
+  "a4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Create a photograph of the same woman from image 1, keeping her face, curly dark-auburn hair, hazel eyes, the small mole above her lip and gold hoop earrings identical. Three-quarter left profile, head turned to her right, looking off-camera, same charcoal t-shirt, soft daylight, plain light-grey background.",
+      "clip": [
+        "2",
+        0
+      ]
+    }
+  },
+  "a58": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "a4",
+        0
+      ]
+    }
+  },
+  "a17": {
+    "class_type": "ReferenceMultiLatent",
+    "inputs": {
+      "positive": [
+        "a4",
+        0
+      ],
+      "negative": [
+        "a58",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "resolution": "resize",
+      "resolution.megapixels": 1.0,
+      "images.image0": [
+        "54",
+        0
+      ]
+    }
+  },
+  "a44": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": 768,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "a70": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 303
+    }
+  },
+  "a71": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": 768,
+      "height": 1024
+    }
+  },
+  "a72": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "59",
+        0
+      ],
+      "positive": [
+        "a17",
+        0
+      ],
+      "negative": [
+        "a17",
+        1
+      ],
+      "cfg": 1.0
+    }
+  },
+  "a73": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "a7": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "a70",
+        0
+      ],
+      "guider": [
+        "a72",
+        0
+      ],
+      "sampler": [
+        "a73",
+        0
+      ],
+      "sigmas": [
+        "a71",
+        0
+      ],
+      "latent_image": [
+        "a44",
+        0
+      ]
+    }
+  },
+  "a8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "a7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "a9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "a8",
+        0
+      ],
+      "filename_prefix": "view_a"
+    }
+  },
+  "b4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Create a photograph of the same woman from image 1, keeping her face, curly dark-auburn hair, hazel eyes, the small mole above her lip and gold hoop earrings identical. Medium shot from the waist up, laughing naturally, wearing a denim jacket over the charcoal t-shirt, outdoors in a city park with soft bokeh, golden-hour light.",
+      "clip": [
+        "2",
+        0
+      ]
+    }
+  },
+  "b58": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "b4",
+        0
+      ]
+    }
+  },
+  "b17": {
+    "class_type": "ReferenceMultiLatent",
+    "inputs": {
+      "positive": [
+        "b4",
+        0
+      ],
+      "negative": [
+        "b58",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "resolution": "resize",
+      "resolution.megapixels": 1.0,
+      "images.image0": [
+        "54",
+        0
+      ]
+    }
+  },
+  "b44": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": 768,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "b70": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 404
+    }
+  },
+  "b71": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": 768,
+      "height": 1024
+    }
+  },
+  "b72": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "59",
+        0
+      ],
+      "positive": [
+        "b17",
+        0
+      ],
+      "negative": [
+        "b17",
+        1
+      ],
+      "cfg": 1.0
+    }
+  },
+  "b73": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "b7": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "b70",
+        0
+      ],
+      "guider": [
+        "b72",
+        0
+      ],
+      "sampler": [
+        "b73",
+        0
+      ],
+      "sigmas": [
+        "b71",
+        0
+      ],
+      "latent_image": [
+        "b44",
+        0
+      ]
+    }
+  },
+  "b8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "b7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "b9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "b8",
+        0
+      ],
+      "filename_prefix": "view_b"
+    }
+  }
+}

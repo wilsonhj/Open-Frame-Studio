@@ -1,0 +1,153 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "input.png"
+    }
+  },
+  "50": {
+    "class_type": "JoinImageWithAlpha",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "alpha": [
+        "1",
+        1
+      ]
+    }
+  },
+  "57": {
+    "class_type": "ResizeImageMaskNode",
+    "inputs": {
+      "input": [
+        "50",
+        0
+      ],
+      "resize_type": "scale by multiplier",
+      "resize_type.multiplier": 2.0,
+      "scale_method": "lanczos"
+    }
+  },
+  "58": {
+    "class_type": "SeedVR2Preprocess",
+    "inputs": {
+      "resized_images": [
+        "57",
+        0
+      ]
+    }
+  },
+  "51": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "seedvr2_ema_vae_fp16.safetensors"
+    }
+  },
+  "52": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "seedvr2_7b_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "48": {
+    "class_type": "VAEEncodeTiled",
+    "inputs": {
+      "pixels": [
+        "58",
+        0
+      ],
+      "vae": [
+        "51",
+        0
+      ],
+      "tile_size": 512,
+      "overlap": 128,
+      "temporal_size": 4096,
+      "temporal_overlap": 8
+    }
+  },
+  "61": {
+    "class_type": "SeedVR2Conditioning",
+    "inputs": {
+      "model": [
+        "52",
+        0
+      ],
+      "vae_conditioning": [
+        "48",
+        0
+      ]
+    }
+  },
+  "54": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "52",
+        0
+      ],
+      "positive": [
+        "61",
+        0
+      ],
+      "negative": [
+        "61",
+        1
+      ],
+      "latent_image": [
+        "48",
+        0
+      ],
+      "seed": 959948902156062,
+      "steps": 1,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0
+    }
+  },
+  "55": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "samples": [
+        "54",
+        0
+      ],
+      "vae": [
+        "51",
+        0
+      ],
+      "tile_size": 512,
+      "overlap": 128,
+      "temporal_size": 4096,
+      "temporal_overlap": 8
+    }
+  },
+  "59": {
+    "class_type": "SeedVR2PostProcessing",
+    "inputs": {
+      "images": [
+        "55",
+        0
+      ],
+      "original_resized_images": [
+        "57",
+        0
+      ],
+      "color_correction_method": "wavelet"
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "59",
+        0
+      ],
+      "filename_prefix": "oss_upscale"
+    }
+  }
+}
