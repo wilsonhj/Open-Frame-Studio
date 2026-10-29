@@ -1,3 +1,17 @@
+# Update after Wave 0 (Oct 29, 19:40 UTC)
+
+Wave 0 findings are in `docs/spikes/`. They change the plan below as follows:
+
+- **Account:** the Comfy Cloud key was on a free tier, which refuses job submission (403). The user is moving to a paid key; a new session is needed to load it.
+- **Model:** FLUX.3 Klein is not deployed on Comfy Cloud. **FLUX.2 Klein 4B distilled** (Apache-2.0, on Cloud) is the default everywhere; FLUX.3 stays behind a flag.
+- **Soul ID is Instant only.** Comfy Cloud has no `SaveLoRA` node, so a trained LoRA can't be downloaded. A Soul is the curated reference set (3–6 best crops after photo QA) plus a style card, saved as a portable `soul.json` with images. The trained-LoRA path and the `soul_train` graph agent are dropped; `spikes/lora-training/` stays as research.
+- **H3:** use `minimax_h3_video_vae_fp16` (the int8 VAE is not on Cloud). Turbo weakens reference fidelity, so use 20–25 steps for hero clips.
+- **Upscale:** SeedVR2 3B with `wavelet` colour correction (`lab` streaks flat colour).
+- **Starting graphs for Wave 2:** `spikes/klein-multiref/flux2_klein_edit_multiref.api.json`, `spikes/h3-r2v/h3_r2v.api.json`, `spikes/cutout-upscale/{cutout,upscale}.api.json`.
+- **Schedule:** Wave 1 (specs, no Cloud) now; Cloud spike re-run once the paid key works; Wave 2 from ~21:30 UTC; submit by 12:00 UTC Oct 30.
+
+---
+
 # Open Soul Studio — open-weights clone of Higgsfield Soul ID + Product Photoshoot + Marketplace Cards
 
 ## Context
