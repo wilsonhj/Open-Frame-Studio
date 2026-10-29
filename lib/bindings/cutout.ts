@@ -9,7 +9,7 @@ import type { GraphBinding } from "../types.ts";
 export const cutout = {
   workflow: "cutout",
   inputs: {
-    image: { node: "17", field: "image", kind: "image" },
+    image: { node: "17", field: "image", kind: "image", required: true },
   },
   outputs: { cutout: "18", mask: "21" },
 } as const satisfies GraphBinding;

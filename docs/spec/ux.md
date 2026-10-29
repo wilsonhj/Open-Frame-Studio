@@ -7,7 +7,7 @@ Status: Wave 1 UX spec, text only (`docs/PLAN.md:169`). The Wave 2 frontend team
 - **Source abbreviations**
   - `AT` = `<scratchpad>`. This repo has no licence. We read only its two layout notes (`AT/layouts/AGENTS.md`, `AT/components/studio/AGENTS.md`) to learn how Higgsfield's studio behaves. No code, class names, copy or tokens come from it. Where this spec deliberately differs from that layout, it says so (§1.2).
   - `HS` = `higgsfield-ai/skills (local clone)` (v0.13.0, MIT, `HS/LICENSE:1-3`). Even so, we paraphrase it and do not quote it.
-  - `API` = `docs/spec/api.md`, `PS-SPEC` = `docs/spec/photoshoot.md`, `MC-SPEC` = `docs/spec/marketplace.md`, `T` = `lib/types.ts`.
+  - `API` = `docs/spec/api.md`, `PS-SPEC` = `docs/spec/photoshoot.md`, `MC-SPEC` = `docs/spec/marketplace.md`, `T` = `lib/types.ts` (a barrel over `lib/contracts/*.ts`; line citations point into those files).
 - **Tags.** **[HF]** marks behaviour observed in a Higgsfield source, with a `path:line`. **[OURS]** marks our own design decision. Untagged text is [OURS].
 - **Wireframes** are low-fi ASCII. They show structure and priority, not pixels. `[ ]` is a button, `( )` a chip, `▢` an image slot, `▶` a video and `…` truncation.
 
@@ -181,7 +181,7 @@ Soul creation is a three-step wizard inside the Slate, and the Sheet shows the p
 
 - **Inputs**:
   - Name: one short word, required. Higgsfield asks for a single-word name too [HF] (`HS/higgsfield-soul-id/SKILL.md:43`).
-  - Photos: 3–12 candidates (`T:306`). We recommend 6–10. Higgsfield's trained Soul asks for 5–20 with 8–12 ideal [HF] (`HS/higgsfield-soul-id/references/photo-guide.md:7-8`). Our Instant Soul keeps only the best 3–6 (`T:264-265`), so we need fewer.
+  - Photos: 3–12 candidates (`lib/contracts/soul.ts:59`). We recommend 6–10. Higgsfield's trained Soul asks for 5–20 with 8–12 ideal [HF] (`HS/higgsfield-soul-id/references/photo-guide.md:7-8`). Our Instant Soul keeps only the best 3–6 (`lib/contracts/soul.ts:12-13`), so we need fewer.
   - Accepted files: PNG, JPEG or WebP, ≤ 20 MB each (`API:23`). Drop, browse, paste (`⌘V`) or a phone camera on mobile.
 - **Live photo checks.** These run in the browser on drop, before upload, and again on the server in the photo QA step (`API:127`). Each photo tile gets a badge:
   - `✓` usable;
@@ -239,8 +239,8 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 │ [Export soul.json]  [Shoot with Maya →]                    │
 ```
 
-- **Preview sheet**: one Klein multi-ref render showing the Soul in a few neutral framings. It is optional (`SoulRequest.preview`, `T:308-309`). Under it: "This is how Maya looks to the models. If it drifts, swap a ref."
-- **Style card editor** (`T:284-290`):
+- **Preview sheet**: one Klein multi-ref render showing the Soul in a few neutral framings. It is optional (`SoulRequest.preview`, `lib/contracts/soul.ts:61-62`). Under it: "This is how Maya looks to the models. If it drifts, swap a ref."
+- **Style card editor** (`lib/contracts/soul.ts:37-43`):
   - `description`: ≤ 400 characters, with a live counter;
   - a trait field per `StyleTrait` (skin tone, hair, eyes, face shape, age range, accessories, wardrobe), all optional;
   - `keep`: chips for features that must never change.
@@ -372,18 +372,18 @@ The Sheet is a fixed board. The order and the slots always follow the scope tabl
 
 ### 6.3 Tile behaviours
 
-- Tile states follow `CardTile.state`: `queued | running | done | needs_input | failed` (`API:169`).
+- Tile states follow `CardTile.state`: `queued | running | succeeded | needs_input | failed` (`CardTileState`, `lib/contracts/marketplace.ts:15`; `API:213`).
 - **Main tile**: always rendered first and twice the size of the others. Under it is the **compliance checklist** (`MC-SPEC:144-178`): white border ≥ 99%, product fill, no text, size ≥ 2000 px. Each check is a ✓ or ✕ with its value. If the main image fails compliance, the run fails before fan-out (`API:118`). The main tile then shows the failing check and two actions: `[Re-cut]` (new cutout job) and `[Use another photo]`. The other tiles stay ghosted with "Waiting for a passing main image".
 - **needs_input**: the tile shows `✎` and the missing fields ("Needs: efficacy source"). Clicking it focuses those fields in the Slate. Once they are filled, the tile offers `[Make this card]`.
 - **Per-tile regenerate**: in the hover rail. It keeps the anchor and the style block and changes only the seed (`API:171`). Copy: "Regenerate: 1 new job, same look".
 - **Text-only edits**: tiles whose copy is rendered in code (infographic, features, efficacy, endorsement) re-render instantly after a copy edit, with no GPU job. These tiles carry an "edit text" pencil, and the UI says "Text edits are free: no new image job".
-- **Export ZIP**: exports the `done` tiles plus `cards.json` (`API:172`). When some tiles are not done, it asks: "Export 11 of 13? 2 still need copy."
+- **Export ZIP**: exports the `succeeded` tiles plus `cards.json` (`API:216`). When some tiles are not done, it asks: "Export 11 of 13? 2 still need copy."
 
 ---
 
 ## 7. Progress, failure and retry states (shared by every tool)
 
-Every frame tile and every pipeline-step row renders the same state machine. The source states are `JobStatus` and `PipelineStepStatus` (`T:19-27`, `API:113`).
+Every frame tile and every pipeline-step row renders the same state machine. The source states are `JobStatus` and `PipelineStepStatus` (`lib/contracts/job.ts:16-23`, `lib/contracts/pipeline.ts:27`, `API:113`).
 
 | Source status | Tile visual | Primary copy | Secondary copy / action |
 |---|---|---|---|

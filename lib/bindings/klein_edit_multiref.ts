@@ -16,7 +16,7 @@ import type { GraphBinding } from "../types.ts";
 export const kleinEditMultiref = {
   workflow: "klein_edit_multiref",
   inputs: {
-    image_1: { node: "54", field: "image", kind: "image" },
+    image_1: { node: "54", field: "image", kind: "image", required: true },
     image_2: { node: "60", field: "image", kind: "image" },
     image_3: { node: "61", field: "image", kind: "image" },
     image_4: { node: "62", field: "image", kind: "image" },

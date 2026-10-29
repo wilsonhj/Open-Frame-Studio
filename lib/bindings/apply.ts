@@ -2,7 +2,7 @@
  * Pure helpers that apply logical input values to an API-format graph via a
  * GraphBinding. No I/O and no SDK dependency, so it runs under `node --test`.
  */
-import type { GraphBinding, GraphInputBinding, GraphTarget, GraphValue } from "../types.ts";
+import type { GraphBinding, GraphInputBinding, GraphTarget, GraphValue, GraphValueKind } from "../types.ts";
 
 export class BindingError extends Error {
   readonly input: string | null;
@@ -39,8 +39,9 @@ export function resolveAssignments(binding: GraphBinding, values: BindingValues)
 
 /**
  * Return a new graph (structuredClone) with `values` applied. Throws
- * BindingError for an unknown logical name, a wrong value kind, or a binding
- * whose node/field is missing from the graph or is a link (binding drift).
+ * BindingError for an unknown logical name, a wrong value kind, a value outside
+ * the input's `min`/`max`/`choices`, or a binding whose node/field is missing
+ * from the graph or is a link (binding drift).
  */
 export function applyBindings<G extends ApiGraph>(graph: G, binding: GraphBinding, values: BindingValues): G {
   const assignments = resolveAssignments(binding, values);
@@ -79,26 +80,36 @@ export function checkBinding(graph: ApiGraph, binding: GraphBinding): string[] {
 }
 
 function checkKind(name: string, spec: GraphInputBinding, value: GraphValue): void {
-  const ok = (() => {
-    switch (spec.kind) {
-      case "image":
-        return (typeof value === "string" && value.trim() !== "") || (typeof value === "object" && value !== null);
-      case "text":
-        return typeof value === "string";
-      case "int":
-        return typeof value === "number" && Number.isSafeInteger(value);
-      case "float":
-        return typeof value === "number" && Number.isFinite(value);
-      case "bool":
-        return typeof value === "boolean";
-      default:
-        return false;
-    }
-  })();
-  if (!ok) throw new BindingError(`Input "${name}" must be ${KIND_LABEL[spec.kind]}.`, name);
+  if (!isKind(spec.kind, value)) throw new BindingError(`Input "${name}" must be ${KIND_LABEL[spec.kind]}.`, name);
+  if (typeof value === "number") {
+    if (spec.min !== undefined && value < spec.min) throw new BindingError(`Input "${name}" must be ≥ ${spec.min}.`, name);
+    if (spec.max !== undefined && value > spec.max) throw new BindingError(`Input "${name}" must be ≤ ${spec.max}.`, name);
+  }
+  if (spec.choices && (typeof value !== "string" || !spec.choices.includes(value))) {
+    throw new BindingError(`Input "${name}" must be one of ${spec.choices.join(", ")}.`, name);
+  }
 }
 
-const KIND_LABEL: Record<GraphInputBinding["kind"], string> = {
+function isKind(kind: GraphValueKind, value: GraphValue): boolean {
+  switch (kind) {
+    case "image":
+      return (typeof value === "string" && value.trim() !== "") || (typeof value === "object" && value !== null);
+    case "text":
+      return typeof value === "string";
+    case "int":
+      return typeof value === "number" && Number.isSafeInteger(value);
+    case "float":
+      return typeof value === "number" && Number.isFinite(value);
+    case "bool":
+      return typeof value === "boolean";
+    default: {
+      const unknown: never = kind;
+      throw new Error(`Unhandled graph value kind: ${String(unknown)}`);
+    }
+  }
+}
+
+const KIND_LABEL: Record<GraphValueKind, string> = {
   image: "an image filename, asset id or asset handle",
   text: "a string",
   int: "an integer",

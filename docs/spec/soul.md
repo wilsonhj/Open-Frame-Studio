@@ -6,7 +6,7 @@ Status: Wave 1 behavioural spec. It covers photo intake, automated photo QA, ref
 
 - **`HF`** marks a fact from a Higgsfield source. Each one cites `path:line`.
 - **`ours`** marks a decision we make because Higgsfield's behaviour is server-side or doesn't apply to an untrained Soul.
-- **`contract`** marks something already in `lib/types.ts`, which another Wave 1 agent owns. **`proposed`** marks a field or value this spec needs that the contract doesn't have yet (listed in §10).
+- **`contract`** marks something already in `lib/contracts/*.ts` (barrel `lib/types.ts`), which another Wave 1 agent owns. **`proposed`** marks a field or value this spec needs that the contract doesn't have yet (listed in §10).
 - Source abbreviations:
   - `SID` = `higgsfield-ai/skills (local clone)/higgsfield-soul-id/SKILL.md` (v0.13.0). Upstream 0.14.0 differs only in the `version:` line (checked with `diff -r`), so these line numbers also hold for `.../scratchpad/web/hf-gh/skills/higgsfield-soul-id/`.
   - `PG` = `higgsfield-ai/skills (local clone)/higgsfield-soul-id/references/photo-guide.md`
@@ -84,7 +84,7 @@ Each rule maps to an automated check (§4) with one of three outcomes:
 - **Fewer than 3 photos pass QA:** the Soul cannot be created (`contract`: `SOUL_MIN_REFS = 3`). The UI lists each rejection reason and asks for more photos. This mirrors HF's "swap in better photos and retry" (`TS:16`).
 - **3–4 photos pass:** allowed, with an advisory: "Higgsfield asks for at least 5. More variety gives better likeness."
 - **No pose variety** (every photo in one pose bucket, Q9): advisory to add 3/4 views.
-- **Contract mismatch:** `SoulRequest.photos` is documented as "3–12 candidate photos" (`lib/types.ts:359`). HF allows up to 20. We propose raising the documented cap to 20 (§10).
+- **Contract mismatch:** `SoulRequest.photos` is documented as "3–12 candidate photos" (`lib/contracts/soul.ts:59`). HF allows up to 20. We propose raising the documented cap to 20 (§10).
 
 ## 4. Automated photo QA (runs without a GPU)
 
@@ -344,9 +344,9 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
 | Comfy submit 403 (free-tier key) | "Your Comfy Cloud plan doesn't allow API jobs; QA and saving still work, preview needs a paid key" | `Minimum Basic plan required` (`SID:78`) |
 | Preview job failed or timed out | The Soul is still saved, marked "no preview"; offer a retry. Never auto-resubmit (`docs/PLAN.md` Known traps) | — |
 
-## 10. Contract changes proposed (for the `lib/types.ts` owner)
+## 10. Contract changes proposed (for the `lib/contracts/*.ts` owner)
 
-1. `SoulRef.sha256: string` (done: required in `lib/types.ts`) and `SoulRef.pose?: "front" | "three_quarter_left" | "three_quarter_right" | "profile"`.
+1. `SoulRef.sha256: string` (done: required in `lib/contracts/soul.ts`) and `SoulRef.pose?: "front" | "three_quarter_left" | "three_quarter_right" | "profile"`.
 2. `Soul.preferredAspect?: AspectRatio` and `Soul.generator?: { model: string; workflow: string; app: string }`.
 3. `SoulRequest.photos` doc comment: change "3–12" to "up to 20 (HF: 5–20, 8–12 ideal)".
 4. `SoulRequest.consent: true` (required literal), so the API refuses requests without it.

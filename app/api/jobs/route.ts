@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 
+import type { Comfy } from "@comfyorg/sdk";
+
+import { applyBindings } from "../../../lib/bindings/apply.ts";
 import { getBinding } from "../../../lib/bindings/index.ts";
 import {
   ComfyNotConfiguredError,
   SubmitAmbiguousError,
   SubmitRejectedError,
   createClient,
-  loadWorkflow,
+  loadGraph,
   submitOnce,
 } from "../../../lib/comfy.ts";
-import { InputError, applyInputs, resolveInputs } from "../../../lib/inputs.ts";
+import { InputError, parseInputs } from "../../../lib/inputs.ts";
 
 export const runtime = "nodejs";
 
@@ -31,28 +34,26 @@ export async function POST(request: Request) {
   const binding = typeof name === "string" ? getBinding(name) : undefined;
   if (!binding) return NextResponse.json({ error: "Unknown workflow." }, { status: 400 });
 
-  let values;
+  // Created on first use, after every field has validated, so a bad form is a
+  // 400 even when Comfy is not configured.
+  let client: Comfy | undefined;
   try {
-    values = resolveInputs(binding, form);
+    const values = await parseInputs(binding, form, async (file) => {
+      client ??= createClient();
+      return client.assets.fromBytes(new Uint8Array(await file.arrayBuffer()), {
+        filename: file.name || "upload.png",
+        contentType: file.type,
+      });
+    });
+    client ??= createClient();
+    const graph = applyBindings(await loadGraph(binding.workflow), binding, values);
+    const workflow = client.workflows.fromJson(graph);
+    const job = await submitOnce(client, workflow, { idempotencyKey: crypto.randomUUID() });
+    return NextResponse.json(job, { status: 202 });
   } catch (error) {
     if (error instanceof InputError) {
       return NextResponse.json({ error: error.message, field: error.field }, { status: 400 });
     }
-    throw error;
-  }
-
-  try {
-    const client = createClient();
-    const workflow = await loadWorkflow(client, binding.workflow);
-    await applyInputs(workflow, binding, values, async (file) =>
-      client.assets.fromBytes(new Uint8Array(await file.arrayBuffer()), {
-        filename: file.name || "upload.png",
-        contentType: file.type,
-      }),
-    );
-    const job = await submitOnce(client, workflow, { idempotencyKey: crypto.randomUUID() });
-    return NextResponse.json(job, { status: 202 });
-  } catch (error) {
     if (error instanceof ComfyNotConfiguredError) {
       return NextResponse.json({ error: error.message }, { status: 503 });
     }

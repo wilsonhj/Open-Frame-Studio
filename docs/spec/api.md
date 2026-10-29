@@ -1,7 +1,7 @@
 # Spec: Open Soul Studio HTTP API
 
-Status: Wave 1 contract, frozen with `lib/types.ts` and `lib/bindings/*.ts` (`docs/PLAN.md:144`).
-The TypeScript types in `lib/types.ts` are the source of truth; this page names them and adds the HTTP behaviour.
+Status: Wave 1 contract, frozen with `lib/contracts/*.ts` (barrel: `lib/types.ts`) and `lib/bindings/*.ts` (`docs/PLAN.md:144`).
+The TypeScript types in `lib/contracts/*.ts` (re-exported by `lib/types.ts`) are the source of truth; this page names them and adds the HTTP behaviour.
 Every route is a Next.js route handler with `runtime = "nodejs"`. The Comfy API key stays on the server: the browser never sees `COMFY_API_KEY`, a Comfy URL, or a signed URL (`lib/comfy.ts:1-20`).
 
 ## Conventions
@@ -11,18 +11,18 @@ Every route is a Next.js route handler with `runtime = "nodejs"`. The Comfy API 
 
   | Code | Meaning | Source |
   |---|---|---|
-  | 400 | Bad input: wrong content type, unknown workflow/mode/asset, or an `InputError` / `BindingError` naming `field` | `app/api/jobs/route.ts:25,30,37` |
-  | 402 | Comfy rejected the submit for credits or plan | `app/api/jobs/route.ts:60` |
+  | 400 | Bad input: wrong content type, unknown workflow/mode/asset, or an `InputError` / `BindingError` naming `field` | `app/api/jobs/route.ts:30,35,55` |
+  | 402 | Comfy rejected the submit for credits or plan | `app/api/jobs/route.ts:70` |
   | 404 | Unknown run, output or file | `app/api/jobs/[id]/outputs/[outputId]/route.ts:24-26` |
   | 422 | Comfy rejected the submit (invalid graph, `idempotency_key_reuse`, ...) | `app/api/jobs/route.ts` |
   | 502 | Upstream or transport failure; for a submit, the outcome is unknown (`SubmitAmbiguousError`: a job may exist) | `app/api/jobs/route.ts` |
-  | 503 | `COMFY_API_KEY` is not configured | `app/api/jobs/route.ts:54-55` |
+  | 503 | `COMFY_API_KEY` is not configured | `app/api/jobs/route.ts:57-58` |
 - **No auto-resubmit.** A submit is never retried under a new idempotency key (`lib/comfy.ts`, `docs/PLAN.md` Known traps). After an ambiguous failure, a pipeline may re-send once more under the *same* key (§2.0). A retry or regenerate is always an explicit user action that mints a new key and creates a new job with a new seed.
-- **Every wait has a timeout.** Each pipeline step carries a required `timeoutMs` (`PipelineStep`, `lib/types.ts:179-250`). When it runs out, the step becomes `timed_out` and its Comfy job is left alone (`docs/PLAN.md:134`).
-- **Images in JSON** use `ImageRef` (`lib/types.ts:150`):
-  - `{ "upload": "<part name>" }` refers to a file part in the same multipart request. Each file must be PNG, JPEG or WebP and ≤ 20 MB (`lib/inputs.ts:7-8`).
+- **Every wait has a timeout.** Each pipeline step carries a required `timeoutMs` (`PipelineStep`, `lib/contracts/pipeline.ts:39-110`). When it runs out, the step becomes `timed_out` and its Comfy job is left alone (`docs/PLAN.md:134`).
+- **Images in JSON** use `ImageRef` (`lib/contracts/job.ts:72`):
+  - `{ "upload": "<part name>" }` refers to a file part in the same multipart request. Each file must be PNG, JPEG or WebP and ≤ 20 MB (`lib/inputs.ts:10-11`).
   - `{ "assetId": "<id>" }` refers to an existing Comfy asset, for example `OutputRef.id` from an earlier job. This is how steps and runs chain.
-- **Outputs** are `OutputRef` objects (`lib/types.ts:38-50`). Their `url` is app-relative: `/api/jobs/{jobId}/outputs/{outputId}`. Files rendered by code steps, such as composed cards, are served under `/api/pipelines/{kind}/{runId}/files/{name}`.
+- **Outputs** are `OutputRef` objects (`lib/contracts/job.ts:35-47`). Their `url` is app-relative: `/api/jobs/{jobId}/outputs/{outputId}`. Files rendered by code steps, such as composed cards, are served under `/api/pipelines/{kind}/{runId}/files/{name}`.
 - **Polling.** Clients poll a `GET` route, starting at about 1 s and backing off to 5 s. There is no SSE (`docs/PLAN.md:137`).
 
 ---
@@ -33,12 +33,12 @@ These routes run one registered graph. Wave 2 pipelines use the same job and out
 
 ### `POST /api/jobs`
 
-Source: `app/api/jobs/route.ts:14-68`.
+Source: `app/api/jobs/route.ts:19-78`.
 
 - **Request:** `multipart/form-data` with:
-  - `workflow`: a key of the `/api/jobs` registry (`lib/bindings/index.ts`; today only `image_resize_smoke`);
-  - one field per bound input, validated by `resolveInputs` (`lib/inputs.ts:27-35`). Images are file parts. Numbers, booleans and choices are text.
-- **Response:** `202` with a `Job` (`lib/types.ts:52-65`):
+  - `workflow`: a `WorkflowName` key of the `BINDINGS` registry (`lib/bindings/index.ts`; the same `GraphBinding`s as §3);
+  - one field per bound input. `parseInputs` (`lib/inputs.ts:34`) validates each one by its `kind` (plus `required` / `min` / `max` / `choices`) into `BindingValues`, turning image file parts into SDK asset handles; `applyBindings` (§3) then sets them on the graph. Numbers, booleans and text are text fields. An absent optional field keeps the graph's own value.
+- **Response:** `202` with a `Job` (`lib/contracts/job.ts:49-62`):
 
   ```json
   { "id": "…", "status": "queued", "terminal": false, "progress": null,
@@ -71,7 +71,7 @@ Source: `app/api/jobs/[id]/outputs/[outputId]/route.ts:10-32`.
 
 ## 2. Pipelines (planned, Wave 2)
 
-A pipeline is a small DAG of `PipelineStep`s (`lib/types.ts:167-250`):
+A pipeline is a small DAG of `PipelineStep`s (`lib/contracts/pipeline.ts:27-110`):
 
 - **`comfy` steps** run one graph from `workflows/<WorkflowName>.api.json`. Their inputs go through `applyBindings` (`lib/bindings/apply.ts`), with the binding in `lib/bindings/<workflow>.ts`.
 - **`code` steps** run in process: photo QA, crop, prompt building, compose, compliance checks and card rendering.
@@ -95,7 +95,7 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 
 **Validation** happens before any submit. It returns `400 {error, field}`, where `field` is a JSON path such as `bullets[2]` or `images[0]`. An unknown mode or asset id returns `400`, and the error lists the valid ids.
 
-**`PipelineRun<K>`** (`lib/types.ts:279-305`):
+**`PipelineRun<K>`** (`lib/contracts/pipeline.ts:139-165`):
 
 ```ts
 {
@@ -121,7 +121,7 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 
 ### 2.0 Durable run state and restart
 
-**Store.** One JSON document per run at `${DATA_DIR:-.data}/runs/<runId>.json`, with `schema: "open-soul-studio/run@1"` (`RUN_SCHEMA`, `lib/types.ts`). Files written by code steps live under `.data/runs/<runId>/files/`; the Soul registry lives in `.data/souls/<id>/`. `.data/` is gitignored.
+**Store.** One JSON document per run at `${DATA_DIR:-.data}/runs/<runId>.json`, with `schema: "open-soul-studio/run@1"` (`RUN_SCHEMA`, `lib/contracts/pipeline.ts`). Files written by code steps live under `.data/runs/<runId>/files/`; the Soul registry lives in `.data/souls/<id>/`. `.data/` is gitignored.
 - A single process owns the store. All writes go through `lib/store.ts` (Wave 2), with a per-run write queue and temp-write + `fsync` + `rename`, so a crash leaves either the old or the new document, never a torn one.
 - Every state transition is one awaited write. Nothing that matters for restart lives only in memory.
 - `GET /api/pipelines/{kind}/{runId}` reads the store; it returns `404` if the document is absent.
@@ -161,17 +161,17 @@ A restarted runner therefore never re-plans: it only executes the persisted step
 
 **Storage choice.** A JSON document per run, not `better-sqlite3`, to avoid a native build under pnpm 10. `node:sqlite` is the upgrade path if runs outgrow files.
 
-Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/types.ts`). `deadlineAt` survives a restart, so a restart never extends a step's budget.
+Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/contracts/pipeline.ts`). `deadlineAt` survives a restart, so a restart never extends a step's budget.
 
 ### 2.1 `POST /api/pipelines/soul`
 
 | | |
 |---|---|
-| Request | `SoulRequest` (`lib/types.ts:357-363`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
+| Request | `SoulRequest` (`lib/contracts/soul.ts:57-63`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
 | Steps | photo QA (code) → `cutout` per kept photo → crop + pHash dedupe (code) → choose the best 3–6 → `klein_edit_multiref` preview sheet (optional) → write `soul.json` (code) |
-| Result | `SoulResult` (`lib/types.ts:374-379`): `{ soul: Soul, rejected: [{index, reason}], preview: OutputRef \| null }` |
+| Result | `SoulResult` (`lib/contracts/soul.ts:74-79`): `{ soul: Soul, rejected: [{index, reason}], preview: OutputRef \| null }` |
 
-`Soul` (`lib/types.ts:346-355`) is the exact contents of `soul.json`:
+`Soul` (`lib/contracts/soul.ts:46-55`) is the exact contents of `soul.json`:
 
 ```json
 { "schema": "open-soul-studio/soul@1", "id": "…", "name": "Maya", "createdAt": "…",
@@ -193,9 +193,9 @@ Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/types.ts`). `deadlin
 
 | | |
 |---|---|
-| Request | `PhotoshootRequest` (`lib/types.ts:385-403`): `{ mode, prompt, images: ImageRef[], count, aspectRatio?, soulId?, styleRef?, quality?: "fast"\|"final", transparent?, seed? }` |
+| Request | `PhotoshootRequest` (`lib/contracts/photoshoot.ts:12-30`): `{ mode, prompt, images: ImageRef[], count, aspectRatio?, soulId?, styleRef?, quality?: "fast"\|"final", transparent?, seed? }` |
 | Steps | `cutout` of the product (cached by content hash) → prompt builder (code) → N × `klein_edit_multiref` (or `klein_t2i` for text-only `product_shot`) → optional N × `upscale` (`final`) → optional `cutout` (`transparent`) |
-| Result | `PhotoshootResult` (`lib/types.ts:416-423`): `{ mode, aspectRatio, count, notices[], items: [{ index, seed, status, variation: {preset, lighting, angle, palette}, output, error }] }` |
+| Result | `PhotoshootResult` (`lib/contracts/photoshoot.ts:43-50`): `{ mode, aspectRatio, count, notices[], items: [{ index, seed, status, variation: {preset, lighting, angle, palette}, output, error }] }` |
 
 - **Field names.** The request fields follow Higgsfield's `{mode, prompt, images[], count, aspect_ratio}` (`docs/spec/photoshoot.md:314`), written in camelCase (`aspectRatio`).
 - **Prompt.** `prompt` is the user's short intent, never the assembled prompt.
@@ -206,22 +206,22 @@ Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/types.ts`). `deadlin
 
 | | |
 |---|---|
-| Request | `CardsRequest` (`lib/types.ts:427-456`): `scope?` or `assets?: CardAssetId[]` (assets win; default `main`), `mainJobId?`, `productImages: ImageRef[1..6]`, plus the copy fields from `docs/spec/marketplace.md:197-220` (`productName`, `bullets`, `painPoints`, `efficacyClaims` + `efficacySource`, `howToUse`, `endorsement`, …) |
+| Request | `CardsRequest` (`lib/contracts/marketplace.ts:17-46`): `scope?` or `assets?: CardAssetId[]` (assets win; default `main`), `mainJobId?`, `productImages: ImageRef[1..6]`, plus the copy fields from `docs/spec/marketplace.md:197-220` (`productName`, `bullets`, `painPoints`, `efficacyClaims` + `efficacySource`, `howToUse`, `endorsement`, …) |
 | Steps | main: `cutout` → trim (code) → `upscale` if needed → compose + compliance checks (code). Then the fan-out, in parallel, per asset: `klein_edit_multiref` (anchor cutout → `image_1`, node 54) or `klein_t2i` → render the card (code). |
-| Result | `CardsResult` (`lib/types.ts:481-487`): `{ assets, main: MainImageResult \| null, tiles: [{ asset, state, seed, url, missing[], error }], styleBlock }` |
+| Result | `CardsResult` (`lib/contracts/marketplace.ts:71-77`): `{ assets, main: MainImageResult \| null, tiles: [{ asset, state, seed, url, missing[], error }], styleBlock }` |
 
-- **Tile states.** `CardTile.state` is `queued | running | done | needs_input | failed`.
+- **Tile states.** `CardTile.state` is a `CardTileState`: `PipelineStepStatus | "needs_input"` (`lib/contracts/marketplace.ts:15`), e.g. `queued | running | succeeded | needs_input | failed`.
 - **Missing copy.** A tile whose user copy is missing is `needs_input`, and `missing` lists the request fields it needs. The run then ends `partial` (`docs/spec/marketplace.md:246`, T-T3).
 - **Regenerate (planned).** `POST /api/pipelines/cards/{runId}/tiles/{assetId}/regenerate` re-runs only that tile. It keeps the anchor and `styleBlock` and changes only the seed (R-A3). It returns `202 PipelineRun`.
-- **Export (planned).** `GET /api/pipelines/cards/{runId}/export` returns a zip of the `done` tiles plus `cards.json`.
+- **Export (planned).** `GET /api/pipelines/cards/{runId}/export` returns a zip of the `succeeded` tiles plus `cards.json`.
 
 ### 2.4 `POST /api/pipelines/motion`
 
 | | |
 |---|---|
-| Request | `MotionRequest` (`lib/types.ts:492-508`): `{ soulId? \| personImage?, productImage, prompt, duration?, aspectRatio?, quality?: "preview"\|"final", refFidelity?: "match"\|"max", seed? }` |
+| Request | `MotionRequest` (`lib/contracts/motion.ts:14-30`): `{ soulId? \| personImage?, productImage, prompt, duration?, aspectRatio?, quality?: "preview"\|"final", refFidelity?: "match"\|"max", seed? }` |
 | Steps | resolve `<Picture 1>` (the Soul's best ref, or the uploaded person) → prompt builder (code; adds `<Picture N>` role tags) → `h3_r2v` |
-| Result | `MotionResult` (`lib/types.ts:510-514`): `{ video: OutputRef \| null, seed, frames }` |
+| Result | `MotionResult` (`lib/contracts/motion.ts:32-36`): `{ video: OutputRef \| null, seed, frames }` |
 
 - **Person reference.** Exactly one of `soulId` or `personImage` is required.
 - **Quality.** `quality: "final"` (the default) sets `turbo=false` with 20 base steps. `preview` uses the 4-step turbo LoRA (`docs/spikes/h3-r2v.md:104`).
@@ -231,10 +231,11 @@ Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/types.ts`). `deadlin
 
 ## 3. Graph bindings (contract for Comfy steps)
 
-Each `lib/bindings/<workflow>.ts` exports a `GraphBinding` (`lib/types.ts:129-134`) of the form `{ workflow, inputs: {name: {node, field, kind, mirrors?}}, outputs: {name: nodeId} }`. `kind` is one of `image | text | int | float | bool`.
+There is one binding model. Each `lib/bindings/<workflow>.ts` exports a `GraphBinding` (`lib/contracts/bindings.ts:47-52`) of the form `{ workflow, inputs: {name: {node, field, kind, mirrors?, required?, min?, max?, choices?}}, outputs: {name: nodeId} }`. `kind` is one of `image | text | int | float | bool`. `BINDINGS` (`lib/bindings/index.ts`) registers one per `WorkflowName`; both `POST /api/jobs` and pipeline `comfy` steps use it. A value is a `GraphValue`: `string | number | boolean | AssetHandle`, where an `AssetHandle` is an SDK `Asset` or a `core/ASSET` reference (`lib/contracts/bindings.ts:54-68`).
 
 | Workflow | Inputs | Outputs | Graph source |
 |---|---|---|---|
+| `image_resize_smoke` | `image` 1 (required), `scale` 2.scale_by (0.05–2), `method` 2.upscale_method (`nearest-exact`, `bilinear`, `area`, `bicubic`, `lanczos`) | `image` 3 | `workflows/image_resize_smoke.api.json` (plumbing smoke test) |
 | `klein_edit_multiref` | `image_1..image_4` (54, 60, 61, 62), `prompt` 4.text, `width`/`height` 44 (mirrored to 71), `batch_size`, `seed` 70.noise_seed, `steps` 71, `cfg` 72, `ref_megapixels` 17.resolution.megapixels, `model` 59.unet_name | `image` 9 | `spikes/klein-multiref/flux2_klein_edit_multiref.api.json` |
 | `klein_t2i` | `prompt` p4.text, `width`/`height` p44 (mirrored to p71), `batch_size`, `seed` p70, `steps` p71, `cfg` p72, `model` 59 | `image` p9 | `p*` chain of `spikes/klein-multiref/flux2_klein_t2i_fixtures.api.json` |
 | `cutout` | `image` 17 | `cutout` 18, `mask` 21 | `spikes/cutout-upscale/cutout.api.json` |
@@ -243,7 +244,7 @@ Each `lib/bindings/<workflow>.ts` exports a `GraphBinding` (`lib/types.ts:129-13
 
 - **`applyBindings(graph, binding, values)`** returns a structured clone of the graph. It rejects:
   - unknown logical names;
-  - values of the wrong kind;
+  - values of the wrong kind, or outside the input's `min` / `max` / `choices`;
   - targets that are missing from the graph, or that are links (binding drift).
 - **`resolveAssignments`** gives the same validated `{node, field, value}` list for the SDK's `workflow.setInput`, which is used for asset handles.
-- **Tests.** `tests/bindings.test.ts` proves that every logical input changes exactly its bound node fields.
+- **Tests.** `tests/bindings.test.ts` proves that every `BINDINGS` entry passes `checkBinding` against its `workflows/<name>.api.json`, and that every logical input changes exactly its bound node fields.

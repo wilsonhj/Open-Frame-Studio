@@ -48,9 +48,11 @@ app/api/jobs/route.ts                       POST multipart → workflows/<name>.
 app/api/jobs/[id]/route.ts                  GET  normalized job {status, terminal, progress, outputs, error}
 app/api/jobs/[id]/outputs/[outputId]        GET  re-hosts the output bytes (signed URLs expire; key stays server-side)
 lib/comfy.ts                                server-only @comfyorg/sdk 0.5.0 wrapper (traps below)
-lib/bindings/index.ts                       registry: workflow name → {input → node id + field}
-lib/inputs.ts                               multipart validation + binding application
-lib/types.ts                                contracts: Job, OutputRef, PipelineStep, ModeTemplate, CardAsset, PhotoshootMode
+lib/bindings/index.ts                       registry: workflow name → GraphBinding {input → node id + field}
+lib/bindings/apply.ts                       applyBindings / checkBinding: values → API-format graph
+lib/inputs.ts                               multipart parsing → binding values (no graph mutation)
+lib/contracts/*.ts                          contracts by domain: job, pipeline, bindings, soul, photoshoot, marketplace, motion
+lib/types.ts                                barrel re-exporting lib/contracts/*
 workflows/*.api.json                        API-format graphs (subgraphs unpacked)
 tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / failed / unknown-forever / expired / 422 reuse)
 ```

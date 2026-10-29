@@ -141,7 +141,7 @@ instrumentation.ts                 boot: resumeRuns()
 ## Team plan: Workflow tool, 47 agents in 5 waves (ids run to #48; one Graphs slot was dropped)
 
 **General rules:**
-- **Contracts are frozen at the end of Wave 1.** These are `lib/types.ts`, the binding maps, the pipeline step interface and the API routes.
+- **Contracts are frozen at the end of Wave 1.** These are `lib/contracts/*.ts` (re-exported by the barrel `lib/types.ts`), the binding maps, the pipeline step interface and the API routes.
 - **Each agent owns explicit paths only.** All agents run with `isolation: "worktree"`. The orchestrator merges team branches into `main` after each wave and runs the full checks.
 - **Each brief includes:** the goal, owned paths, the contract files to import, the reference sources (paths above), the definition of done, and "no code from higgsfield-ai/app-templates".
 - **Load the `workflow-authoring` skill before writing the script.**
@@ -165,7 +165,7 @@ instrumentation.ts                 boot: resumeRuns()
 | 6 | RE: Photoshoot spec | `docs/spec/photoshoot.md`: modes, routing rules, interview trees A–F, counts, aspects, with `file:line` citations |
 | 7 | RE: Marketplace spec | `docs/spec/marketplace.md`: 13 assets, scopes, our compliance rules (main image: white, 85% fill, no text), per-asset aspect ratios |
 | 8 | RE: Soul + platform contract | `docs/spec/soul.md` + `docs/RE-FINDINGS.md`: Higgsfield REST/CLI/SDK contract map and photo rules, with confidence tags |
-| 9 | Contracts | `lib/types.ts` (Job, Asset, PipelineStep, ModeTemplate, CardAsset), `lib/bindings/*.ts` from spike node ids, OpenAPI for our routes |
+| 9 | Contracts | `lib/contracts/*.ts`, barrel `lib/types.ts` (Job, Asset, PipelineStep, ModeTemplate, CardAsset), `lib/bindings/*.ts` from spike node ids, OpenAPI for our routes |
 | 10 | UX spec | `docs/spec/ux.md`: written description of the studio layout (sidebar, hero, prompt dock with mode rail and chips, gallery, Soul library). Text spec only, no copied code. |
 | 11 | Test harness | Golden fixtures (sample product photos and a consenting demo face set), `tests/e2e/*.spec.ts` skeletons (Playwright), mock-server scenarios |
 

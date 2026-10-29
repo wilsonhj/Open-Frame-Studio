@@ -11,7 +11,7 @@ import type { GraphBinding } from "../types.ts";
 export const upscale = {
   workflow: "upscale",
   inputs: {
-    image: { node: "1", field: "image", kind: "image" },
+    image: { node: "1", field: "image", kind: "image", required: true },
     /** 2.0 by default; 4.0 for 512 -> 2048. */
     scale: { node: "57", field: "resize_type.multiplier", kind: "float" },
     model: { node: "52", field: "unet_name", kind: "text" },

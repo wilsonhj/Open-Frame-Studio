@@ -1,6 +1,6 @@
 # Spec: Marketplace Cards
 
-Status: Wave 1 spec (frozen at end of Wave 1 together with `lib/types.ts`). Owner path: `docs/spec/marketplace.md`.
+Status: Wave 1 spec (frozen at end of Wave 1 together with `lib/contracts/*.ts`, barrel `lib/types.ts`). Owner path: `docs/spec/marketplace.md`.
 
 This is a behavioural, clean-room spec. It describes what Higgsfield Marketplace Cards does, as far as the public sources show, and then what **we** build on ComfyUI with open weights. No code or text comes from `higgsfield-ai/app-templates`; nothing in that repo covers marketplace cards anyway (grep for `marketplace|main_image|aplus` finds no hits).
 
@@ -223,8 +223,8 @@ The form replaces Higgsfield's free-text `--prompt` plus `--*_context` flags (H7
 
 ## 8. Delivery [OURS, after H11]
 
-- **Cards board:** a 13-tile grid in §2 order. Each tile shows a label, a state (`queued | running | done | needs_input | failed`), a per-tile regenerate button, and the main-image check badges.
-- **Export:** a ZIP of all `done` tiles named `NN_<asset_id>.<ext>`, plus `cards.json`. The manifest holds the inputs (without the images), seeds, `styleBlock`, check results and the anchor job id.
+- **Cards board:** a 13-tile grid in §2 order. Each tile shows a label, a state (`CardTileState` = `PipelineStepStatus | needs_input`: `queued | running | succeeded | needs_input | failed`), a per-tile regenerate button, and the main-image check badges.
+- **Export:** a ZIP of all `succeeded` tiles named `NN_<asset_id>.<ext>`, plus `cards.json`. The manifest holds the inputs (without the images), seeds, `styleBlock`, check results and the anchor job id.
 - **Hidden by default:** prompts, model names and job ids. They are available under an "Advanced" disclosure, mirroring H11.
 
 ---
@@ -243,14 +243,14 @@ The form replaces Higgsfield's free-text `--prompt` plus `--*_context` flags (H7
 - **T-M6** the `main_image` renderer receives `productName` and `bullets` yet produces a pixel-identical result to a call without them (proves there is no text layer).
 - **T-T1** text overflow: a 200-char bullet → validation error naming `bullets[i]`, no silent truncation.
 - **T-T2** contrast: white text over a white backdrop → scrim added; final contrast ≥ 4.5:1.
-- **T-T3** copy-required: `full-set` with no `painPoints`, `efficacyClaims`, `howToUse` or `endorsement` → those 4 tiles are `needs_input`, the other 9 are `done`, and the run status is success-with-gaps.
+- **T-T3** copy-required: `full-set` with no `painPoints`, `efficacyClaims`, `howToUse` or `endorsement` → those 4 tiles are `needs_input`, the other 9 are `succeeded`, and the run status is success-with-gaps.
 - **T-T4** `endorsement.rightsConfirmed = false` → `needs_input`. An `efficacyClaims` value without `efficacySource` → validation error.
 - **T-A1** every diffusion graph built for a secondary or A+ asset has the anchor cutout bound to `LoadImage 54`. Every code-only asset pastes the anchor's bytes unchanged (hash of the pasted region before scaling).
 - **T-A2** per-tile regenerate changes only that asset's seed; `styleBlock` and the anchor are unchanged.
 - **T-G1** every exported file matches §4.2 pixel sizes, is RGB, and follows the naming in G6.
 
 **Real Cloud (Wave 3; needs a paid key):**
-- **T-E1** `full-set` on a real product photo finishes in **< 4 min** (PLAN perf target), with 13 tiles `done` when all copy fields are filled.
+- **T-E1** `full-set` on a real product photo finishes in **< 4 min** (PLAN perf target), with 13 tiles `succeeded` when all copy fields are filled.
 - **T-E2** the main card passes A1–A4. The Playwright gate is border ≥ 99% #FFFFFF and bbox ≥ 80% (PLAN Verification).
 - **T-E3** style lock: the dominant-palette distance between diffusion tiles in one set stays below the carousel threshold used by Photoshoot. This is logged, not gated.
 - **T-E4** the graphs contain no partner or API nodes (grep `workflows/*.api.json`, PLAN "Open-weights proof").

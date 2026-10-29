@@ -6,29 +6,29 @@ import { describe, it } from "node:test";
 import { BindingError, applyBindings, checkBinding, resolveAssignments, type ApiGraph } from "../lib/bindings/apply.ts";
 import { cutout } from "../lib/bindings/cutout.ts";
 import { H3_ASPECT_OPTIONS, h3R2v } from "../lib/bindings/h3_r2v.ts";
+import { imageResizeSmoke } from "../lib/bindings/image_resize_smoke.ts";
+import { BINDINGS, getBinding } from "../lib/bindings/index.ts";
 import { kleinEditMultiref } from "../lib/bindings/klein_edit_multiref.ts";
 import { kleinT2i } from "../lib/bindings/klein_t2i.ts";
-import { upscale } from "../lib/bindings/upscale.ts";
-import type { GraphBinding, GraphInputBinding, GraphValue } from "../lib/types.ts";
+import type { AssetHandle, GraphInputBinding, GraphValue } from "../lib/types.ts";
 import { WORKFLOW_NAMES } from "../lib/types.ts";
-
-const BINDINGS: GraphBinding[] = [kleinEditMultiref, kleinT2i, cutout, upscale, h3R2v];
 
 async function loadGraph(name: string): Promise<ApiGraph> {
   return JSON.parse(await readFile(join(process.cwd(), "workflows", `${name}.api.json`), "utf-8")) as ApiGraph;
 }
 
-/** A value of the right kind that differs from whatever the graph holds. */
+/** A valid value of the right kind that differs from whatever the graph holds. */
 function sampleValue(name: string, spec: GraphInputBinding): GraphValue {
+  if (spec.choices) return spec.choices[0];
   switch (spec.kind) {
     case "image":
       return `test_${name}.png`;
     case "text":
       return `test text for ${name}`;
     case "int":
-      return 777;
+      return spec.min ?? 777;
     case "float":
-      return 3.25;
+      return spec.min ?? 3.25;
     case "bool":
       return false;
   }
@@ -36,7 +36,27 @@ function sampleValue(name: string, spec: GraphInputBinding): GraphValue {
 
 const SAVE_NODES = /^Save(Image|Video|Animated\w*)$/;
 
-for (const binding of BINDINGS) {
+describe("binding registry", () => {
+  it("registers exactly one GraphBinding per WorkflowName, keyed by its workflow", () => {
+    assert.deepEqual(Object.keys(BINDINGS).sort(), [...WORKFLOW_NAMES].sort());
+    for (const [name, binding] of Object.entries(BINDINGS)) assert.equal(binding.workflow, name);
+  });
+
+  it("every entry passes checkBinding against workflows/<name>.api.json", async () => {
+    for (const [name, binding] of Object.entries(BINDINGS)) {
+      assert.deepEqual(checkBinding(await loadGraph(name), binding), [], name);
+    }
+  });
+
+  it("only exposes registered workflows", () => {
+    assert.equal(getBinding("image_resize_smoke"), imageResizeSmoke);
+    assert.equal(getBinding("__proto__"), undefined);
+    assert.equal(getBinding("toString"), undefined);
+    assert.equal(getBinding("../secrets"), undefined);
+  });
+});
+
+for (const binding of Object.values(BINDINGS)) {
   describe(`binding ${binding.workflow}`, () => {
     it("is a registered workflow and matches its graph (no drift)", async () => {
       assert.ok((WORKFLOW_NAMES as readonly string[]).includes(binding.workflow));
@@ -87,9 +107,18 @@ describe("applyBindings", () => {
     assert.throws(() => applyBindings(graph, kleinEditMultiref, { image_1: "  " }), /image/);
     const h3 = await loadGraph("h3_r2v");
     assert.throws(() => applyBindings(h3, h3R2v, { turbo: "true" }), /boolean/);
-    // An opaque SDK asset handle is accepted for images.
-    const handle = { kind: "asset" };
+    // An asset handle (here a resolved core/ASSET reference) is accepted for images.
+    const handle: AssetHandle = { __type: "core/ASSET", info: { id: "asset_1", file_path: "in.png" } };
     assert.equal(applyBindings(graph, kleinEditMultiref, { image_1: handle })["54"].inputs.image, handle);
+  });
+
+  it("enforces min / max / choices", async () => {
+    const graph = await loadGraph("image_resize_smoke");
+    assert.throws(() => applyBindings(graph, imageResizeSmoke, { scale: 9 }), /≤ 2/);
+    assert.throws(() => applyBindings(graph, imageResizeSmoke, { scale: 0.01 }), /≥ 0.05/);
+    assert.throws(() => applyBindings(graph, imageResizeSmoke, { method: "magic" }), /one of/);
+    const next = applyBindings(graph, imageResizeSmoke, { scale: 0.25, method: "area" });
+    assert.deepEqual([next["2"].inputs.scale_by, next["2"].inputs.upscale_method], [0.25, "area"]);
   });
 
   it("keeps Klein latent and scheduler sizes in sync", async () => {

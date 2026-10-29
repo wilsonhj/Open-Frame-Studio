@@ -24,7 +24,7 @@
  */
 import "server-only";
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -37,6 +37,7 @@ import {
   type WorkflowGraph,
 } from "@comfyorg/sdk";
 
+import type { ApiGraph } from "./bindings/apply.ts";
 import type { Job, JobErrorInfo, JobStatus, OutputRef } from "./types.ts";
 import { TERMINAL_STATUSES } from "./types.ts";
 
@@ -133,11 +134,16 @@ export function workflowPath(name: string, root = process.cwd()): string {
   return join(root, "workflows", `${name}.api.json`);
 }
 
-/** Load `workflows/<name>.api.json`; rejects UI-format exports locally. */
-export async function loadWorkflow(client: Comfy, name: string, root?: string): Promise<Workflow> {
-  const graph = JSON.parse(await readFile(workflowPath(name, root), "utf-8")) as WorkflowGraph;
+/** Read `workflows/<name>.api.json` as a plain graph; rejects UI-format exports locally. */
+export async function loadGraph(name: string, root?: string): Promise<ApiGraph> {
+  const graph: unknown = JSON.parse(await readFile(workflowPath(name, root), "utf-8"));
   assertApiFormat(graph);
-  return client.workflows.fromJson(graph);
+  return graph as ApiGraph;
+}
+
+/** Load `workflows/<name>.api.json` as an SDK Workflow; rejects UI-format exports locally. */
+export async function loadWorkflow(client: Comfy, name: string, root?: string): Promise<Workflow> {
+  return client.workflows.fromJson(await loadGraph(name, root));
 }
 
 export function assertApiFormat(graph: unknown): asserts graph is WorkflowGraph {
@@ -382,7 +388,6 @@ export async function fetchOutput(client: Comfy, jobId: string, outputId: string
 
 /** Re-host an output to a local file (e.g. for pipelines that chain steps). */
 export async function saveOutput(client: Comfy, jobId: string, outputId: string, destPath: string): Promise<number> {
-  const { writeFile } = await import("node:fs/promises");
   const response = await fetchOutput(client, jobId, outputId);
   const bytes = new Uint8Array(await response.arrayBuffer());
   await writeFile(destPath, bytes);
