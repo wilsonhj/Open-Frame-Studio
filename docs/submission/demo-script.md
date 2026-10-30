@@ -18,7 +18,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 - Have these files ready:
   - **Product Shoot:** `fixtures/products/product-mug-tiles.png` (any product photo works).
   - **Listing Images:** `fixtures/products/product-bottle-transparent.png`. The mock cannot remove a background, so a photo with a busy background correctly fails check A4.
-  - **Identity: bring your own face photos.** The repo has no face images on purpose (`fixtures/faces/` is not committed). Bring 5–12 photos of **yourself, a person who has agreed to this, or a fictional AI-generated person**. Never use photos of a real person without their permission. Each photo needs one sharp face, with varied angles and lighting and no sunglasses. **Use close-ups where the face fills most of the frame**, and photos at least 512 px on the short side. The blur threshold is not calibrated yet: in the Oct 30 Cloud run, sharp photos with small faces were rejected as "Face is blurry".
+  - **Identity: bring your own face photos.** The repo has no face images on purpose (`fixtures/faces/` is not committed). Bring 5–12 photos of **yourself, a person who has agreed to this, or a fictional AI-generated person**. Never use photos of a real person without their permission. Each photo needs one sharp face, with varied angles and lighting and no sunglasses. Use clear photos where the face is reasonably large, at least 512 px on the short side. Faces under 160 px are rejected as "Face too small".
   - **Motion:** one of those face photos as the person, and `fixtures/products/product-bottle-confetti.png` as the product.
   - **No face photos?** Skip the Identity beat's live part: show the page, the consent gate and the photo rules, then describe the Oct 30 manual Identity run on Cloud (README status block).
   - **Real Cloud results to show at the end:** `docs/images/comfy-cloud-outputs.png`, and optionally the real H3 clip, `fixtures/golden/h3_r2v/92_video_MiniMax_H3_00001_.mp4` (two product stills, made by the golden-run script). Open both in browser tabs.
@@ -73,7 +73,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
   - **MiniMax H3 graph:** a 5 s clip with audio in about 40 s, run by `scripts/golden-run.mjs` with two product stills; the `/motion` page itself has not run on Cloud. (Record in `fixtures/golden/h3_r2v/run.json`.)
   - **Listing gallery:** 6 of 6 images in about 62 s. **Story:** 8 of 8 in about 42 s. ZIP export works. (Manual run on Oct 30, not recorded in the repo.)
   - **Identity:** a fictional AI-generated person, 4 references chosen, preview sheet in 17.6 s, exported bundle valid. (Manual run on Oct 30, not recorded in the repo.)
-- The two limits again: Listing panels can drift in colour and material, and the Identity sharpness check rejects small faces.
+- The known limit again: generated Listing panels can drift in colour and material.
 - Go back to the landing and scroll to **Open weights**. Every row comes from `models/manifest.json`, the same file CI checks against the workflow graphs: FLUX.2 Klein 4B and its Qwen3-4B encoder (**Apache-2.0**), BiRefNet (**MIT**), SeedVR2 (**Apache-2.0**), and MiniMax H3 (**conditional**, shown in amber, not green).
 - Don't switch to Cloud on stage. A Cloud run follows L4 in `docs/eval/testing-strategy.md`: a spend-capped key, the production build with `HANDLE_SECRET` and a `STUDIO_ACCESS_CODE` of at least 12 characters, and the graphs in `workflows/*.api.json`. The mock speaks the same `/api/v2` surface the `@comfyorg/sdk` uses (asset upload, job submit, job poll, output download), which is why the demo exercises the real client code end to end.
 
@@ -81,7 +81,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 
 - **A route is slow the first time.** That is the dev compiler. Keep talking; it happens once per route.
 - **A frame fails.** Click **Retry · 1 job** under it. That creates exactly one new job.
-- **Identity says "Need at least 3 usable photos."** Read the per-photo reasons aloud: that is the check doing its job. If it says *"Face is blurry"* on sharp photos, the faces are probably too small (the known limit); use closer photos.
+- **Identity says "Need at least 3 usable photos."** Read the per-photo reasons aloud: that is the check doing its job. If it says *"Face too small: move closer"*, use photos where the face is larger.
 - **The Listing hero fails.** You probably uploaded a photo with a background. The run explains why in plain words and offers **Upload a different photo**: the marketplace gate in action.
 - **Port 3000 or 8199 is busy.** Run `PORT=3001 DEMO_PORT=8299 pnpm demo`.
 - **Mock only** (for example, when driving the app from another terminal): `pnpm mock`, then `COMFY_BASE_URL=http://127.0.0.1:8199 COMFY_API_KEY=demo pnpm dev`.
