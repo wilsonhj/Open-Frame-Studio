@@ -25,7 +25,7 @@ const TOOLS = [
     href: SURFACES.listing.href,
     n: "02",
     title: SURFACES.listing.label,
-    body: "A compliant pure-white hero image with the marketplace checks, plus gallery and story panels anchored on it.",
+    body: "A compliant pure-white hero image with the marketplace checks, plus gallery and story panels generated from the same product cutout.",
     live: true,
   },
   {
