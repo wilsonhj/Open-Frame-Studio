@@ -8,7 +8,7 @@
 import { ComfyNotConfiguredError } from "../../../../lib/comfy.ts";
 import { isPipelineKind } from "../../../../lib/pipeline/kinds.ts";
 import { gateSubmit } from "../../../../lib/pipeline/gate.ts";
-import { createRun, type UploadPart } from "../../../../lib/pipeline/runner.ts";
+import { MAX_UPLOAD_PARTS, createRun, uploadNames, type UploadPart } from "../../../../lib/pipeline/runner.ts";
 
 export const runtime = "nodejs";
 
@@ -28,8 +28,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
       raw = JSON.parse(text);
       const code = form.get("access_code");
       formCode = typeof code === "string" ? code : null;
-      for (const [name, value] of form.entries()) {
-        if (name === "request" || typeof value === "string") continue;
+      // Copy only the parts the request references, and refuse an oversized
+      // set of parts before reading any of them into memory.
+      const wanted = new Set(uploadNames(raw));
+      const files = [...form.entries()].filter(([name, value]) => name !== "request" && typeof value !== "string");
+      if (files.length > MAX_UPLOAD_PARTS) {
+        return Response.json({ error: `At most ${MAX_UPLOAD_PARTS} files per request.`, field: "" }, { status: 400 });
+      }
+      for (const [name, value] of files) {
+        if (!wanted.has(name) || typeof value === "string") continue;
         uploads.set(name, {
           bytes: new Uint8Array(await value.arrayBuffer()),
           filename: value.name || `${name}.png`,
@@ -48,7 +55,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
   try {
     const created = await createRun(kind, raw, uploads);
     if (!created.ok) {
-      gate.refund(); // rejected before any job was submitted
+      // Refused before any job was submitted. A refusal that already uploaded
+      // assets keeps its slot, so failed requests can't be free uploads.
+      if (!created.assetsCreated) gate.refund();
       return Response.json({ error: created.error, field: created.field ?? "" }, { status: created.status });
     }
     return Response.json(created.run, { status: 202, headers: { "Cache-Control": "no-store" } });
