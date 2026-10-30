@@ -16,3 +16,8 @@ git config user.email 39320700+wilsonhj@users.noreply.github.com
 - Merges done on github.com are fine: GitHub uses the same noreply address.
 - CI enforces this (`scripts/check-commit-identity.mjs`) and fails a pull request that contains a commit with any other email. To catch it before pushing, install the local hook: `git config core.hooksPath scripts/hooks`.
 - If a commit already went out with the wrong email, stop and tell the owner. Do not force-push to fix it on your own.
+
+## Secrets
+
+- `.env.local` holds the Comfy API key. `.gitignore` ignores every `.env*` file except `.env.example`; never force-add one (`git add -f`) or commit a key in any other file.
+- Keys live only in `.env.local` or the host's secret settings. If a key is ever committed or pasted somewhere public, rotate it at once; deleting the commit does not make it safe.
