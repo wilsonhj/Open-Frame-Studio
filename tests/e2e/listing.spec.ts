@@ -1,13 +1,14 @@
 /**
  * Listing Images: scopes hero (1) | gallery (hero+5) | story (hero+7) | complete (13).
  * Main image: pure white background, product ~85% of frame, no text. Gallery / story are anchored
- * on the main image. Spec: docs/spec/listing.md.
+ * on the product cutout. Spec: docs/spec/listing.md.
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { unzipStore } from "../../lib/cards/zip.ts";
 import { mockRequests, resetMock } from "../mock-comfy/control.ts";
 import type { JobPost } from "../mock-comfy/server.ts";
 
@@ -74,26 +75,27 @@ test.describe("Cards board", () => {
     await expectAllPanelsDone(page, 13);
 
     const posts = (await mockRequests()).jobPosts;
-    const [cutout, ...rest] = posts;
+    const byKind = groupJobs(posts);
+    expect(posts).toHaveLength(13);
+    expect(byKind.cutout).toHaveLength(1);
+    expect(byKind.edit).toHaveLength(7);
+    expect(byKind.t2i).toHaveLength(2);
+    expect(byKind.upscale).toHaveLength(3);
+    const cutout = byKind.cutout[0];
     expect(cutout.assetIds).toHaveLength(1); // the uploaded photo
     const anchor = `out-${cutout.jobId}`;
-    const text = (p: JobPost) => JSON.stringify(p.body);
-    const edits = rest.filter((p) => text(p).includes("from image 1"));
-    const t2i = rest.filter((p) => !text(p).includes("from image 1") && !text(p).includes("oss_upscale"));
-    const upscales = rest.filter((p) => text(p).includes("oss_upscale"));
     // Klein edit: angles x3, detail, in use, contents, story banner. All load the hero cutout as image 1.
-    expect(edits).toHaveLength(7);
-    for (const p of edits) expect(p.assetIds).toEqual([anchor]);
-    // Klein t2i (problem/solution mood image, materials still life) has no product by design (spec §4.2).
-    expect(t2i).toHaveLength(2);
-    for (const p of t2i) expect(p.assetIds).toEqual([]);
-    // Upscales (detail, in use, contents) refine their own generation, never the raw upload.
-    expect(upscales).toHaveLength(3);
-    const editIds = new Set(edits.map((p) => `out-${p.jobId}`));
-    for (const p of upscales) {
-      expect(p.assetIds).toHaveLength(1);
-      expect(editIds.has(p.assetIds[0])).toBe(true);
+    for (const p of byKind.edit) {
+      expect(JSON.stringify(p.body)).toContain("from image 1");
+      expect(p.assetIds).toEqual([anchor]);
     }
+    // Klein t2i (problem/solution mood image, materials still life) has no product by design (spec §4.2).
+    for (const p of byKind.t2i) expect(p.assetIds).toEqual([]);
+    // Each upscale refines its own generation, never the raw upload or a shared edit.
+    const editIds = new Set(byKind.edit.map((p) => `out-${p.jobId}`));
+    const upInputs = byKind.upscale.map((p) => p.assetIds[0]);
+    expect(new Set(upInputs).size).toBe(3);
+    for (const id of upInputs) expect(editIds.has(id)).toBe(true);
   });
 
   test("per-tile regenerate submits exactly one new job for that tile", async ({ page }) => {
@@ -113,13 +115,17 @@ test.describe("Cards board", () => {
     const after = (await mockRequests()).jobPosts;
     expect(after).toHaveLength(before.length + 1);
     const job = after.at(-1)!;
+    expect(jobKind(job)).toBe("edit");
     expect(JSON.stringify(job.body)).toContain("Wide styled");
-    expect(job.assetIds).toEqual([`out-${before[0].jobId}`]); // same anchor as the first run
+    const cutout = before.find((p) => jobKind(p) === "cutout");
+    if (!cutout) throw new Error("cutout job missing");
+    expect(job.assetIds).toEqual([`out-${cutout.jobId}`]); // same anchor as the first run
     // Every other tile keeps its seed.
     const now = await tileSeeds(page);
-    for (const [asset, seed] of Object.entries(seeds)) {
-      if (asset !== "story_banner") expect(now[asset], asset).toBe(seed);
-    }
+    expect(seeds.story_banner).toMatch(/^\d+$/);
+    const kept = Object.entries(seeds).filter(([asset]) => asset !== "hero" && asset !== "story_banner");
+    expect(kept.some(([, seed]) => seed !== null)).toBe(true);
+    for (const [asset, seed] of kept) expect(now[asset], asset).toBe(seed);
   });
 
   test("ZIP export downloads all finished tiles", async ({ page }) => {
@@ -133,16 +139,29 @@ test.describe("Cards board", () => {
     ]);
     expect(download.suggestedFilename()).toMatch(/^listing-.+\.zip$/);
     const zip = await readFile(await download.path());
-    const names = zipEntryNames(zip).sort();
-    expect(names).toEqual([
+    const entries = unzipStore(new Uint8Array(zip));
+    const names = Object.keys(entries).sort();
+    const images = [
       "01_hero.png",
       "02_gallery_callouts.png",
       "03_gallery_angles.jpg",
       "04_gallery_detail.jpg",
       "05_gallery_in_use.jpg",
       "06_gallery_contents.jpg",
-      "cards.json",
-    ].sort());
+    ];
+    expect(names).toEqual([...images, "cards.json"].sort());
+    for (const name of images) {
+      const bytes = entries[name];
+      expect(bytes.byteLength, name).toBeGreaterThan(32);
+      const magic = name.endsWith(".png") ? [0x89, 0x50, 0x4e, 0x47] : [0xff, 0xd8];
+      expect([...bytes.subarray(0, magic.length)], name).toEqual(magic);
+    }
+    const manifest = JSON.parse(new TextDecoder().decode(entries["cards.json"])) as {
+      anchorJobId: string | null;
+      tiles: { state: string; file: string | null }[];
+    };
+    expect(manifest.anchorJobId).toEqual(expect.any(String));
+    expect(manifest.tiles.filter((t) => t.state === "succeeded").map((t) => t.file).sort()).toEqual([...images].sort());
   });
 });
 
@@ -166,10 +185,17 @@ async function startRun(page: Page, scope: keyof typeof SCOPE_COUNTS) {
   await page.getByRole("button", { name: `Generate ${SCOPE_COUNTS[scope]} images` }).click();
 }
 
-/** The hero is compliant and every tile (hero + panels) shows "succeeded". */
+/** The hero is compliant and every tile's own status pill has reached "succeeded". */
 async function expectAllPanelsDone(page: Page, count: number) {
-  await expect(page.locator('[data-asset="hero"]').getByText("compliant", { exact: true })).toBeVisible({ timeout: 45_000 });
-  await expect(page.getByText("succeeded", { exact: true })).toHaveCount(count, { timeout: 90_000 });
+  const tiles = page.locator("[data-asset]");
+  await expect(tiles).toHaveCount(count);
+  await expect(async () => {
+    expect(await tiles.count()).toBe(count);
+    for (let i = 0; i < count; i++) {
+      await expect(tiles.nth(i).locator("[data-status]").first()).toHaveAttribute("data-status", "succeeded");
+    }
+  }).toPass({ timeout: 90_000 });
+  await expect(page.locator('[data-asset="hero"]').getByText("compliant", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Download ZIP" })).toBeVisible();
 }
 
@@ -182,12 +208,27 @@ async function tileSeeds(page: Page): Promise<Record<string, string | null>> {
   return out;
 }
 
-/** File names from a ZIP's central directory (signature 0x02014b50). */
-function zipEntryNames(zip: Buffer): string[] {
-  const names: string[] = [];
-  for (let i = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])); i >= 0; i = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]), i + 46)) {
-    const len = zip.readUInt16LE(i + 28);
-    names.push(zip.subarray(i + 46, i + 46 + len).toString("utf8"));
-  }
-  return names;
+type JobKind = "cutout" | "edit" | "t2i" | "upscale";
+
+/** One workflow per job, from the graph's own filename_prefix (not prompt wording). */
+function jobKind(post: JobPost): JobKind {
+  const text = JSON.stringify(post.body);
+  const kinds = (
+    [
+      ["oss_upscale", "upscale"],
+      ["klein_t2i", "t2i"],
+      ["klein_multiref", "edit"],
+      ["oss_cutout", "cutout"],
+    ] as const
+  )
+    .filter(([prefix]) => text.includes(`"${prefix}"`))
+    .map(([, kind]) => kind);
+  if (kinds.length !== 1) throw new Error(`expected one workflow prefix, got ${kinds.join(", ") || "none"}`);
+  return kinds[0];
+}
+
+function groupJobs(posts: JobPost[]): Record<JobKind, JobPost[]> {
+  const grouped: Record<JobKind, JobPost[]> = { cutout: [], edit: [], t2i: [], upscale: [] };
+  for (const post of posts) grouped[jobKind(post)].push(post);
+  return grouped;
 }
