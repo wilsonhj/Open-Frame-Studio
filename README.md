@@ -2,7 +2,7 @@
 
 Open Frame Studio is an open-weights creative studio built on the ComfyUI inference engine, made for Comfy's Open Source Higgsfield challenge. It takes the best ideas from hosted AI photo studios and rebuilds them as open, inspectable ComfyUI graphs, with its own names, flows and design. It runs through the Comfy API, either on Comfy Cloud or on your own GPU.
 
-You upload 5–20 photos of a person once and get an **identity**: a checked reference set of the best 3–6 crops, saved as a portable file you keep. You can then put that identity and your product into a **product shoot** (pick a shot style and an output format), build **listing images** (a compliant white-background hero image plus gallery and story panels anchored on it), and turn the result into a short **motion** clip. Every model in the pipeline is open weights (FLUX.2 Klein 4B, MiniMax H3, BiRefNet, SeedVR2), and every workflow is a plain ComfyUI graph you can open and change.
+You upload 5–20 photos of a person once and get an **identity**: a checked reference set of the best 3–6 crops, saved as a portable file you keep. You can then put that identity and your product into a **product shoot** (pick a shot style and an output format), build **listing images** (a compliant white-background hero image plus gallery and story panels anchored on it), and turn the result into a short **motion** clip. Every model in the pipeline is open weights (FLUX.2 Klein 4B, BiRefNet, SeedVR2, and MiniMax H3, whose weights are released under a conditional [Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE): check its terms before self-hosting or redistributing), and every workflow is a plain ComfyUI graph you can open and change. Self-hosted execution is supported by the client but not yet demonstrated end to end. A complete model inventory (revisions, licences, hashes) is still to come.
 
 > Status: Wave 0 scaffold. The app shell, the Comfy client wrapper, the generic job API and an offline mock are in place. The tool pages are placeholders.
 
@@ -45,7 +45,7 @@ We studied what makes hosted AI studios pleasant to use (one reusable identity, 
 | **Identity** (`/identity`) | Photo checks on upload, then the best 3–6 crops become a reusable reference set with a style card, saved as a portable file. Reference-based, so it is ready in about a minute with no training step | FLUX.2 Klein 4B edit with multi-reference latents; BiRefNet crops |
 | **Product Shoot** (`/photoshoot`) | Our own model: a shot style (`packshot`, `in_context`, `with_person`, `flat_lay`, `concept`, `restage`) times an output format (`single`, `series`, `banner`, `ad_set`), with a variation engine over setting, lighting, angle and palette | FLUX.2 Klein 4B edit with product and identity references; optional SeedVR2 upscale |
 | **Listing Images** (`/listing`) | A deterministic cutout hero composited on #FFFFFF at ~85% fill and compliance-checked, then gallery and story panels conditioned on it. All text is rendered in code | BiRefNet; FLUX.2 Klein 4B edit |
-| **Motion** (`/motion`) | An identity still and a product still become one reference-to-video clip | MiniMax H3 reference-to-video template |
+| **Motion** (`/motion`) | An identity still and a product still become one reference-to-video clip | MiniMax H3 reference-to-video template (conditional Community License) |
 
 ## Architecture
 
