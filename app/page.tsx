@@ -25,7 +25,7 @@ const TOOLS = [
     href: SURFACES.listing.href,
     n: "02",
     title: SURFACES.listing.label,
-    body: "A compliant pure-white hero image with the marketplace checks. Gallery and story panels come next.",
+    body: "A compliant pure-white hero image with the marketplace checks, plus gallery and story panels generated from the same product cutout.",
     live: true,
   },
   {
@@ -33,14 +33,14 @@ const TOOLS = [
     n: "03",
     title: SURFACES.identity.label,
     body: "3–6 reference crops plus a style card, saved as a portable identity.json you keep. No training.",
-    live: false,
+    live: true,
   },
   {
     href: SURFACES.motion.href,
     n: "04",
     title: SURFACES.motion.label,
-    body: "A saved identity and your product in one short reference-to-video clip.",
-    live: false,
+    body: "A person photo and your product in one short reference-to-video clip.",
+    live: true,
   },
 ];
 
