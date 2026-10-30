@@ -472,6 +472,19 @@ describe("POST /api/jobs", () => {
   const submittedSeed = () =>
     (mock.state.jobPosts.at(-1)!.body.workflow as Record<string, { inputs: Record<string, unknown> }>).p70.inputs.noise_seed;
 
+  it("drops the unused Klein reference slots, so a one-reference edit doesn't ask Comfy for missing files", async () => {
+    const image = new File([new Uint8Array(PNG_1X1)], "ref.png", { type: "image/png" });
+    const { status } = await post({ workflow: "klein_edit_multiref", prompt: "the same mug", image_1: image });
+    assert.equal(status, 202);
+    const graph = mock.state.jobPosts.at(-1)!.body.workflow as Record<string, { inputs: Record<string, unknown> }>;
+    for (const node of ["60", "61", "62"]) assert.equal(graph[node], undefined, `LoadImage ${node} removed`);
+    assert.ok(graph["54"], "image_1's LoadImage stays");
+    assert.deepEqual(
+      Object.keys(graph["17"].inputs).filter((key) => key.startsWith("images.")),
+      ["images.image0"],
+    );
+  });
+
   it("returns the random seed it ran with, matching the submitted graph", async () => {
     const random = await post({ workflow: "klein_t2i", prompt: "a lamp" });
     assert.equal(random.status, 202);
