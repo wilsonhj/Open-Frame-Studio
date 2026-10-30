@@ -1,0 +1,10 @@
+#!/bin/sh
+# Refuses a commit made with a personal email (CLAUDE.md, "Commit identity").
+# Install: git config core.hooksPath scripts/hooks
+email=$(git config user.email)
+case "$email" in
+  *@users.noreply.github.com) exit 0 ;;
+esac
+echo "pre-commit: user.email is '$email', not a GitHub noreply address." >&2
+echo "Run: git config user.email 39320700+wilsonhj@users.noreply.github.com" >&2
+exit 1
