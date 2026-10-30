@@ -3,7 +3,7 @@
  * `${DATA_DIR:-.data}/runs/<runId>.json`, written temp + fsync + rename
  * through a per-run write queue. Step files live in `runs/<runId>/files/<stepId>/<name>`.
  */
-import { mkdir, open, readFile, readdir, rename } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { PipelineRun } from "./types.ts";
@@ -70,9 +70,12 @@ export function saveRun(run: PipelineRun): Promise<void> {
       await writeAtomic(runPath(id), json);
     });
   queues.set(id, next);
-  void next.finally(() => {
+  // Clean up on success and failure alike; the caller handles the rejection,
+  // so this side chain must not raise a second (unhandled) one.
+  const cleanup = () => {
     if (queues.get(id) === next) queues.delete(id);
-  });
+  };
+  void next.then(cleanup, cleanup);
   return next;
 }
 
@@ -100,6 +103,12 @@ export async function writeRunFile(id: string, rel: string, bytes: Uint8Array): 
   await mkdir(dirname(path), { recursive: true });
   await writeAtomic(path, bytes);
   return path;
+}
+
+/** Remove a run's files directory (a run that never got its JSON written). */
+export async function removeRunFiles(id: string): Promise<void> {
+  if (!isRunId(id)) return;
+  await rm(join(runsDir(), id), { recursive: true, force: true }).catch(() => undefined);
 }
 
 export async function readRunFile(id: string, rel: string): Promise<Uint8Array | null> {

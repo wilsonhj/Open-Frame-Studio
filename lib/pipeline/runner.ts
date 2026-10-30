@@ -9,9 +9,9 @@ import type { Comfy } from "@comfyorg/sdk";
 import { applyBindings } from "../bindings/apply.ts";
 import { getBinding } from "../bindings/index.ts";
 import { prepareGraph } from "../bindings/prepare.ts";
-import { SubmitAmbiguousError, SubmitRejectedError, apiOrigin, createClient, fetchOutput, loadGraph, pollJob, requestCancel, submitOnce } from "../comfy.ts";
+import { ComfyNotConfiguredError, SubmitAmbiguousError, SubmitRejectedError, apiOrigin, createClient, fetchOutput, getJob, loadGraph, pollJob, requestCancel, submitOnce } from "../comfy.ts";
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, verifyImageBytes } from "../inputs.ts";
-import { listRunIds, loadRun, readRunFile, saveRun, writeRunFile } from "../store.ts";
+import { listRunIds, loadRun, readRunFile, removeRunFiles, saveRun, writeRunFile } from "../store.ts";
 import type { CodePipelineStep, ComfyPipelineStep, GraphValue, ImageRef, JobErrorInfo, OutputRef, PipelineKind, PipelineRun, PipelineStep, StepInputRef } from "../types.ts";
 import { RUN_SCHEMA, SUBMIT_UNCONFIRMED, TERMINAL_STEP_STATUSES } from "../types.ts";
 import { getPipeline } from "./kinds.ts";
@@ -136,7 +136,9 @@ async function readBytes(run: PipelineRun, source: ByteSource | ImageRef, signal
   const resolved = new URL(url, apiOrigin());
   const key = process.env.COMFY_API_KEY?.trim();
   const auth = key && resolved.origin === apiOrigin() ? { headers: { "X-API-Key": key, Authorization: `Bearer ${key}` } } : undefined;
-  const res = await fetch(resolved, { ...auth, signal });
+  // A credentialed request never follows a redirect: undici would carry the
+  // custom X-API-Key header to another origin.
+  const res = await fetch(resolved, { ...auth, signal, redirect: auth ? "error" : "follow" });
   if (!res.ok) throw new Error(`Asset download failed with HTTP ${res.status}.`);
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -153,8 +155,11 @@ function runIo(run: PipelineRun, signal: AbortSignal): RunIo {
 // Create
 // ---------------------------------------------------------------------------
 
+/** Most distinct file parts one create request may upload. */
+export const MAX_UPLOAD_PARTS = 8;
+
 /** Names of every `{ upload: name }` reference in a request. */
-function uploadNames(value: unknown): string[] {
+export function uploadNames(value: unknown): string[] {
   if (Array.isArray(value)) return value.flatMap(uploadNames);
   if (!value || typeof value !== "object") return [];
   const rec = value as Record<string, unknown>;
@@ -181,7 +186,13 @@ async function rewriteUploads(value: unknown, upload: (name: string) => Promise<
   return value;
 }
 
-export type CreateResult = { ok: true; run: PipelineRun } | { ok: false; status: 400 | 404 | 500; error: string; field?: string };
+/**
+ * `assetsCreated`: uploads reached Comfy before the run was refused, so the
+ * caller must not refund the submit slot (or refusals become free uploads).
+ */
+export type CreateResult =
+  | { ok: true; run: PipelineRun }
+  | { ok: false; status: 400 | 404 | 500 | 502 | 503; error: string; field?: string; assetsCreated?: boolean };
 
 /** plan() errors: SoulNotFoundError → 404 identityId; `{ status: 400|404, field }` → that; else 500. */
 function planError(e: unknown): CreateResult {
@@ -197,13 +208,16 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
   if (!def) return { ok: false, status: 404, error: `Unknown pipeline kind "${kind}".` };
   const checked = def.validate(raw);
   if (!checked.ok) return { ok: false, status: 400, error: checked.error, field: checked.field };
-  const runId = crypto.randomUUID();
-  const run = { schema: RUN_SCHEMA, id: runId, kind: def.kind, status: "pending", createdAt: now(), updatedAt: now(), timeoutMs: 0, progress: 0, steps: [], request: null, result: null, error: null } as unknown as PipelineRun;
-  // Every referenced upload must be a real PNG/JPEG/WebP under 20 MB (the
-  // /api/jobs rules) before any asset is created or job submitted.
-  for (const name of uploadNames(checked.value)) {
+  // Check every referenced part before anything is uploaded: present, at most
+  // MAX_UPLOAD_PARTS distinct parts, and a real PNG/JPEG/WebP under 20 MB
+  // (the /api/jobs rules).
+  const names = [...new Set(uploadNames(checked.value))];
+  if (names.length > MAX_UPLOAD_PARTS || uploads.size > MAX_UPLOAD_PARTS) {
+    return { ok: false, status: 400, error: `At most ${MAX_UPLOAD_PARTS} files per request.`, field: "" };
+  }
+  for (const name of names) {
     const part = uploads.get(name);
-    if (!part) continue;
+    if (!part) return { ok: false, status: 400, error: `Missing file part "${name}".`, field: name };
     const bad = uploadProblem(name, part);
     if (bad) return { ok: false, status: 400, error: bad, field: name };
     try {
@@ -212,25 +226,39 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
       return { ok: false, status: 400, error: e instanceof Error ? e.message : String(e), field: name };
     }
   }
-  let missing: string | null = null;
-  const request = await rewriteUploads(checked.value, async (name) => {
-    const part = uploads.get(name);
-    if (!part) {
-      missing = name;
-      return "";
-    }
-    return uploadAsset(run, part.bytes, part.filename, part.contentType);
-  });
-  if (missing) return { ok: false, status: 400, error: `Missing file part "${missing}".`, field: missing };
-  run.request = request as PipelineRun["request"];
+  const runId = crypto.randomUUID();
+  const run = { schema: RUN_SCHEMA, id: runId, kind: def.kind, status: "pending", createdAt: now(), updatedAt: now(), timeoutMs: 0, progress: 0, steps: [], request: null, result: null, error: null } as unknown as PipelineRun;
+  // Each distinct part is uploaded once, however many times it is referenced.
+  const assetIds = new Map<string, Promise<string>>();
+  let committed = 0;
+  const refuse = async (result: Extract<CreateResult, { ok: false }>): Promise<CreateResult> => {
+    // Nothing references the files of a run that was never saved.
+    await removeRunFiles(runId);
+    return committed > 0 ? { ...result, assetsCreated: true } : result;
+  };
   try {
-    run.steps = await (def.plan as (r: unknown, c: PlanContext) => Promise<PipelineStep[]>)(request, planContext(runId));
+    const request = await rewriteUploads(checked.value, (name) => {
+      let id = assetIds.get(name);
+      if (!id) {
+        const part = uploads.get(name)!;
+        id = uploadAsset(run, part.bytes, part.filename, part.contentType).then((assetId) => (committed++, assetId));
+        assetIds.set(name, id);
+      }
+      return id;
+    });
+    run.request = request as PipelineRun["request"];
+    try {
+      run.steps = await (def.plan as (r: unknown, c: PlanContext) => Promise<PipelineStep[]>)(request, planContext(runId));
+    } catch (e) {
+      return refuse(planError(e) as Extract<CreateResult, { ok: false }>);
+    }
+    run.timeoutMs = run.steps.reduce((sum, s) => sum + s.timeoutMs, 0);
+    run.status = "running";
+    await persist(run);
   } catch (e) {
-    return planError(e);
+    if (e instanceof ComfyNotConfiguredError) return refuse({ ok: false, status: 503, error: e.message });
+    return refuse({ ok: false, status: 502, error: e instanceof Error ? e.message : "Unable to start run." });
   }
-  run.timeoutMs = run.steps.reduce((sum, s) => sum + s.timeoutMs, 0);
-  run.status = "running";
-  await persist(run);
   schedule(def, run);
   return { ok: true, run };
 }
@@ -300,7 +328,21 @@ export function whenIdle(runId: string): Promise<void> {
   return rt.active.get(runId) ?? Promise.resolve();
 }
 
+/** A pending step whose dependencies all succeeded (a replan may add one late). */
+const hasReady = (run: PipelineRun) =>
+  run.steps.some((s) => s.status === "pending" && s.dependsOn.every((d) => run.steps.find((x) => x.id === d)?.status === "succeeded"));
+
 async function drive(def: Def, run: PipelineRun): Promise<void> {
+  for (;;) {
+    await driveSteps(def, run);
+    // A replan that landed while the loop was winding down: run it now rather
+    // than marking its steps skipped below.
+    if (!run.cancelRequested && hasReady(run)) continue;
+    if (await finishRun(def, run)) return;
+  }
+}
+
+async function driveSteps(def: Def, run: PipelineRun): Promise<void> {
   const inflight = new Map<string, Promise<void>>();
   for (;;) {
     if (run.cancelRequested) break;
@@ -335,6 +377,10 @@ async function drive(def: Def, run: PipelineRun): Promise<void> {
     rt.wakers.delete(run.id);
   }
   await Promise.allSettled(inflight.values());
+}
+
+/** Close a run (status, result, persist); false when a late replan reopened it. */
+async function finishRun(def: Def, run: PipelineRun): Promise<boolean> {
   for (const s of run.steps) {
     // A cancel persisted before a restart: steps that reached Comfy are asked
     // to stop upstream, not just marked canceled locally.
@@ -358,7 +404,13 @@ async function drive(def: Def, run: PipelineRun): Promise<void> {
     run.error = errInfo("build_result_failed", e);
     if (run.status === "succeeded") run.status = "partial";
   }
+  if (!run.cancelRequested && hasReady(run)) {
+    run.status = "running";
+    run.result = null;
+    return false;
+  }
   await persist(run);
+  return true;
 }
 
 async function startStep(run: PipelineRun, step: PipelineStep): Promise<void> {
@@ -457,6 +509,32 @@ async function cancelUpstream(run: PipelineRun, step: ComfyPipelineStep): Promis
   return persist(run);
 }
 
+/** Wait `ms`, or less if `signal` aborts (never rejects). */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** Download one output, retrying transient failures a few times within the step deadline. */
+async function downloadOutput(c: Comfy, jobId: string, outputId: string, step: PipelineStep, signal?: AbortSignal): Promise<Uint8Array> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return new Uint8Array(await (await fetchOutput(c, jobId, outputId)).arrayBuffer());
+    } catch (e) {
+      if (attempt >= 4 || signal?.aborted || Date.parse(step.deadlineAt ?? now()) - Date.now() <= 0) throw e;
+      await pause(Math.min(500 * 2 ** (attempt - 1), remaining(step)), signal);
+    }
+  }
+}
+
 async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void> {
   const c = client();
   if (!step.jobId) {
@@ -474,7 +552,9 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
       return (finish(step, "failed", errInfo("input_missing", e)), persist(run));
     }
     const graph = applyBindings(prepareGraph(step.workflow, await loadGraph(step.workflow), values), binding, values);
-    if (run.cancelRequested) return (finish(step, "canceled"), persist(run));
+    // A step that already sent a submit may have created (and billed) a job:
+    // cancelUpstream records that, instead of a bare "canceled".
+    if (run.cancelRequested) return step.submission ? cancelUpstream(run, step) : (finish(step, "canceled"), persist(run));
     await startStep(run, step);
     step.submission = step.submission
       ? { ...step.submission, attempts: step.submission.attempts + 1 }
@@ -496,30 +576,56 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
       if (e instanceof SubmitAmbiguousError) {
         step.submission.lastError = errInfo("submit_ambiguous", e);
         await persist(run);
-        await new Promise((r) => setTimeout(r, 1000 * step.submission!.attempts));
+        await pause(1000 * step.submission!.attempts, runSignal(run));
+        if (run.cancelRequested) return cancelUpstream(run, step);
         return runComfy(run, step);
       }
       throw e;
     }
   }
+  // The job exists (and is billed) from here on. A failed poll or download is
+  // transient: keep trying until the step deadline, never resubmit, and never
+  // end the step "failed" while the job may still be live.
   let job;
-  try {
-    job = await pollJob(c, step.jobId!, {
-      timeoutMs: remaining(step),
-      signal: runSignal(run),
-      onUpdate: (j) => {
-        if (j.status === "running" || j.status === "queued") step.status = j.status;
-      },
-    });
-  } catch (e) {
-    if (!run.cancelRequested) throw e;
-    return cancelUpstream(run, step);
+  for (let backoff = 500; ; backoff = Math.min(backoff * 2, 10_000)) {
+    try {
+      job = await pollJob(c, step.jobId!, {
+        timeoutMs: remaining(step),
+        signal: runSignal(run),
+        onUpdate: (j) => {
+          if (j.status === "running" || j.status === "queued") step.status = j.status;
+        },
+      });
+      break;
+    } catch (e) {
+      if (run.cancelRequested) return cancelUpstream(run, step);
+      if (Date.parse(step.deadlineAt ?? now()) - Date.now() <= 0) {
+        // Out of budget: one last look, then ask Comfy to stop the job.
+        const last = await getJob(c, step.jobId!).catch(() => null);
+        if (last?.status === "succeeded") {
+          job = last;
+          break;
+        }
+        const cancel = await requestCancel(c, step.jobId!);
+        const outcome = cancel.outcome === "cancel_failed" ? `failed (${cancel.error}); the job may still run` : cancel.outcome === "canceled" ? "done" : "requested";
+        const message = `Polling Comfy kept failing (${e instanceof Error ? e.message : String(e)}) until the step deadline; cancel ${outcome}.`;
+        return (finish(step, "timed_out", { code: "poll_failed", message }), persist(run));
+      }
+      await pause(Math.min(backoff, remaining(step)), runSignal(run));
+    }
   }
   if (job.error?.code === "poll_timeout") return (finish(step, "timed_out", job.error), persist(run));
   if (job.status !== "succeeded") return (finish(step, job.status === "unknown" ? "failed" : job.status, job.error), persist(run));
   const outputs: OutputRef[] = [];
   for (const [i, out] of job.outputs.entries()) {
-    const bytes = new Uint8Array(await (await fetchOutput(c, job.id, out.id)).arrayBuffer());
+    let bytes: Uint8Array;
+    try {
+      bytes = await downloadOutput(c, job.id, out.id, step, runSignal(run));
+    } catch (e) {
+      // The job succeeded upstream; say so, so nobody pays for it twice blindly.
+      const message = `Comfy finished job ${job.id}, but downloading its output failed: ${e instanceof Error ? e.message : String(e)}`;
+      return (finish(step, "failed", { code: "output_download_failed", message }), persist(run));
+    }
     const rel = `${seg(step.id)}/${i}${extFor(out.contentType)}`;
     await writeRunFile(run.id, rel, bytes);
     outputs.push({ ...out, sizeBytes: bytes.byteLength, url: fileUrl(run, rel) });
@@ -539,11 +645,21 @@ const RUN_DONE = new Set(["succeeded", "partial", "failed", "canceled"]);
 export async function getRun(id: string): Promise<PipelineRun | null> {
   void resumeRuns();
   const run = await currentRun(id);
-  if (run && !RUN_DONE.has(run.status) && !rt.active.has(id)) {
-    const def = definitionFor(run.kind);
-    if (def) void schedule(def, run);
-  }
-  return run;
+  if (!run || RUN_DONE.has(run.status) || rt.active.has(id) || !definitionFor(run.kind)) return run;
+  return resumeOne(id);
+}
+
+/**
+ * Schedule a stored, non-terminal run under the run lock, re-reading it there,
+ * so a resuming GET and a concurrent cancel or action share one run object.
+ */
+function resumeOne(id: string): Promise<PipelineRun | null> {
+  return withRunLock(id, async () => {
+    const run = await currentRun(id);
+    const def = run && definitionFor(run.kind);
+    if (run && def && !RUN_DONE.has(run.status) && !rt.active.has(id)) void schedule(def, run);
+    return rt.live.get(id) ?? run;
+  });
 }
 
 /** Best effort: reconcile every non-terminal run in the store (once per process). */
@@ -552,9 +668,7 @@ export async function resumeRuns(): Promise<void> {
   rt.resumed = true;
   for (const id of await listRunIds()) {
     if (rt.active.has(id)) continue;
-    const run = await loadRun(id).catch(() => null);
-    const def = run && definitionFor(run.kind);
-    if (run && def && !RUN_DONE.has(run.status)) void schedule(def, run);
+    await resumeOne(id).catch(() => null);
   }
 }
 
@@ -569,7 +683,10 @@ function matchPath(pattern: string, segments: string[]): Record<string, string> 
   return params;
 }
 
-export type ActionOutcome = Exclude<ActionResult, { type: "replan" }> | { type: "run"; run: PipelineRun };
+export type ActionOutcome =
+  | Exclude<ActionResult, { type: "replan" }>
+  | { type: "run"; run: PipelineRun }
+  | { type: "error"; status: 405; error: string };
 
 export async function runAction(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown): Promise<ActionOutcome> {
   return withRunLock(runId, () => actionLocked(kind, runId, method, segments, body));
@@ -587,7 +704,18 @@ async function actionLocked(kind: PipelineKind | string, runId: string, method: 
     rt.aborts.get(run.id)?.abort(new Error("Run canceled."));
     await persist(run);
     if (!rt.active.has(run.id)) void schedule(def, run);
-    return { type: "run", run };
+    // Defensive: resumes take the run lock, so the live object should be `run`.
+    const live = rt.live.get(run.id);
+    if (live && live !== run) {
+      live.cancelRequested = true;
+      rt.aborts.get(run.id)?.abort(new Error("Run canceled."));
+      await persist(live);
+    }
+    return { type: "run", run: live ?? run };
+  }
+  // A replan while a cancel winds down would be swept up by the cancel.
+  if (run.cancelRequested && rt.active.has(run.id)) {
+    return { type: "error", status: 409, error: "The run is being canceled; try again when it has stopped." };
   }
   for (const action of Object.values(def.actions ?? {})) {
     const params = action.method === method ? matchPath(action.path, segments) : null;
@@ -598,6 +726,8 @@ async function actionLocked(kind: PipelineKind | string, runId: string, method: 
     const ctx = { ...runIo(snapshot, AbortSignal.timeout(300_000)), run: snapshot, params, body, plan: planContext(run.id) };
     const result = await (action.run as (c: unknown) => Promise<ActionResult>)(ctx);
     if (result.type !== "replan") return result;
+    // GET actions are reads (served without the submit gate): they never bill.
+    if (method === "GET") return { type: "error", status: 405, error: "A GET action cannot start new work." };
     const target = (await currentRun(runId)) ?? run;
     const conflict = mergeReplan(target, result.steps);
     if (conflict) return { type: "error", status: 409, error: conflict };

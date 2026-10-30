@@ -44,6 +44,7 @@ export function validatePhotoshoot(raw: unknown): ValidateResult<PhotoshootReque
   const template = MODE_TEMPLATES[r.mode];
 
   if (!Array.isArray(r.images) || r.images.length === 0) return fail("a product image is required", "images");
+  if (r.images.length > 6) return fail("at most 6 product images", "images");
   for (let i = 0; i < r.images.length; i++) {
     if (!isImageRef(r.images[i])) return fail("expected { upload } or { assetId }", `images[${i}]`);
   }
