@@ -11,16 +11,17 @@ export const runtime = "nodejs";
 
 /**
  * GET /api/jobs/:handle/outputs/:outputId -> streams the output bytes.
- * Re-hosts the short-lived signed URL so the browser never sees it. Only the
- * submitting session can read it, and only media types are served inline
+ * Re-hosts the short-lived signed URL so the browser never sees it. Only a
+ * holder of the signed job handle can read it, and only media types are served inline
  * (see outputResponseHeaders).
  */
-export async function GET(request: Request, { params }: { params: Promise<{ id: string; outputId: string }> }) {
+export async function GET(_: Request, { params }: { params: Promise<{ id: string; outputId: string }> }) {
   try {
     const { id, outputId } = await params;
-    const handle = readJobHandle(request, id);
+    const handle = readJobHandle(id);
+    const binding = getBinding(handle.workflow);
     const output = await fetchOutput(createClient(), handle.jobId, outputId, {
-      outputNodes: getBinding(handle.workflow)?.outputNodes,
+      outputNodes: binding ? Object.values(binding.outputs) : undefined,
     });
     return new Response(output.body, { headers: output.headers });
   } catch (error) {

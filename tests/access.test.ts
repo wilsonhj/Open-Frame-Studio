@@ -3,10 +3,9 @@ import { beforeEach, describe, it } from "node:test";
 
 import {
   AccessError,
-  SESSION_COOKIE,
   assertMaySubmit,
+  clientIp,
   createJobHandle,
-  ensureSession,
   readJobHandle,
   resetRateLimits,
 } from "../lib/access.ts";
@@ -15,10 +14,6 @@ const env = process.env as Record<string, string | undefined>;
 
 function request(headers: Record<string, string> = {}) {
   return new Request("http://localhost/api/jobs", { headers });
-}
-
-function withCookie(sid: string, ip = "203.0.113.7") {
-  return request({ cookie: `other=1; ${SESSION_COOKIE}=${sid}`, "x-forwarded-for": `${ip}, 10.0.0.1` });
 }
 
 function expectAccess(fn: () => unknown, status: number, code: string) {
@@ -32,40 +27,33 @@ function expectAccess(fn: () => unknown, status: number, code: string) {
 
 beforeEach(() => {
   resetRateLimits();
-  delete env.STUDIO_ACCESS_CODE;
-  delete env.ALLOW_PUBLIC_SUBMIT;
-  delete env.SUBMITS_PER_HOUR_PER_IP;
-  delete env.SUBMITS_PER_HOUR;
+  for (const name of ["STUDIO_ACCESS_CODE", "ALLOW_PUBLIC_SUBMIT", "SUBMITS_PER_HOUR_PER_IP", "SUBMITS_PER_HOUR", "TRUSTED_PROXY_HOPS"]) {
+    delete env[name];
+  }
   env.NODE_ENV = "test";
-  env.SESSION_SECRET = "test-secret";
+  env.HANDLE_SECRET = "test-secret";
 });
 
 describe("job handles", () => {
-  it("round-trips for the submitting session only", () => {
-    const { sid, setCookie } = ensureSession(request());
-    assert.match(setCookie ?? "", /HttpOnly/);
-    const handle = createJobHandle(sid, { workflow: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
-    assert.deepEqual(readJobHandle(withCookie(sid), handle), {
-      workflow: "image_resize_smoke",
-      submittedAt: 1_700_000_000_000,
-      jobId: "j.1",
-    });
-    const other = ensureSession(request()).sid;
-    expectAccess(() => readJobHandle(withCookie(other), handle), 404, "job_not_found");
-    expectAccess(() => readJobHandle(request(), handle), 404, "job_not_found");
+  it("round-trip without any cookie, so concurrent first submits can't strand each other", () => {
+    const a = createJobHandle({ workflow: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
+    const b = createJobHandle({ workflow: "image_resize_smoke", submittedAt: 1_700_000_000_001, jobId: "j-2" });
+    assert.deepEqual(readJobHandle(a), { workflow: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
+    assert.equal(readJobHandle(b).jobId, "j-2");
   });
 
-  it("rejects raw ids and tampered handles", () => {
-    const { sid } = ensureSession(request());
-    const handle = createJobHandle(sid, { workflow: "image_resize_smoke", submittedAt: 1, jobId: "abc" });
-    expectAccess(() => readJobHandle(withCookie(sid), "abc"), 404, "job_not_found");
-    expectAccess(() => readJobHandle(withCookie(sid), handle.replace(".abc.", ".abd.")), 404, "job_not_found");
-    expectAccess(() => readJobHandle(withCookie(sid), handle.replace(".1.", ".0.")), 404, "job_not_found");
+  it("rejects raw ids, tampered handles and handles signed with another secret", () => {
+    const handle = createJobHandle({ workflow: "image_resize_smoke", submittedAt: 1, jobId: "abc" });
+    expectAccess(() => readJobHandle("abc"), 404, "job_not_found");
+    expectAccess(() => readJobHandle(handle.replace(".abc.", ".abd.")), 404, "job_not_found");
+    expectAccess(() => readJobHandle(handle.replace(".1.", ".0.")), 404, "job_not_found");
+    env.HANDLE_SECRET = "rotated";
+    expectAccess(() => readJobHandle(handle), 404, "job_not_found");
   });
 
-  it("requires SESSION_SECRET in production", () => {
+  it("requires HANDLE_SECRET in production, before anything is billed", () => {
     env.NODE_ENV = "production";
-    delete env.SESSION_SECRET;
+    delete env.HANDLE_SECRET;
     env.STUDIO_ACCESS_CODE = "code";
     expectAccess(() => assertMaySubmit(request(), "code"), 503, "not_configured");
   });
@@ -86,14 +74,33 @@ describe("submit gate", () => {
     assertMaySubmit(request(), null);
   });
 
-  it("rate-limits per IP and globally", () => {
+  it("trusts X-Forwarded-For only for the configured proxy hops", () => {
+    const spoofed = request({ "x-forwarded-for": "1.2.3.4, 198.51.100.9" });
+    assert.equal(clientIp(spoofed), null, "no trusted proxies: headers are ignored");
+    env.TRUSTED_PROXY_HOPS = "1";
+    assert.equal(clientIp(spoofed), "198.51.100.9", "the entry our proxy appended, not the client-written one");
+    env.TRUSTED_PROXY_HOPS = "2";
+    assert.equal(clientIp(spoofed), "1.2.3.4");
+    assert.equal(clientIp(request()), null);
+  });
+
+  it("rate-limits per trusted IP and globally; rotating spoofed headers doesn't help", () => {
     env.SUBMITS_PER_HOUR_PER_IP = "2";
     env.SUBMITS_PER_HOUR = "3";
-    const from = (ip: string) => request({ "x-forwarded-for": ip });
-    assertMaySubmit(from("198.51.100.1"), null);
-    assertMaySubmit(from("198.51.100.1"), null);
-    expectAccess(() => assertMaySubmit(from("198.51.100.1"), null), 429, "rate_limited");
-    assertMaySubmit(from("198.51.100.2"), null);
-    expectAccess(() => assertMaySubmit(from("198.51.100.3"), null), 429, "rate_limited");
+    env.TRUSTED_PROXY_HOPS = "1";
+    const from = (spoof: string, ip: string) => request({ "x-forwarded-for": `${spoof}, ${ip}` });
+    assertMaySubmit(from("9.9.9.1", "198.51.100.1"), null);
+    assertMaySubmit(from("9.9.9.2", "198.51.100.1"), null);
+    expectAccess(() => assertMaySubmit(from("9.9.9.3", "198.51.100.1"), null), 429, "rate_limited");
+    assertMaySubmit(from("9.9.9.4", "198.51.100.2"), null);
+    expectAccess(() => assertMaySubmit(from("9.9.9.5", "198.51.100.3"), null), 429, "rate_limited");
+  });
+
+  it("without trusted proxies, only the global limit applies", () => {
+    env.SUBMITS_PER_HOUR_PER_IP = "1";
+    env.SUBMITS_PER_HOUR = "2";
+    assertMaySubmit(request({ "x-forwarded-for": "1.1.1.1" }), null);
+    assertMaySubmit(request({ "x-forwarded-for": "1.1.1.1" }), null);
+    expectAccess(() => assertMaySubmit(request(), null), 429, "rate_limited");
   });
 });

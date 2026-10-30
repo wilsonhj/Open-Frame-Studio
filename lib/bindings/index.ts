@@ -1,31 +1,27 @@
 /**
- * Binding registry: which workflows the generic /api/jobs route may run, and
- * how user inputs map onto API-format node ids / fields.
+ * Binding registry: every workflow in `workflows/` and how its logical inputs
+ * map onto API-format node ids / fields (one GraphBinding per workflow).
  *
  * Pattern adapted from comfy-openjutsu's typed node maps. Only workflows
  * registered here can be submitted (this also prevents path traversal).
  */
-import type { WorkflowBinding } from "../types.ts";
+import type { GraphBinding, WorkflowName } from "../types.ts";
+import { cutout } from "./cutout.ts";
+import { h3R2v } from "./h3_r2v.ts";
+import { imageResizeSmoke } from "./image_resize_smoke.ts";
+import { kleinEditMultiref } from "./klein_edit_multiref.ts";
+import { kleinT2i } from "./klein_t2i.ts";
+import { upscale } from "./upscale.ts";
 
-export const BINDINGS: Record<string, WorkflowBinding> = {
-  image_resize_smoke: {
-    workflow: "image_resize_smoke",
-    description: "Plumbing smoke test: LoadImage -> ImageScaleBy -> SaveImage.",
-    inputs: {
-      image: { node: "1", field: "image", kind: "image", required: true },
-      scale: { node: "2", field: "scale_by", kind: "number", default: 0.5, min: 0.05, max: 2 },
-      method: {
-        node: "2",
-        field: "upscale_method",
-        kind: "choice",
-        default: "lanczos",
-        choices: ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"],
-      },
-    },
-    outputNodes: ["3"],
-  },
+export const BINDINGS: Record<WorkflowName, GraphBinding> = {
+  image_resize_smoke: imageResizeSmoke,
+  klein_edit_multiref: kleinEditMultiref,
+  klein_t2i: kleinT2i,
+  cutout,
+  upscale,
+  h3_r2v: h3R2v,
 };
 
-export function getBinding(name: string): WorkflowBinding | undefined {
-  return Object.hasOwn(BINDINGS, name) ? BINDINGS[name] : undefined;
+export function getBinding(name: string): GraphBinding | undefined {
+  return Object.hasOwn(BINDINGS, name) ? BINDINGS[name as WorkflowName] : undefined;
 }

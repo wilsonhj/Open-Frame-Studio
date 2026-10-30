@@ -1,0 +1,206 @@
+/**
+ * Server-owned deadlines for single-shot `/api/jobs` submissions.
+ *
+ * A billing guard must not depend on a browser still polling: a tab can
+ * close, reload or lose the network while its job keeps running. So every
+ * accepted submit is recorded at `${DATA_DIR:-.data}/jobs/<key>.json` with
+ * its deadline, and `reconcileJobs()` (started from instrumentation.ts, and
+ * run opportunistically by the job routes) cancels overdue jobs until Comfy
+ * reports them terminal. A record is deleted only once its job is terminal
+ * (or Comfy no longer knows it).
+ *
+ * Needs a long-running Node server (`next start`, self-hosting). On a
+ * serverless host the interval doesn't run between requests and the file
+ * system may be read-only; enforcement then happens only when a job route is
+ * hit, so keep STUDIO_ACCESS_CODE on there.
+ */
+import "server-only";
+
+import { createHash } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import type { Comfy } from "@comfyorg/sdk";
+
+import { createClient, getJob, requestCancel, type CancelOutcome } from "./comfy.ts";
+
+export const JOB_RECORD_SCHEMA = "open-frame-studio/job-deadline@1" as const;
+
+/** Default per-job budget for `/api/jobs` (override with JOB_DEADLINE_MS). */
+export function jobBudgetMs(): number {
+  const value = Number(process.env.JOB_DEADLINE_MS);
+  return Number.isInteger(value) && value > 0 ? value : 15 * 60_000;
+}
+
+/** Don't hammer Comfy with cancels for the same job. */
+const CANCEL_RETRY_MS = 30_000;
+/** Stop tracking a job that is still live this long after its deadline (logged). */
+const GIVE_UP_AFTER_MS = 24 * 60 * 60_000;
+const SWEEP_INTERVAL_MS = 60_000;
+
+export type JobRecord = {
+  schema: typeof JOB_RECORD_SCHEMA;
+  jobId: string;
+  workflow: string;
+  /** Epoch ms. */
+  submittedAt: number;
+  deadlineAt: number;
+  cancel?: { outcome: CancelOutcome; attempts: number; lastAttemptAt: number; error?: string };
+};
+
+function jobsDir(): string {
+  return join(process.env.DATA_DIR?.trim() || ".data", "jobs");
+}
+
+function recordPath(jobId: string): string {
+  // Hash the id: it comes from Comfy and must not shape a path.
+  return join(jobsDir(), `${createHash("sha256").update(jobId).digest("hex").slice(0, 32)}.json`);
+}
+
+async function writeRecord(record: JobRecord): Promise<void> {
+  await mkdir(jobsDir(), { recursive: true });
+  const path = recordPath(record.jobId);
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(record));
+  await rename(tmp, path);
+}
+
+async function readRecord(jobId: string): Promise<JobRecord | null> {
+  try {
+    return JSON.parse(await readFile(recordPath(jobId), "utf-8")) as JobRecord;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist a just-accepted job's deadline. Failure to persist is logged, not
+ * thrown: the job is already billed, so the caller must still get its handle.
+ */
+export async function recordJob(jobId: string, workflow: string, submittedAt: number): Promise<void> {
+  try {
+    await writeRecord({ schema: JOB_RECORD_SCHEMA, jobId, workflow, submittedAt, deadlineAt: submittedAt + jobBudgetMs() });
+  } catch (error) {
+    console.error("[job-deadlines] could not persist deadline; enforced only while polled:", error);
+  }
+}
+
+// In-memory throttle, so polls without a persisted record still don't spam cancels.
+const lastCancelAt = new Map<string, number>();
+
+/**
+ * Enforce one job's deadline: if it is overdue and still live, request a
+ * cancel (throttled) and persist the outcome. Returns null when there is
+ * nothing to do (not overdue, or a cancel was attempted recently).
+ */
+export async function enforceDeadline(
+  client: Comfy,
+  jobId: string,
+  deadlineAt: number,
+  now = Date.now(),
+): Promise<CancelOutcome | null> {
+  if (now <= deadlineAt) return null;
+  const record = await readRecord(jobId);
+  const last = Math.max(lastCancelAt.get(jobId) ?? 0, record?.cancel?.lastAttemptAt ?? 0);
+  if (now - last < CANCEL_RETRY_MS) return record?.cancel?.outcome ?? "cancel_requested";
+  lastCancelAt.set(jobId, now);
+  const result = await requestCancel(client, jobId);
+  if (record) {
+    record.cancel = {
+      outcome: result.outcome,
+      attempts: (record.cancel?.attempts ?? 0) + 1,
+      lastAttemptAt: now,
+      ...(result.error ? { error: result.error } : {}),
+    };
+    if (result.outcome === "canceled") await forgetJob(jobId);
+    else await writeRecord(record).catch(() => undefined);
+  }
+  return result.outcome;
+}
+
+export async function forgetJob(jobId: string): Promise<void> {
+  lastCancelAt.delete(jobId);
+  await rm(recordPath(jobId), { force: true });
+}
+
+/**
+ * One sweep over every recorded job: drop terminal ones, cancel overdue live
+ * ones. Never throws; returns what it did (for tests and logs).
+ */
+export async function reconcileJobs(
+  client: Comfy,
+  now = Date.now(),
+): Promise<{ checked: number; forgotten: number; cancelRequests: number }> {
+  const summary = { checked: 0, forgotten: 0, cancelRequests: 0 };
+  let names: string[];
+  try {
+    names = (await readdir(jobsDir())).filter((name) => name.endsWith(".json"));
+  } catch {
+    return summary;
+  }
+  for (const name of names) {
+    let record: JobRecord;
+    try {
+      record = JSON.parse(await readFile(join(jobsDir(), name), "utf-8")) as JobRecord;
+    } catch {
+      continue;
+    }
+    summary.checked += 1;
+    try {
+      const job = await getJob(client, record.jobId);
+      if (job.terminal) {
+        await forgetJob(record.jobId);
+        summary.forgotten += 1;
+        continue;
+      }
+    } catch (error) {
+      // A job Comfy no longer knows can't be billing; anything else, retry next sweep.
+      if ((error as { httpStatus?: number }).httpStatus === 404) {
+        await forgetJob(record.jobId);
+        summary.forgotten += 1;
+      }
+      continue;
+    }
+    if (now - record.deadlineAt > GIVE_UP_AFTER_MS) {
+      console.error(`[job-deadlines] job ${record.jobId} still live a day past its deadline; giving up.`);
+      await forgetJob(record.jobId);
+      summary.forgotten += 1;
+      continue;
+    }
+    const outcome = await enforceDeadline(client, record.jobId, record.deadlineAt, now);
+    if (outcome !== null) summary.cancelRequests += 1;
+  }
+  return summary;
+}
+
+type ReconcilerState = { timer: NodeJS.Timeout | null; running: boolean; lastRunAt: number };
+
+function state(): ReconcilerState {
+  const store = globalThis as typeof globalThis & { __jobReconciler?: ReconcilerState };
+  store.__jobReconciler ??= { timer: null, running: false, lastRunAt: 0 };
+  return store.__jobReconciler;
+}
+
+/** Run a sweep unless one is running or ran within `minGapMs`. */
+export async function sweepJobs(minGapMs = SWEEP_INTERVAL_MS): Promise<void> {
+  const current = state();
+  if (current.running || Date.now() - current.lastRunAt < minGapMs) return;
+  current.running = true;
+  try {
+    await reconcileJobs(createClient());
+  } catch (error) {
+    console.error("[job-deadlines] sweep failed:", error);
+  } finally {
+    current.lastRunAt = Date.now();
+    current.running = false;
+  }
+}
+
+/** Start the periodic sweep once per process (instrumentation.ts). */
+export function startJobReconciler(): void {
+  const current = state();
+  if (current.timer) return;
+  current.timer = setInterval(() => void sweepJobs(0), SWEEP_INTERVAL_MS);
+  current.timer.unref();
+  void sweepJobs(0);
+}
