@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { PipelineRun, PlanContext } from "../../lib/pipeline/types.ts";
+import { humanReason } from "../../lib/photoshoot/copy.ts";
 import { photoshootPipeline, resolveAspect, resolveCount } from "../../lib/photoshoot/pipeline.ts";
 
 const ctx: PlanContext = { runId: "run_1", now: "2026-10-30T00:00:00.000Z", randomSeed: () => 1000 };
@@ -112,6 +113,18 @@ describe("photoshoot plan and result", () => {
     assert.equal(result.items[1].error?.code, "content_moderated");
     assert.ok(result.items[0].variation.preset.length > 0);
     assert.ok(result.notices.some((n) => n.includes("Identity ignored")));
+  });
+
+  it("a frame skipped because the cutout failed says so, not a generic frame error", async () => {
+    const request = { mode: "packshot" as const, prompt: "", images: [{ assetId: "a" }], count: 1 };
+    const steps = await photoshootPipeline.plan(request, ctx);
+    steps[0].status = "failed";
+    steps[0].error = { code: "execution_error", message: "BiRefNet OOM" };
+    steps[1].status = "skipped";
+    const run = { kind: "photoshoot", request, steps } as unknown as PipelineRun<"photoshoot">;
+    const { items } = await photoshootPipeline.buildResult(run);
+    assert.deepEqual(items[0].error, { code: "cutout_failed", message: "BiRefNet OOM" });
+    assert.equal(humanReason(items[0].error), "The product cutout failed, so this frame couldn't start.");
   });
 
   it("retry replans one item with a new seed", async () => {
