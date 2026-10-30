@@ -99,11 +99,13 @@ test.describe("Identity wizard", () => {
     // Covered at unit level on the mock (tests/soul/registry.test.ts "S-R1"); this browser
     // version still needs a consented face set and the Photoshoot/Motion identity slots (D, F).
     // Still blocked (checked 2026-10-30):
-    // - No faces: fixtures/faces/ is not in the repo, and import re-runs photo QA (§6.5), so no
-    //   identity can be created or imported in the browser without E2E_FACES_DIR.
+    // - Create needs >=5 consented/AI faces in E2E_FACES_DIR. fixtures/faces/ is not in the repo.
+    //   Import does not read that directory: it takes a .identity.zip and re-runs photo QA on the
+    //   bundle (§6.5, importBundle in lib/soul/registry.ts). This scenario starts by creating one.
     // - Step 5: Photoshoot ignores identityId ("Identity ignored: product shoots use the product
     //   photo only for now.", lib/photoshoot/pipeline.ts) and its UI has no Identity picker.
-    //   Motion (step 6) does have the picker.
+    // - Step 6: Motion's identity picker is built but hidden. MOTION_IDENTITIES_ENABLED is false
+    //   (lib/motion/options.ts), so /motion shows an upload only and validateMotion refuses identityId.
     // 1. Create an identity (job A: preview). Each ref has sha256.
     // 2. Export .identity.zip: contains identity.json + refs/ref_N.png; no assetIds or Comfy/mock URLs;
     //    every refs[].sha256 matches its PNG.
