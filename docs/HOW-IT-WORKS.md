@@ -26,9 +26,9 @@ Upload a product photo (ideally one with a transparent or plain background). The
 
 ## The other tools
 
-- **Listing gallery and story panels.** Built on the hero: secondary and A+ style panels, some generated with FLUX.2 Klein conditioned on the hero image, some drawn entirely in code, with copy and badges drawn in code and a ZIP export. On Comfy Cloud a 6-image gallery set took about 1 minute and an 8-image story set about 40 seconds, every tile succeeded and the hero passed its checks. The code-drawn panels use the exact cutout; the generated ones can drift from the product's colour and material.
-- **Identity (`/identity`).** Upload photos of one consenting person; YuNet face checks pick the best 3–6 crops, a Klein job renders a preview sheet, and the result exports as a portable `identity.json` bundle. On Comfy Cloud, with a fictional AI-generated person, the preview job took 17.6 seconds and the exported bundle held `identity.json` plus four reference crops. The sharpness check currently rejects photos whose face is smaller than about 450 px, so use close, high-resolution photos.
-- **Motion (`/motion`).** A person still and a product still become one MiniMax H3 reference-to-video clip. Run on Comfy Cloud: a 4-step turbo preview (5 s, 480×864, with audio) took 40 s; the record is in [`fixtures/golden/h3_r2v/run.json`](../fixtures/golden/h3_r2v/run.json).
+- **Listing gallery and story panels.** Built on the hero: secondary and A+ style panels, some generated with FLUX.2 Klein conditioned on the hero image, some drawn entirely in code, with copy and badges drawn in code and a ZIP export. On Comfy Cloud a 6-image gallery set took about 1 minute and an 8-image story set about 40 seconds, every tile succeeded and the hero passed its checks (manual runs on Oct 30; not recorded in the repo). The code-drawn panels use the exact cutout; the generated ones can drift from the product's colour and material.
+- **Identity (`/identity`).** Upload photos of one consenting person; YuNet face checks pick the best 3–6 crops, a Klein job renders a preview sheet, and the result exports as a portable `identity.json` bundle. On Comfy Cloud, with a fictional AI-generated person, the preview job took 17.6 seconds and the exported bundle held `identity.json` plus four reference crops (manual run on Oct 30; not recorded in the repo). The sharpness check currently rejects photos whose face is smaller than about 450 px (observed), so use close, high-resolution photos.
+- **Motion (`/motion`).** A person still and a product still become one MiniMax H3 reference-to-video clip. Its `h3_r2v` graph has run on Comfy Cloud through `scripts/golden-run.mjs`, with two product stills rather than through this page: a 4-step turbo preview (5 s, 480×864, with audio) took 40 s; the record is in [`fixtures/golden/h3_r2v/run.json`](../fixtures/golden/h3_r2v/run.json).
 
 Behavioural specs for all of them are in [`docs/spec/`](spec/).
 
@@ -40,7 +40,7 @@ These are real outputs from the same pipelines on Comfy Cloud: a Listing hero im
 
 ## How a run is executed
 
-A run is a list of steps, planned once by the tool (`lib/photoshoot/pipeline.ts`, `lib/cards/pipeline.ts`) and executed by one runtime (`lib/pipeline/runner.ts`):
+A run is a list of steps, planned once by the tool (`lib/photoshoot/pipeline.ts`, `lib/cards/pipeline.ts`, `lib/soul/pipeline.ts`, `lib/motion/pipeline.ts`) and executed by one runtime (`lib/pipeline/runner.ts`):
 
 - **Durable.** The run, including each Comfy submission's idempotency key, is saved to disk before anything is sent, so a restart resumes the run instead of paying for the same job twice.
 - **Wired by name.** Steps refer to each other's outputs by logical names, never by Comfy node ids. A file produced by a code step is uploaded to Comfy the first time a later step needs it.

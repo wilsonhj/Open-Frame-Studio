@@ -1,6 +1,6 @@
 # Architecture
 
-How the code on `main` works today. The multi-step pipeline runtime and the Product Shoot and Listing Images flows landed with Wave 2; they are summarised in [Wave 2](#wave-2) at the end.
+How the code on `main` works today. All four tools (Identity, Product Shoot, Listing Images and Motion) are built on one multi-step pipeline runtime. The runtime, Product Shoot and the Listing hero landed with Wave 2 (see [Wave 2](#wave-2) at the end); later PRs added the Listing panels, Identity and Motion.
 
 For the HTTP contract, including the planned pipeline routes, see [spec/api.md](spec/api.md). The TypeScript types in `lib/contracts/` are the source of truth.
 
@@ -9,10 +9,13 @@ For the HTTP contract, including the planned pipeline routes, see [spec/api.md](
 | Surface | State |
 |---|---|
 | `/smoke` | Works. Uploads an image, runs `image_resize_smoke` through `/api/jobs`, shows the output. |
-| `/identity` | Intake form only: name, likeness consent, 5–20 photos. The photo picker stays locked until consent is given. The page passes no `onCreate`, so nothing is created or uploaded yet. |
-| `/photoshoot`, `/listing`, `/motion` | Placeholders (`components/coming-soon.tsx`). |
+| `/identity` | Works. Intake (name, likeness consent, 5–20 photos; the picker stays locked until consent is given), YuNet photo checks and reference selection, a preview sheet, and `identity.json` export and import, through `/api/souls/**`. |
+| `/photoshoot` | Works. Product cutout, then FLUX.2 Klein frames across ten shoot modes. Uses the product photo only; an identity is ignored for now. |
+| `/listing` | Works. The compliant white-background hero (checks A1–A7, C3), then gallery and story panels anchored on it, with a ZIP export. |
+| `/motion` | Works. A person still (Picture 1, which can be an identity) and a product still become one MiniMax H3 reference-to-video clip. |
+| `/runs` | Recent runs in this tab. |
 | `/api/jobs` | Single-job API, used by `/smoke`. Described below. |
-| Pipelines | Types and a spec only (`lib/contracts/pipeline.ts`, [spec/api.md §2](spec/api.md)). No routes. |
+| Pipelines | `/api/pipelines/[kind]/**` (create, status, actions, step files) over the registry in `lib/pipeline/kinds.ts`: `identity` (`lib/soul/pipeline.ts`), `photoshoot`, `listing` (`lib/cards/pipeline.ts`) and `motion`. Contract in `lib/contracts/pipeline.ts` and [spec/api.md §2](spec/api.md). |
 
 Product name and surface labels live in `lib/brand.ts`. The package and repository are still called `open-soul-studio`.
 
@@ -83,7 +86,7 @@ A `GraphBinding` maps logical input names to `{node, field}` in an API-format gr
 
 ## Identity consent
 
-`lib/identity/consent.ts` holds the statement the user ticks and `assertIdentityConsent`, which the identity route must call before uploading any photo. The intake form enforces the same rule in the browser: withdrawing consent drops the photos already picked. The identity pipeline route that would call it does not exist yet.
+`lib/identity/consent.ts` holds the statement the user ticks and `assertIdentityConsent`, which the identity route must call before uploading any photo. The intake form enforces the same rule in the browser: withdrawing consent drops the photos already picked. `app/api/souls/route.ts` and `app/api/souls/import/route.ts` call it before accepting photos or a bundle, and `lib/identity/intake.ts` and `lib/soul/pipeline.ts` check it again.
 
 ## Mock Comfy API and tests
 
@@ -94,12 +97,14 @@ A `GraphBinding` maps logical input names to `{node, field}` in an API-format gr
 | `pnpm test` | `node --test` over `tests/**/*.test.ts` with `--conditions=react-server`, which lets `server-only` import. Client wrapper, bindings, input parsing, access control, deadlines, recovery, status copy, consent, and the mock's own scenarios. No network. |
 | `pnpm test:e2e` | Playwright specs in `tests/e2e`, run against the app and the mock. Not part of CI. |
 
-CI runs install with a frozen lockfile, lint, typecheck, `pnpm test` with a blank `COMFY_API_KEY`, then build, on Node 22.
+CI runs install with a frozen lockfile, `check:owners`, `check:models`, `check:graphs`, lint, typecheck, `pnpm test` with a blank `COMFY_API_KEY`, then build, on Node 22.
 
 ## Not built or not verified yet
 
-- All four tools have run on Comfy Cloud. Open quality issues from those runs: generated Listing panels drift from the product's colour and material (nothing checks consistency with the hero), and Identity's sharpness check (`lib/identity/qa.ts`, `faceSharpness`) upscales faces under 512 px, so sharp photos with smaller faces are rejected as blurry. Its thresholds are marked "calibrate" in the spec.
+- Cloud evidence: Product Shoot, the Listing hero, gallery and story panels, and Identity have run on Comfy Cloud through the app (manual runs on Oct 30; only `fixtures/golden/h3_r2v/` is recorded in the repo). Motion's `h3_r2v` graph has run through `scripts/golden-run.mjs` with two product stills, but `/motion` itself has not run on Cloud. Open quality issues from those runs: generated Listing panels drift from the product's colour and material (nothing checks consistency with the hero), and Identity's sharpness check (`lib/identity/qa.ts`, `faceSharpness`) upscales faces under 512 px, so sharp photos with smaller faces are rejected as blurry (observed below about 450 px). Its thresholds are marked "calibrate" in the spec.
 - A measured identity-preservation result: the acceptance gate in [`docs/eval/identity.md`](eval/identity.md) needs human reviewers.
+- Identity in Product Shoot: `lib/photoshoot/pipeline.ts` ignores `identityId`, and `/photoshoot` has no identity picker.
+- The Identity preview panel shows a status pill only: no queue position, progress bar or dedicated Retry control.
 - A demonstrated self-hosted run through `comfy-api-proxy`.
 - End-to-end tests in CI: `pnpm test:e2e` runs locally only, and some specs are still `test.fixme`.
 

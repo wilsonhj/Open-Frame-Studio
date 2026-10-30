@@ -28,7 +28,7 @@
       "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
     ],
     "work": "MiniMax H3 reference-to-video with audio, turbo LoRA, 4 steps, 5 s at 24 fps (124 frames)",
-    "resolution": "0.4 MP 9:16 (about 480x832)",
+    "resolution": "0.4 MP 9:16 (480x864 output)",
     "count": 1
   },
   "graphSha256": "9a4aed674fb4556c480ca63c14e5b02844bfc596f182094edc215fe4924aecd3",
