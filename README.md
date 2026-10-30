@@ -24,6 +24,8 @@ pnpm dev                         # http://127.0.0.1:3000
 - `JOB_DEADLINE_MS` (default 15 minutes) is the budget for a single `/api/jobs` run. Each accepted job's deadline is saved under `DATA_DIR` (default `.data/`), and a server-side sweep started by `instrumentation.ts` cancels overdue jobs even when no browser is watching. That needs a long-running Node server (`pnpm start` or self-hosting); on serverless hosts the deadline is enforced only when a job route is called.
 - `COMFY_BASE_URL` is optional. Leave it unset to use Comfy Cloud. Set it (for example `http://127.0.0.1:8189`) to use a self-hosted ComfyUI behind `comfy-api-proxy`; the code is the same.
 
+For a live demo with real-looking outputs (no Comfy credits, no network), run `pnpm demo` and open http://127.0.0.1:3000. The walkthrough is in [docs/submission/demo-script.md](docs/submission/demo-script.md).
+
 To work offline, run against the bundled mock Comfy API v2 server:
 
 ```bash
@@ -39,6 +41,8 @@ COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev     # terminal 2, then open /smoke
 | `pnpm test` | `node --test` unit tests against `tests/mock-comfy` (no network, no credits) |
 | `pnpm test:e2e` | Playwright specs in `tests/e2e`: starts the mock Comfy server (port 8190) and the app (port 3210) itself and never touches Comfy Cloud. Needs a Chromium: Playwright's own, or set `E2E_CHROMIUM_PATH`. Not run in CI. |
 | `pnpm mock-comfy` | Standalone mock Comfy API v2 server |
+| `pnpm demo` | Live-demo mode: the mock on `127.0.0.1:8199`, returning composited product-style PNGs, plus `next dev` pointed at it. It never calls Comfy Cloud and never reads your key. |
+| `pnpm mock` | Only the demo mock, on `127.0.0.1:8199` |
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, `pnpm test` and build on every push to `main` and every pull request, with `COMFY_API_KEY` blank so nothing can reach the real API.
 

@@ -1,11 +1,27 @@
-import { ComingSoon } from "../../components/coming-soon";
+import { CardsBoard } from "../../components/cards/cards-board";
 import { SURFACES } from "../../lib/brand";
 
-export default function ListingPage() {
+/** Run ids are server-minted UUIDs; anything else in `?run=` is ignored. */
+const RUN_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+export default async function ListingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  // `/runs` links here as `?run=<id>` to reopen an earlier run.
+  const run = (await searchParams).run;
+  const runId = typeof run === "string" && RUN_ID.test(run) ? run : undefined;
   return (
-    <ComingSoon title={SURFACES.listing.label}>
-      A hero image on pure white, then gallery and story panels conditioned on it. Generate the hero alone, the
-      gallery, the story panels, or the complete set.
-    </ComingSoon>
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight">{SURFACES.listing.label}</h1>
+        <p className="max-w-2xl text-muted">
+          Upload one product photo. We cut it out, place it at 85% fill on a pure #FFFFFF 2000×2000 canvas and run the
+          marketplace hero-image checks. Gallery and story panels come next, conditioned on this hero image.
+        </p>
+      </div>
+      <CardsBoard runId={runId} />
+    </div>
   );
 }

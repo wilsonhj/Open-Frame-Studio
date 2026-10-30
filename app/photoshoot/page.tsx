@@ -1,11 +1,13 @@
-import { ComingSoon } from "../../components/coming-soon";
-import { SURFACES } from "../../lib/brand";
+import type { Metadata } from "next";
 
-export default function PhotoshootPage() {
-  return (
-    <ComingSoon title={SURFACES.photoshoot.label}>
-      Upload a product photo, pick one of ten shoot modes, and get a set of varied shots. Optionally put a
-      saved identity in the frame.
-    </ComingSoon>
-  );
+import { PhotoshootStudio } from "../../components/photoshoot/photoshoot-studio";
+import { APP_NAME, SURFACES } from "../../lib/brand";
+import "./photoshoot.css";
+
+export const metadata: Metadata = { title: `${SURFACES.photoshoot.label} · ${APP_NAME}` };
+
+/** `?run=<id>` (from /runs) reopens that run; otherwise the tab's last run resumes. */
+export default async function PhotoshootPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  const { run } = await searchParams;
+  return <PhotoshootStudio runId={typeof run === "string" && run ? run : undefined} />;
 }

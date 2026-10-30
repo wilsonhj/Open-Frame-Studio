@@ -97,12 +97,12 @@ function sameSecret(a: string, b: string): boolean {
 }
 
 /**
- * Throws AccessError unless the caller may submit a (billed) job. Takes a
- * rate-limit slot and returns its refund: call it if Comfy never accepted
- * the job, so failed submits don't lock the caller out.
+ * Throws AccessError unless the caller holds the studio access code (when one
+ * is set; in production one is required unless ALLOW_PUBLIC_SUBMIT=true).
+ * Takes no rate-limit slot: use it alone for unbilled writes such as cancel,
+ * so a caller who spent the last slot can still stop that job.
  */
-export function assertMaySubmit(request: Request, accessCode: string | null): () => void {
-  signingSecret(); // fail before billing a job we couldn't hand back
+export function assertMayControl(request: Request, accessCode: string | null): void {
   const required = process.env.STUDIO_ACCESS_CODE?.trim();
   if (required) {
     if (process.env.NODE_ENV === "production" && required.length < MIN_ACCESS_CODE_LENGTH) {
@@ -124,6 +124,16 @@ export function assertMaySubmit(request: Request, accessCode: string | null): ()
       "Job submission is disabled: set STUDIO_ACCESS_CODE (or ALLOW_PUBLIC_SUBMIT=true).",
     );
   }
+}
+
+/**
+ * Throws AccessError unless the caller may submit a (billed) job. Takes a
+ * rate-limit slot and returns its refund: call it if Comfy never accepted
+ * the job, so failed submits don't lock the caller out.
+ */
+export function assertMaySubmit(request: Request, accessCode: string | null): () => void {
+  signingSecret(); // fail before billing a job we couldn't hand back
+  assertMayControl(request, accessCode);
   return takeRateLimit(clientIp(request));
 }
 
