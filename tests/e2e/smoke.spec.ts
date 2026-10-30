@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { SURFACES } from "../../lib/brand.ts";
 import { mockRequests, resetMock } from "../mock-comfy/control.ts";
 
 const TOOLS = [
@@ -73,4 +74,13 @@ test("below md the rail still links to /runs and shows the backend indicator", a
   await expect(rail.getByText(/Comfy backend|Demo · local mock/)).toBeVisible();
   // The wrapped rail must not push the page wider than the phone.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
+test("/runs empty state names exactly the tools that record runs there", async ({ page }) => {
+  // useRun stores an id for photoshoot, listing and motion; identity's preview only polls a given id.
+  await page.goto("/runs");
+  const empty = page.getByRole("main").getByText(/^No runs in this tab yet\./);
+  await expect(empty).toHaveText(
+    `No runs in this tab yet. Start one from ${SURFACES.photoshoot.label}, ${SURFACES.listing.label} or ${SURFACES.motion.label}.`,
+  );
 });
