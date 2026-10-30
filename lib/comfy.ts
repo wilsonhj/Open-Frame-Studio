@@ -306,11 +306,17 @@ export function normalizeJob(job: SdkJob, options: NormalizeOptions = {}): Job {
     : status === "failed" || status === "expired" || status === "canceled"
       ? { code: status, message: `Job ${status}.` }
       : null;
+  const progress = job.progress;
+  const step =
+    progress && progress.step !== null && progress.steps !== null && progress.steps > 0
+      ? { current: progress.step, total: progress.steps, nodeClass: progress.currentNodeClass }
+      : null;
   return {
     id: publicId,
     status,
     terminal: isTerminalStatus(status),
-    progress: job.progress?.value ?? null,
+    progress: progress?.value ?? null,
+    step,
     queuePosition: job.queuePosition,
     outputs,
     error,
@@ -496,20 +502,21 @@ export async function fetchOutput(
   const resolved = new URL(url, apiOrigin());
   if (resolved.origin === apiOrigin()) {
     const bytes = await output.toBytes();
-    return new Response(bytes as Uint8Array<ArrayBuffer>, {
-      status: 200,
-      headers: outputResponseHeaders(fallbackType, output.name),
-    });
+    const headers = outputResponseHeaders(fallbackType, output.name);
+    headers.set("Content-Length", String(bytes.byteLength));
+    return new Response(bytes as Uint8Array<ArrayBuffer>, { status: 200, headers });
   }
   const response = await fetch(resolved);
   if (!response.ok || !response.body) {
     await response.body?.cancel();
     throw new Error(`Output download failed with HTTP ${response.status}.`);
   }
-  return new Response(response.body, {
-    status: 200,
-    headers: outputResponseHeaders(response.headers.get("Content-Type") ?? fallbackType, output.name),
-  });
+  const headers = outputResponseHeaders(response.headers.get("Content-Type") ?? fallbackType, output.name);
+  // fetch() decodes gzip/br bodies but keeps the encoded Content-Length, so
+  // the length only describes the bytes we stream when nothing was encoded.
+  const length = response.headers.get("Content-Length");
+  if (length && !response.headers.get("Content-Encoding")) headers.set("Content-Length", length);
+  return new Response(response.body, { status: 200, headers });
 }
 
 /** Media types served inline from our origin. Anything else is a download. */

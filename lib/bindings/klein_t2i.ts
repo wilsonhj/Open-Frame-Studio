@@ -17,7 +17,7 @@ export const kleinT2i = {
     width: { node: "p44", field: "width", kind: "int", mirrors: [{ node: "p71", field: "width" }] },
     height: { node: "p44", field: "height", kind: "int", mirrors: [{ node: "p71", field: "height" }] },
     batch_size: { node: "p44", field: "batch_size", kind: "int" },
-    seed: { node: "p70", field: "noise_seed", kind: "int" },
+    seed: { node: "p70", field: "noise_seed", kind: "int", min: 0, randomize: true },
     steps: { node: "p71", field: "steps", kind: "int" },
     cfg: { node: "p72", field: "cfg", kind: "float" },
     model: { node: "59", field: "unet_name", kind: "text" },

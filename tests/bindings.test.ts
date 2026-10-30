@@ -7,7 +7,7 @@ import { BindingError, applyBindings, checkBinding, resolveAssignments, type Api
 import { cutout } from "../lib/bindings/cutout.ts";
 import { H3_ASPECT_OPTIONS, h3R2v } from "../lib/bindings/h3_r2v.ts";
 import { imageResizeSmoke } from "../lib/bindings/image_resize_smoke.ts";
-import { BINDINGS, getBinding } from "../lib/bindings/index.ts";
+import { BINDINGS, getBinding, seedInputs } from "../lib/bindings/index.ts";
 import { kleinEditMultiref } from "../lib/bindings/klein_edit_multiref.ts";
 import { kleinT2i } from "../lib/bindings/klein_t2i.ts";
 import type { AssetHandle, GraphInputBinding, GraphValue } from "../lib/types.ts";
@@ -46,6 +46,11 @@ describe("binding registry", () => {
     for (const [name, binding] of Object.entries(BINDINGS)) {
       assert.deepEqual(checkBinding(await loadGraph(name), binding), [], name);
     }
+  });
+
+  it("seedInputs lists the randomized inputs the seed lock can pin", () => {
+    assert.deepEqual(seedInputs(kleinT2i), ["seed"]);
+    assert.deepEqual(seedInputs(imageResizeSmoke), []);
   });
 
   it("only exposes registered workflows", () => {

@@ -14,6 +14,7 @@ const job = (id: string, terminal = false): Job => ({
   status: terminal ? "succeeded" : "running",
   terminal,
   progress: null,
+  step: null,
   queuePosition: null,
   outputs: [],
   error: null,

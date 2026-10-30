@@ -1,5 +1,3 @@
-import { NextResponse } from "next/server";
-
 import { AccessError, accessErrorResponse, readJobHandle } from "../../../../lib/access.ts";
 import { getBinding } from "../../../../lib/bindings/index.ts";
 import { ComfyNotConfiguredError, createClient, getJob, overdueJob } from "../../../../lib/comfy.ts";
@@ -30,11 +28,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
       if (outcome === "canceled") job = await getJob(client, handle.jobId, undefined, options);
       else if (outcome !== null) job = overdueJob(job, outcome, budget);
     }
-    return NextResponse.json(job, { headers: { "Cache-Control": "no-store" } });
+    return Response.json(job, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof AccessError) return accessErrorResponse(error);
     const status = error instanceof ComfyNotConfiguredError ? 503 : 502;
-    return NextResponse.json(
+    return Response.json(
       { error: error instanceof Error ? error.message : "Unable to check job." },
       { status },
     );

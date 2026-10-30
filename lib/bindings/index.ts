@@ -25,3 +25,10 @@ export const BINDINGS: Record<WorkflowName, GraphBinding> = {
 export function getBinding(name: string): GraphBinding | undefined {
   return Object.hasOwn(BINDINGS, name) ? BINDINGS[name as WorkflowName] : undefined;
 }
+
+/** Inputs the server randomizes per run when the request leaves them out (seeds). */
+export function seedInputs(binding: GraphBinding): string[] {
+  return Object.entries(binding.inputs)
+    .filter(([, input]) => input.randomize)
+    .map(([name]) => name);
+}

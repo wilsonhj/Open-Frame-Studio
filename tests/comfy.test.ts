@@ -25,6 +25,8 @@ after(async () => {
 beforeEach(() => {
   mock.setScenario("succeeded");
   mock.state.contentMode = "proxy";
+  mock.state.outputContentType = "image/png";
+  mock.state.gzipSigned = false;
   mock.state.jobPosts.length = 0;
   mock.state.assetPosts = 0;
   mock.state.signedFetches.length = 0;
@@ -89,15 +91,23 @@ describe("submit + poll against the mock", () => {
     assert.equal(submitted.terminal, false);
 
     const updates: string[] = [];
+    let running: import("../lib/types.ts").Job | undefined;
     const done = await comfy.pollJob(client, submitted.id, {
       timeoutMs: 5_000,
       intervalMs: 10,
-      onUpdate: (job) => updates.push(job.status),
+      onUpdate: (job) => {
+        updates.push(job.status);
+        if (job.status === "running") running = job;
+      },
     });
     assert.equal(done.status, "succeeded");
     assert.equal(done.terminal, true);
     assert.equal(done.error, null);
     assert.ok(updates.includes("running"));
+    assert.deepEqual(running?.step, { current: 10, total: 20, nodeClass: "ImageScaleBy" });
+    assert.equal(running?.progress, 0.5);
+    assert.equal(submitted.queuePosition, 1);
+    assert.equal(done.step, null);
     assert.equal(done.outputs.length, 1);
     assert.equal(done.outputs[0].nodeId, "3");
     assert.equal(done.outputs[0].url, `/api/jobs/${done.id}/outputs/${done.outputs[0].id}`);
@@ -346,6 +356,29 @@ describe("outputs: filtering, safe headers, relative URLs", () => {
     assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array(PNG_1X1));
   });
 
+  for (const contentMode of ["proxy", "cloud"] as const) {
+    it(`${contentMode} output: sends the byte length when it is known`, async () => {
+      mock.state.contentMode = contentMode;
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+      const response = await comfy.fetchOutput(client, submitted.id, done.outputs[0].id);
+      assert.equal(response.headers.get("Content-Length"), String(PNG_1X1.length));
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), PNG_1X1);
+    });
+  }
+
+  it("gzipped storage: drops the encoded Content-Length and streams every decoded byte", async () => {
+    mock.state.contentMode = "cloud";
+    mock.state.gzipSigned = true;
+    const { client, wf } = await smokeWorkflow();
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+    const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+    const response = await comfy.fetchOutput(client, submitted.id, done.outputs[0].id);
+    assert.equal(response.headers.get("Content-Length"), null);
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), PNG_1X1);
+  });
+
   it("rehosts outputs with safe headers", async () => {
     const { client, wf } = await smokeWorkflow();
     const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
@@ -353,6 +386,42 @@ describe("outputs: filtering, safe headers, relative URLs", () => {
     const response = await comfy.fetchOutput(client, submitted.id, done.outputs[0].id);
     assert.equal(response.headers.get("Content-Type"), "image/png");
     assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  });
+});
+
+describe("POST /api/jobs", () => {
+  async function post(fields: Record<string, string | File>) {
+    const dataDir = await mkdtemp(join(tmpdir(), "oss-jobs-"));
+    process.env.DATA_DIR = dataDir;
+    try {
+      const { POST } = await import("../app/api/jobs/route.ts");
+      const body = new FormData();
+      for (const [name, value] of Object.entries(fields)) body.set(name, value);
+      const response = await POST(new Request("http://127.0.0.1/api/jobs", { method: "POST", body }));
+      return { status: response.status, job: (await response.json()) as import("../lib/types.ts").SubmittedJob };
+    } finally {
+      delete process.env.DATA_DIR;
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  }
+
+  it("202 with the queued job, its queue position and no seeds for a seedless workflow", async () => {
+    const image = new File([new Uint8Array(PNG_1X1)], "in.png", { type: "image/png" });
+    const { status, job } = await post({ workflow: "image_resize_smoke", image });
+    assert.equal(status, 202);
+    assert.equal(job.status, "queued");
+    assert.equal(job.queuePosition, 1);
+    assert.deepEqual(job.seeds, {});
+  });
+
+  it("returns the random seed it ran with, and submits a locked one unchanged", async () => {
+    const random = await post({ workflow: "klein_t2i", prompt: "a lamp" });
+    assert.equal(random.status, 202);
+    assert.ok(Number.isSafeInteger(random.job.seeds.seed));
+    const locked = await post({ workflow: "klein_t2i", prompt: "a lamp", seed: "1234" });
+    assert.deepEqual(locked.job.seeds, { seed: 1234 });
+    const graph = mock.state.jobPosts.at(-1)!.body.workflow as Record<string, { inputs: Record<string, unknown> }>;
+    assert.equal(graph.p70.inputs.noise_seed, 1234);
   });
 });
 

@@ -37,11 +37,57 @@ export async function parseInputs(binding: GraphBinding, form: FormLike, toAsset
     const value = parseOne(name, spec, form.get(name));
     if (value !== undefined) parsed[name] = value;
   }
+  await verifyImageBytes(parsed);
   const values: BindingValues = {};
   for (const [name, value] of Object.entries(parsed)) {
     values[name] = value instanceof File ? await toAsset(value) : value;
   }
   return values;
+}
+
+/** A uniformly random integer in [min, max] (both safe integers). */
+function randomInt(min: number, max: number): number {
+  const [high, low] = globalThis.crypto.getRandomValues(new Uint32Array(2));
+  const unit = ((high & 0x1fffff) * 2 ** 32 + low) / 2 ** 53; // [0, 1)
+  return min + Math.floor(unit * (max - min + 1));
+}
+
+/** The value each `randomize` input ran with, so the UI can show and lock it. */
+export function seedsOf(binding: GraphBinding, values: BindingValues): Record<string, number> {
+  const seeds: Record<string, number> = {};
+  for (const [name, spec] of Object.entries(binding.inputs)) {
+    const value = values[name];
+    if (spec.randomize && typeof value === "number") seeds[name] = value;
+  }
+  return seeds;
+}
+
+const SIGNATURES: Record<(typeof IMAGE_TYPES)[number], { label: string; matches(head: Uint8Array): boolean }> = {
+  "image/png": { label: "PNG", matches: (h) => startsWith(h, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) },
+  "image/jpeg": { label: "JPEG", matches: (h) => startsWith(h, [0xff, 0xd8, 0xff]) },
+  "image/webp": {
+    label: "WebP",
+    matches: (h) => startsWith(h, [0x52, 0x49, 0x46, 0x46]) && startsWith(h.subarray(8), [0x57, 0x45, 0x42, 0x50]),
+  },
+};
+
+function startsWith(bytes: Uint8Array, prefix: readonly number[]): boolean {
+  return prefix.every((byte, i) => bytes[i] === byte);
+}
+
+/**
+ * The declared type of an upload is whatever the browser (or caller) says.
+ * Check each image's leading bytes match it before it is uploaded to Comfy.
+ */
+export async function verifyImageBytes(values: Record<string, unknown>): Promise<void> {
+  for (const [name, value] of Object.entries(values)) {
+    if (!(value instanceof File)) continue;
+    const signature = SIGNATURES[value.type as keyof typeof SIGNATURES];
+    const head = new Uint8Array(await value.slice(0, 12).arrayBuffer());
+    if (!signature?.matches(head)) {
+      throw new InputError(name, `"${name}" is not a valid ${signature?.label ?? "image"} file.`);
+    }
+  }
 }
 
 function parseOne(
@@ -62,6 +108,9 @@ function parseOne(
     return raw;
   }
   if (raw instanceof File) throw new InputError(name, `"${name}" must be a text field.`);
+  if (missing && spec.randomize && spec.kind === "int") {
+    return randomInt(spec.min ?? 0, spec.max ?? Number.MAX_SAFE_INTEGER);
+  }
   if (missing) {
     if (spec.required) throw new InputError(name, `"${name}" is required.`);
     return undefined;

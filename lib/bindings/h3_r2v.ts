@@ -17,7 +17,7 @@ export const h3R2v = {
     image_2: { node: "139", field: "image", kind: "image" },
     /** Must use the `<Picture N>` tags and give each reference a role. */
     prompt: { node: "138", field: "value", kind: "text" },
-    seed: { node: "129", field: "noise_seed", kind: "int" },
+    seed: { node: "129", field: "noise_seed", kind: "int", min: 0, randomize: true },
     /** Seconds; node 131 snaps it to the 17k+5 frame grid at 24 fps. */
     duration: { node: "132", field: "value", kind: "float" },
     /** true = 4-step turbo LoRA, false = base steps. */

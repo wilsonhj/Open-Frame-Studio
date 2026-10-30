@@ -40,6 +40,8 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { pathToFileURL } from "node:url";
+import { gzipSync } from "node:zlib";
 
 export type Scenario =
   | "succeeded"
@@ -109,6 +111,10 @@ export type MockState = {
   /** "proxy": content served inline; "cloud": content 302-redirects to a signed URL. */
   /** "relative": a proxy that 302s to a path-relative Location on its own origin. */
   contentMode: "proxy" | "cloud" | "relative";
+  /** Content type of the smoke job's output (tests set e.g. text/html to check the output route). */
+  outputContentType: string;
+  /** Storage host gzips output bytes (Content-Encoding: gzip, encoded Content-Length). */
+  gzipSigned: boolean;
   /** How long a queued_20s job stays queued (ms). Tests may shorten it. */
   queuedMs: number;
   assets: Map<string, StoredAsset>;
@@ -207,6 +213,8 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   const state: MockState = {
     scenario: options.scenario ?? "succeeded",
     contentMode: "proxy",
+    outputContentType: "image/png",
+    gzipSigned: false,
     queuedMs: DEFAULT_QUEUED_MS,
     assets: new Map(),
     jobs: new Map(),
@@ -221,13 +229,44 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   };
   let base = "";
 
-  type Phase = { status: string; progress: { value: number; nodes_done: number; nodes_total: number } | null; queuePosition: number | null };
+  type Phase = {
+    status: string;
+    progress: {
+      value: number;
+      nodes_done: number;
+      nodes_total: number;
+      current_node: string;
+      current_node_class: string;
+      step: number;
+      steps: number;
+    } | null;
+    queuePosition: number | null;
+  };
+
+  function sendAsset(res: ServerResponse, asset: StoredAsset) {
+    if (state.gzipSigned) {
+      const encoded = gzipSync(asset.bytes);
+      res.writeHead(200, { "Content-Type": asset.contentType, "Content-Encoding": "gzip", "Content-Length": encoded.length });
+      return res.end(encoded);
+    }
+    res.writeHead(200, { "Content-Type": asset.contentType, "Content-Length": asset.bytes.length });
+    return res.end(asset.bytes);
+  }
 
   function phaseOf(job: MockJob): Phase {
     const queued = (queuePosition = 1): Phase => ({ status: "queued", progress: null, queuePosition });
     const running = (value = 0.5, nodesDone = 1, nodesTotal = 2): Phase => ({
       status: "running",
-      progress: { value, nodes_done: nodesDone, nodes_total: nodesTotal },
+      // Sampler step fields as API v2 reports them (the smoke graph's node 2).
+      progress: {
+        value,
+        nodes_done: nodesDone,
+        nodes_total: nodesTotal,
+        current_node: "2",
+        current_node_class: "ImageScaleBy",
+        step: 10,
+        steps: 20,
+      },
       queuePosition: null,
     });
     const done = (status: string): Phase => ({ status, progress: null, queuePosition: null });
@@ -293,7 +332,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       ];
     }
     // Keep the original id (`out-<jobId>`) so existing tests and clients stay stable.
-    return [outputJson(job, storeOutput(job, "", PNG_1X1, "image/png", "open-frame-studio/smoke_00001_.png"), "3", "image")];
+    return [outputJson(job, storeOutput(job, "", PNG_1X1, state.outputContentType, "open-frame-studio/smoke_00001_.png"), "3", "image")];
   }
 
   function jobJson(job: MockJob, advance: boolean) {
@@ -367,6 +406,8 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     if (method === "POST" && path === "/__mock/reset") {
       state.scenario = "succeeded";
       state.contentMode = "proxy";
+      state.outputContentType = "image/png";
+      state.gzipSigned = false;
       state.queuedMs = DEFAULT_QUEUED_MS;
       state.jobPosts.length = 0;
       state.missingAssetIds.clear();
@@ -422,15 +463,13 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
           Location: `${signedBase}/signed/${asset.id}?X-Goog-Date=${date}&X-Goog-Expires=3600`,
         });
       }
-      res.writeHead(200, { "Content-Type": asset.contentType, "Content-Length": asset.bytes.length });
-      return res.end(asset.bytes);
+      return sendAsset(res, asset);
     }
     if (method === "GET" && (m = path.match(/^\/signed\/([^/]+)$/))) {
       state.signedFetches.push({ authorization: req.headers.authorization ?? null });
       const asset = state.assets.get(decodeURIComponent(m[1]));
       if (!asset) return send(res, 404);
-      res.writeHead(200, { "Content-Type": asset.contentType, "Content-Length": asset.bytes.length });
-      return res.end(asset.bytes);
+      return sendAsset(res, asset);
     }
     if (method === "GET" && (m = path.match(/^\/api\/v2\/assets\/([^/]+)$/))) {
       const asset = isMissing(decodeURIComponent(m[1])) ? undefined : state.assets.get(decodeURIComponent(m[1]));
@@ -519,7 +558,8 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL percent-encodes like import.meta.url does (paths with spaces).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 8189);
   const initial = process.env.MOCK_SCENARIO as Scenario | undefined;
   startMockComfy({ port, scenario: initial && SCENARIOS.includes(initial) ? initial : undefined }).then((mock) => {

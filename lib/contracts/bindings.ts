@@ -42,6 +42,13 @@ export type GraphInputBinding = GraphTarget & {
   max?: number;
   /** Allowed values for a `text` input (e.g. a COMBO widget's options). */
   choices?: readonly string[];
+  /**
+   * `int` seed widgets: when the form omits the value, /api/jobs fills a fresh
+   * random one in [min ?? 0, max ?? MAX_SAFE_INTEGER] and returns it in
+   * `SubmittedJob.seeds`, so the UI can show and lock it. ComfyUI caches
+   * identical graphs, so a fixed graph seed would return the cached result.
+   */
+  randomize?: boolean;
 };
 
 export type GraphBinding = {

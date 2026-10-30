@@ -6,8 +6,10 @@
  */
 import { useEffect, useState } from "react";
 
+import { getBinding, seedInputs } from "../lib/bindings";
 import { forgetJob, recoverJob, rememberJob, tabId } from "../lib/job-recovery";
-import type { Job } from "../lib/types";
+import { describeJob } from "../lib/job-status";
+import type { Job, SubmittedJob } from "../lib/types";
 
 const POLL_MS = 2_000;
 const RETRY_MS = 5_000;
@@ -48,15 +50,6 @@ function isPermanent(status: number): boolean {
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
-function describe(job: Job): string {
-  if (job.status === "succeeded") return "Done.";
-  // Before the status: an over-budget or timed-out job can still carry a live status.
-  if (job.error) return job.error.message;
-  if (job.status === "queued") return "Waiting for a GPU…";
-  if (job.status === "running") return `Running${job.progress !== null ? ` (${Math.round(job.progress * 100)}%)` : ""}…`;
-  return `Job ${job.status}.`;
-}
-
 export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [scale, setScale] = useState(0.5);
@@ -66,6 +59,9 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
   const [needsAccessCode, setNeedsAccessCode] = useState(false);
   const [message, setMessage] = useState("Choose a PNG, JPEG or WebP image.");
   const [busy, setBusy] = useState(false);
+  /** Seeds the last run used; sent back only while the seed is locked. */
+  const [seeds, setSeeds] = useState<Record<string, number>>({});
+  const [lockSeed, setLockSeed] = useState(false);
 
   // Pick up an unfinished job from an earlier visit instead of losing it.
   // Deferred to after hydration: storage isn't available during prerender.
@@ -101,7 +97,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
         remember(workflow, next);
         setJob(next);
         setPollRetry(0);
-        setMessage(describe(next));
+        setMessage(describeJob(next));
       } catch (cause) {
         const detail = cause instanceof Error ? cause.message : "Could not check job status.";
         setMessage(
@@ -129,15 +125,18 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
       body.set("image", file);
       body.set("scale", String(scale));
       if (accessCode) body.set("access_code", accessCode);
+      // Unlocked seeds are left out, so the server picks a fresh one per run.
+      if (lockSeed) for (const [name, seed] of Object.entries(seeds)) body.set(name, String(seed));
       // Submitted exactly once: a retry would be a second, separately billed job.
       const response = await fetch("/api/jobs", { method: "POST", body });
-      const next = (await response.json()) as Job & { error?: unknown; code?: unknown };
+      const next = (await response.json()) as SubmittedJob & { error?: unknown; code?: unknown };
       if (next.code === "access_code_required") setNeedsAccessCode(true);
       if (!response.ok) throw new Error(typeof next.error === "string" ? next.error : "Unable to submit job.");
       setPollRetry(0);
       remember(workflow, next);
       setJob(next);
-      setMessage("Submitted.");
+      setSeeds(next.seeds ?? {});
+      setMessage(describeJob(next));
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Unable to submit job.");
     } finally {
@@ -147,6 +146,9 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
 
   const unresolved = Boolean(job && !job.terminal);
   const paused = unresolved && pollRetry >= MAX_POLL_FAILURES;
+  const binding = getBinding(workflow);
+  const hasSeed = binding ? seedInputs(binding).length > 0 : false;
+  const lastSeeds = Object.values(seeds);
 
   return (
     <form onSubmit={submit} className="space-y-4 rounded-xl border border-border bg-card p-5">
@@ -171,6 +173,20 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
           className="block w-full"
         />
       </label>
+      {hasSeed && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            id="lock-seed"
+            type="checkbox"
+            checked={lockSeed}
+            disabled={lastSeeds.length === 0}
+            onChange={(event) => setLockSeed(event.target.checked)}
+          />
+          <span>
+            Lock seed {lastSeeds.length ? `(${lastSeeds.join(", ")})` : "(available after the first run)"}
+          </span>
+        </label>
+      )}
       {needsAccessCode && (
         <label className="block space-y-1 text-sm">
           <span>Access code</span>
@@ -221,6 +237,10 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
       <p role="status" aria-live="polite" className="text-sm text-muted">
         {message}
       </p>
+      {unresolved && !paused && (
+        // No value = indeterminate: we only show a fraction the server reported.
+        <progress max={1} value={job?.progress ?? undefined} aria-label="Job progress" className="block w-full" />
+      )}
       {job?.outputs
         .filter((output) => output.type === "image")
         .map((output) => (
