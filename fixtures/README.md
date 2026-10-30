@@ -8,7 +8,7 @@ Everything checked in here is synthetic. **This repository contains no real face
 | Set | Path | Status | Used by |
 |---|---|---|---|
 | Products (procedural) | `fixtures/products/*.png` | checked in, generated | Photoshoot, Cards, Motion e2e; `/smoke` e2e |
-| Faces (Soul ID) | `fixtures/faces/` | **not in repo** | Soul ID e2e (skipped when absent), Cloud runs |
+| Faces (Identity) | `fixtures/faces/` | **not in repo** | Identity e2e (skipped when absent), Cloud runs |
 | Golden outputs | `fixtures/golden/<graph>/` | Wave 2 (Cloud runs) | graph regression, demo backup |
 
 ### Products: `fixtures/products/`
@@ -34,7 +34,7 @@ source and licence line.
 
 ### Faces: `fixtures/faces/` (not checked in)
 
-Soul ID needs 5–20 photos of one person (8–12 ideal): one face per photo, varied angles and
+Identity needs 5–20 photos of one person (8–12 ideal): one face per photo, varied angles and
 lighting, at least 1024 px on the short side, no group shots and no sunglasses
 (`higgsfield-soul-id/references/photo-guide.md`). This set is **never** procedurally generated
 and never scraped. It comes from one of two places:
@@ -47,7 +47,7 @@ and never scraped. It comes from one of two places:
    put them in a local directory and point the tests at it with `E2E_FACES_DIR=/path/to/photos`.
    Record consent (who, date, scope: "demo + tests, no redistribution") outside the repository.
 
-Soul e2e flows that need faces call `test.skip` when fewer than 5 images are found.
+Identity e2e flows that need faces call `test.skip` when fewer than 5 images are found.
 
 Negative cases for photo QA (no face, too small, wrong type) need no faces: the product fixtures
 serve as "no face found" inputs.

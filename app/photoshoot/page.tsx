@@ -1,9 +1,11 @@
 import { ComingSoon } from "../../components/coming-soon";
+import { SURFACES } from "../../lib/brand";
 
 export default function PhotoshootPage() {
   return (
-    <ComingSoon title="Product Photoshoot">
-      Upload a product photo, pick a mode and get 1–10 varied shots. Optionally put your Soul in the frame.
+    <ComingSoon title={SURFACES.photoshoot.label}>
+      Upload a product photo, pick one of ten shoot modes, and get a set of varied shots. Optionally put a
+      saved identity in the frame.
     </ComingSoon>
   );
 }

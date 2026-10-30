@@ -30,7 +30,7 @@
  *   asset_missing      like succeeded, but every asset id in state.missingAssetIds is gone:
  *                      GET /api/v2/assets/{id} (and /content) answer 404 asset_not_found, and a
  *                      job POST that references one is refused with 422 asset_not_found
- *                      (stale asset cache; Soul reuse test S-R1 step 7)
+ *                      (stale asset cache; Identity reuse test S-R1 step 7)
  *   drop_after_create  records the Idempotency-Key, creates the job (like succeeded), then
  *                      destroys the socket without responding (ambiguous submit). A same-key
  *                      re-send then gets 422 idempotency_key_reuse.
@@ -40,6 +40,8 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { pathToFileURL } from "node:url";
+import { gzipSync } from "node:zlib";
 
 export type Scenario =
   | "succeeded"
@@ -95,6 +97,8 @@ type MockJob = {
   polls: number;
   /** Date.now() at submit; drives the wall-clock queued_20s scenario. */
   createdMs: number;
+  /** Set by POST /api/v2/jobs/{id}/cancel while the job was still live. */
+  canceled?: boolean;
   /** Poll index at which a queued_20s job left the queue. */
   leftQueueAtPoll?: number;
   workflow: Record<string, unknown>;
@@ -105,7 +109,12 @@ type MockJob = {
 export type MockState = {
   scenario: Scenario;
   /** "proxy": content served inline; "cloud": content 302-redirects to a signed URL. */
-  contentMode: "proxy" | "cloud";
+  /** "relative": a proxy that 302s to a path-relative Location on its own origin. */
+  contentMode: "proxy" | "cloud" | "relative";
+  /** Content type of the smoke job's output (tests set e.g. text/html to check the output route). */
+  outputContentType: string;
+  /** Storage host gzips output bytes (Content-Encoding: gzip, encoded Content-Length). */
+  gzipSigned: boolean;
   /** How long a queued_20s job stays queued (ms). Tests may shorten it. */
   queuedMs: number;
   assets: Map<string, StoredAsset>;
@@ -119,6 +128,10 @@ export type MockState = {
   authHeaders: Array<string | null>;
   /** Requests to the fake storage host; a bearer token must never appear here. */
   signedFetches: Array<{ authorization: string | null }>;
+  /** Job ids that received POST /api/v2/jobs/{id}/cancel. */
+  cancels: string[];
+  /** "ok": cancel takes effect; "pending": reports `canceling`, job keeps running; "error": 503. */
+  cancelBehavior: "ok" | "pending" | "error";
 };
 
 export type JobPost = {
@@ -200,6 +213,8 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   const state: MockState = {
     scenario: options.scenario ?? "succeeded",
     contentMode: "proxy",
+    outputContentType: "image/png",
+    gzipSigned: false,
     queuedMs: DEFAULT_QUEUED_MS,
     assets: new Map(),
     jobs: new Map(),
@@ -209,16 +224,49 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     assetPosts: 0,
     authHeaders: [],
     signedFetches: [],
+    cancels: [],
+    cancelBehavior: "ok",
   };
   let base = "";
 
-  type Phase = { status: string; progress: { value: number; nodes_done: number; nodes_total: number } | null; queuePosition: number | null };
+  type Phase = {
+    status: string;
+    progress: {
+      value: number;
+      nodes_done: number;
+      nodes_total: number;
+      current_node: string;
+      current_node_class: string;
+      step: number;
+      steps: number;
+    } | null;
+    queuePosition: number | null;
+  };
+
+  function sendAsset(res: ServerResponse, asset: StoredAsset) {
+    if (state.gzipSigned) {
+      const encoded = gzipSync(asset.bytes);
+      res.writeHead(200, { "Content-Type": asset.contentType, "Content-Encoding": "gzip", "Content-Length": encoded.length });
+      return res.end(encoded);
+    }
+    res.writeHead(200, { "Content-Type": asset.contentType, "Content-Length": asset.bytes.length });
+    return res.end(asset.bytes);
+  }
 
   function phaseOf(job: MockJob): Phase {
     const queued = (queuePosition = 1): Phase => ({ status: "queued", progress: null, queuePosition });
     const running = (value = 0.5, nodesDone = 1, nodesTotal = 2): Phase => ({
       status: "running",
-      progress: { value, nodes_done: nodesDone, nodes_total: nodesTotal },
+      // Sampler step fields as API v2 reports them (the smoke graph's node 2).
+      progress: {
+        value,
+        nodes_done: nodesDone,
+        nodes_total: nodesTotal,
+        current_node: "2",
+        current_node_class: "ImageScaleBy",
+        step: 10,
+        steps: 20,
+      },
       queuePosition: null,
     });
     const done = (status: string): Phase => ({ status, progress: null, queuePosition: null });
@@ -278,18 +326,18 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   function outputsOf(job: MockJob): unknown[] {
     if (job.scenario === "multi_output") {
       return [
-        outputJson(job, storeOutput(job, "-img-1", PNG_1X1, "image/png", "open-soul-studio/multi_00001_.png"), "9", "image"),
-        outputJson(job, storeOutput(job, "-img-2", PNG_1X1, "image/png", "open-soul-studio/multi_00002_.png"), "9", "image"),
-        outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-soul-studio/multi_00001_.mp4"), "12", "video"),
+        outputJson(job, storeOutput(job, "-img-1", PNG_1X1, "image/png", "open-frame-studio/multi_00001_.png"), "9", "image"),
+        outputJson(job, storeOutput(job, "-img-2", PNG_1X1, "image/png", "open-frame-studio/multi_00002_.png"), "9", "image"),
+        outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-frame-studio/multi_00001_.mp4"), "12", "video"),
       ];
     }
     // Keep the original id (`out-<jobId>`) so existing tests and clients stay stable.
-    return [outputJson(job, storeOutput(job, "", PNG_1X1, "image/png", "open-soul-studio/smoke_00001_.png"), "3", "image")];
+    return [outputJson(job, storeOutput(job, "", PNG_1X1, state.outputContentType, "open-frame-studio/smoke_00001_.png"), "3", "image")];
   }
 
   function jobJson(job: MockJob, advance: boolean) {
     if (advance) job.polls += 1;
-    const phase = phaseOf(job);
+    const phase: Phase = job.canceled ? { status: "canceled", progress: null, queuePosition: null } : phaseOf(job);
     const status = phase.status;
     const outputs: unknown[] = status === "succeeded" ? outputsOf(job) : [];
     const terminal = ["succeeded", "failed", "canceled", "expired"].includes(status);
@@ -329,7 +377,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     if (method === "POST" && path === "/__mock/scenario") {
       const body = JSON.parse((await readBody(req)).toString() || "{}") as {
         scenario?: Scenario;
-        contentMode?: "proxy" | "cloud";
+        contentMode?: MockState["contentMode"];
         queuedMs?: number;
         missingAssetIds?: unknown;
       };
@@ -358,11 +406,15 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     if (method === "POST" && path === "/__mock/reset") {
       state.scenario = "succeeded";
       state.contentMode = "proxy";
+      state.outputContentType = "image/png";
+      state.gzipSigned = false;
       state.queuedMs = DEFAULT_QUEUED_MS;
       state.jobPosts.length = 0;
       state.missingAssetIds.clear();
       state.assetPosts = 0;
       state.signedFetches.length = 0;
+      state.cancels.length = 0;
+      state.cancelBehavior = "ok";
       return send(res, 200, { scenario: state.scenario, contentMode: state.contentMode, queuedMs: state.queuedMs });
     }
 
@@ -400,6 +452,9 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     if (method === "GET" && (m = path.match(/^\/api\/v2\/assets\/([^/]+)\/content$/))) {
       const asset = isMissing(decodeURIComponent(m[1])) ? undefined : state.assets.get(decodeURIComponent(m[1]));
       if (!asset) return send(res, 404, envelope("asset_not_found", "No such asset."));
+      if (state.contentMode === "relative" && !url.searchParams.has("raw")) {
+        return send(res, 302, undefined, { Location: `/api/v2/assets/${asset.id}/content?raw=1` });
+      }
       if (state.contentMode === "cloud") {
         // A different origin (localhost vs 127.0.0.1) stands in for the storage host.
         const signedBase = base.replace("127.0.0.1", "localhost");
@@ -408,15 +463,13 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
           Location: `${signedBase}/signed/${asset.id}?X-Goog-Date=${date}&X-Goog-Expires=3600`,
         });
       }
-      res.writeHead(200, { "Content-Type": asset.contentType, "Content-Length": asset.bytes.length });
-      return res.end(asset.bytes);
+      return sendAsset(res, asset);
     }
     if (method === "GET" && (m = path.match(/^\/signed\/([^/]+)$/))) {
       state.signedFetches.push({ authorization: req.headers.authorization ?? null });
       const asset = state.assets.get(decodeURIComponent(m[1]));
       if (!asset) return send(res, 404);
-      res.writeHead(200, { "Content-Type": asset.contentType, "Content-Length": asset.bytes.length });
-      return res.end(asset.bytes);
+      return sendAsset(res, asset);
     }
     if (method === "GET" && (m = path.match(/^\/api\/v2\/assets\/([^/]+)$/))) {
       const asset = isMissing(decodeURIComponent(m[1])) ? undefined : state.assets.get(decodeURIComponent(m[1]));
@@ -461,6 +514,19 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       if (!job) return send(res, 404, envelope("job_not_found", "No such job."));
       return send(res, 200, jobJson(job, true));
     }
+    if (method === "POST" && (m = path.match(/^\/api\/v2\/jobs\/([^/]+)\/cancel$/))) {
+      const job = state.jobs.get(decodeURIComponent(m[1]));
+      if (!job) return send(res, 404, envelope("job_not_found", "No such job."));
+      state.cancels.push(job.id);
+      if (state.cancelBehavior === "error") return send(res, 503, envelope("unavailable", "Cancel is unavailable."));
+      // Like the real API: a job that already finished stays finished, and a
+      // live job may report `canceling` before it is actually canceled.
+      const current = jobJson(job, false).status;
+      if (["succeeded", "failed", "canceled", "expired"].includes(current)) return send(res, 200, jobJson(job, false));
+      if (state.cancelBehavior === "pending") return send(res, 200, { ...jobJson(job, false), status: "canceling" });
+      job.canceled = true;
+      return send(res, 200, jobJson(job, false));
+    }
     if (method === "GET" && path === "/api/v2/jobs") {
       return send(res, 501, envelope("not_implemented", "Job listing is not implemented."));
     }
@@ -492,7 +558,8 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL percent-encodes like import.meta.url does (paths with spaces).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 8189);
   const initial = process.env.MOCK_SCENARIO as Scenario | undefined;
   startMockComfy({ port, scenario: initial && SCENARIOS.includes(initial) ? initial : undefined }).then((mock) => {

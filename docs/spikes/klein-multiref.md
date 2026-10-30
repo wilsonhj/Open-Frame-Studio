@@ -24,7 +24,7 @@ Quality and speed were **not measured**. No timings exist. There is no local GPU
 
 ## What was built
 
-All files are in `./spikes/klein-multiref/`:
+All files are in `spikes/klein-multiref/`:
 
 | File | What it is |
 |---|---|

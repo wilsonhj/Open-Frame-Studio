@@ -4,16 +4,16 @@
  */
 import type { WorkflowName } from "./bindings.ts";
 import type { JobErrorInfo, JobStatus, OutputRef } from "./job.ts";
-import type { CardsRequest, CardsResult } from "./marketplace.ts";
+import type { CardsRequest, CardsResult } from "./listing.ts";
 import type { MotionRequest, MotionResult } from "./motion.ts";
 import type { PhotoshootRequest, PhotoshootResult } from "./photoshoot.ts";
-import type { SoulRequest, SoulResult } from "./soul.ts";
+import type { IdentityRequest, IdentityResult } from "./identity.ts";
 
 // ---------------------------------------------------------------------------
-// Pipelines (flat step lists with dependsOn: soul, photoshoot, cards, motion)
+// Pipelines (flat step lists with dependsOn: identity, photoshoot, cards, motion)
 // ---------------------------------------------------------------------------
 
-export type PipelineKind = "soul" | "photoshoot" | "cards" | "motion";
+export type PipelineKind = "identity" | "photoshoot" | "listing" | "motion";
 
 /** A reference to an earlier step's output, used to wire steps together. */
 export type StepInputRef = { fromStep: string; outputNode?: string; index?: number };
@@ -123,20 +123,20 @@ export const DEFAULT_STEP_TIMEOUT_MS: Record<WorkflowName, number> = {
 export type PipelineRunStatus = "pending" | "running" | "succeeded" | "partial" | "failed" | "canceled";
 
 export type PipelineRequestMap = {
-  soul: SoulRequest;
+  identity: IdentityRequest;
   photoshoot: PhotoshootRequest;
-  cards: CardsRequest;
+  listing: CardsRequest;
   motion: MotionRequest;
 };
 
 export type PipelineResultMap = {
-  soul: SoulResult;
+  identity: IdentityResult;
   photoshoot: PhotoshootResult;
-  cards: CardsResult;
+  listing: CardsResult;
   motion: MotionResult;
 };
 
-export const RUN_SCHEMA = "open-soul-studio/run@1" as const;
+export const RUN_SCHEMA = "open-frame-studio/run@1" as const;
 
 /** One durable document per run: `${DATA_DIR:-.data}/runs/<id>.json` (docs/spec/api.md §2.0). */
 export type PipelineRun<K extends PipelineKind = PipelineKind> = {

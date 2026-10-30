@@ -1,13 +1,13 @@
-# Spec: Studio UX (Open Soul Studio)
+# Spec: Studio UX (Open Frame Studio)
 
-Status: Wave 1 UX spec, text only (`docs/PLAN.md:169`). The Wave 2 frontend team builds from it (`docs/PLAN.md:179`). It follows the Wave 0 update: FLUX.2 Klein 4B distilled is the default model, and a Soul is Instant only. A Soul is a curated set of 3–6 reference crops plus a style card, saved as a portable `soul.json` with its images. There is no trained LoRA, no "train" toggle and no training progress bar (`docs/PLAN.md:5-7`).
+Status: Wave 1 UX spec, text only (`docs/PLAN.md:169`). The Wave 2 frontend team builds from it (`docs/PLAN.md:179`). It follows the Wave 0 update: FLUX.2 Klein 4B distilled is the default model, and an identity is Instant only. An identity is a curated set of 3–6 reference crops plus a style card, saved as a portable `identity.json` with its images. There is no trained LoRA, no "train" toggle and no training progress bar (`docs/PLAN.md:5-7`).
 
 ## 0. Conventions and clean-room note
 
 - **Source abbreviations**
   - `AT` = the public repo `higgsfield-ai/app-templates` (https://github.com/higgsfield-ai/app-templates). This repo has no licence. We read only its two layout notes (`AT/layouts/AGENTS.md`, `AT/components/studio/AGENTS.md`) to learn how Higgsfield's studio behaves. No code, class names, copy or tokens come from it. Where this spec deliberately differs from that layout, it says so (§1.2).
   - `HS` = `higgsfield-ai/skills (local clone)` (v0.13.0, MIT, `HS/LICENSE:1-3`). Even so, we paraphrase it and do not quote it.
-  - `API` = `docs/spec/api.md`, `PS-SPEC` = `docs/spec/photoshoot.md`, `MC-SPEC` = `docs/spec/marketplace.md`, `T` = `lib/types.ts` (a barrel over `lib/contracts/*.ts`; line citations point into those files).
+  - `API` = `docs/spec/api.md`, `PS-SPEC` = `docs/spec/photoshoot.md`, `MC-SPEC` = `docs/spec/listing.md`, `T` = `lib/types.ts` (a barrel over `lib/contracts/*.ts`; line citations point into those files).
 - **Tags.** **[HF]** marks behaviour observed in a Higgsfield source, with a `path:line`. **[OURS]** marks our own design decision. Untagged text is [OURS].
 - **Wireframes** are low-fi ASCII. They show structure and priority, not pixels. `[ ]` is a button, `( )` a chip, `▢` an image slot, `▶` a video and `…` truncation.
 
@@ -21,11 +21,11 @@ The studio feels like a photographer's light table, not a neon sci-fi console. E
 
 ### 1.2 How this differs from Higgsfield's studio (deliberate)
 
-| Higgsfield studio (observed) | Open Soul Studio [OURS] |
+| Higgsfield studio (observed) | Open Frame Studio [OURS] |
 |---|---|
-| Dark only; a lime accent reserved for the generate CTA (`AT/components/studio/AGENTS.md:34-35`) | Light "paper" by default, with a "darkroom" theme; a safelight red-orange accent; Soul identity uses a second hue, verdigris |
-| Hero with a radial glow and a masked dot field behind three recent outputs (`AT/layouts/AGENTS.md:8-11`) | No glow and no dots. Home is a "pinboard": the active Soul's refs plus the latest contact sheet, with a faint 8 px baseline grid as the only texture |
-| Projects-first sidebar (`AT/layouts/AGENTS.md:6-7`) | **Souls-first** sidebar: the Soul library sits at the top, the tools come next, history is last |
+| Dark only; a lime accent reserved for the generate CTA (`AT/components/studio/AGENTS.md:34-35`) | Light "paper" by default, with a "darkroom" theme; a safelight red-orange accent; identity identity uses a second hue, verdigris |
+| Hero with a radial glow and a masked dot field behind three recent outputs (`AT/layouts/AGENTS.md:8-11`) | No glow and no dots. Home is a "pinboard": the active identity's refs plus the latest contact sheet, with a faint 8 px baseline grid as the only texture |
+| Projects-first sidebar (`AT/layouts/AGENTS.md:6-7`) | **identities-first** sidebar: the identity library sits at the top, the tools come next, history is last |
 | Floating bottom prompt dock with a mode rail (`AT/layouts/AGENTS.md:12-16`) | A right-hand **Slate** panel (the brief) on desktop and a bottom sheet on mobile. Mode choice is a chip grid inside the Slate, not a rail |
 | Justified, edge-to-edge, virtualised feed (`AT/layouts/AGENTS.md:19-20`) | A fixed-aspect contact sheet with numbered frames, grouped by run. Every frame shows its seed and variation |
 
@@ -53,14 +53,14 @@ Three columns: the **Rail** (sidebar) on the left, the **Sheet** (canvas) in the
 │ OPEN SOUL   │ Photoshoot › Run 0412          ◐ 2 live  ☾   │ SLATE                │
 │ STUDIO      ├──────────────────────────────────────────────┤ ──────────────────── │
 │             │                                              │ Product   ▢ ▢ [+]    │
-│ SOULS       │  CONTACT SHEET                               │ Soul      (● Maya ▾) │
+│ SOULS       │  CONTACT SHEET                               │ identity      (● Maya ▾) │
 │ ● Maya   ✓  │  ┌──────┐┌──────┐┌──────┐┌──────┐            │ Mode      (product   │
 │ ○ Theo      │  │  ▢   ││  ▢   ││ ░░░░ ││ ░░░░ │            │  shot)(lifestyle)…   │
 │ [+ New]     │  │      ││      ││ 62%  ││ #3 Q │            │ Count     [-] 4 [+]  │
 │ [Import]    │  └──────┘└──────┘└──────┘└──────┘            │ Aspect    (1:1)(4:5)…│
 │             │  01 s4471  02 s9032  03 run   04 queue       │ Quality   (Fast|Final│
 │ TOOLS       │                                              │ Intent    ________   │
-│ ◆ Soul      │  Run 0409 · Cards · full-set · 13 frames     │                      │
+│ ◆ identity      │  Run 0409 · Cards · full-set · 13 frames     │                      │
 │ ◆ Photoshoot│  ┌──┐┌──┐┌──┐┌──┐┌──┐┌──┐ ┌────┐┌────┐ …    │ ~4 jobs · ~90 s      │
 │ ◆ Cards     │  └──┘└──┘└──┘└──┘└──┘└──┘ └────┘└────┘      │ ┏━━━━━━━━━━━━━━━━━━┓ │
 │ ◆ Motion    │                                              │ ┃   SHOOT 4  ⌘↵    ┃ │
@@ -76,26 +76,26 @@ Three columns: the **Rail** (sidebar) on the left, the **Sheet** (canvas) in the
 ```
 
 - **Rail**: 248 px wide, collapsible to a 64 px icon rail with `[`. It has four sections:
-  - **Souls** (§2.2);
-  - **Tools**: Soul, Photoshoot, Cards, Motion, in that order, one per route (`/soul`, `/photoshoot`, `/cards`, `/motion`). The order follows the demo path;
+  - **identities** (§2.2);
+  - **Tools**: Identity, Photoshoot, Cards, Motion, in that order, one per route (`/identity`, `/photoshoot`, `/listing`, `/motion`). The order follows the demo path;
   - **History** (§2.3);
   - the **server status pill** (§2.4).
 - **Sheet**: the contact sheet for the current tool. Its newest run is at the top, and older runs of the same tool follow below. It scrolls independently.
 - **Slate**: 360 px wide and fixed. It holds every input for the current tool, plus the cost and time estimate and the primary action at the bottom. The Slate keeps its state when you switch tools and come back (one store per tool; compare `AT/layouts/AGENTS.md:25-26`).
 - **Top bar**: breadcrumb `Tool › Run id`, the **run HUD** (`◐ 2 live`: a count of non-terminal runs, which opens a popover listing them with progress) and the theme toggle.
 
-### 2.2 Soul library (Rail, top)
+### 2.2 identity library (Rail, top)
 
 - Each row shows a 24 px round avatar (ref #1), the name and a state mark: `✓` ready, `◐` building, `!` needs attention.
-- The **active Soul** has a filled verdigris dot. Selecting a Soul makes it the default Soul in the Photoshoot, Cards (lifestyle) and Motion Slates. Each Slate can still override it.
-- Hover or focus shows a `⋯` menu: Open, Rename, Export `soul.json` (zip), Duplicate, Delete (with a confirm that names the Soul).
-- `[+ New]` opens the Soul tool. `[Import]` accepts a `soul.json` zip (`API:145-146`).
-- **Drag and drop**: dragging a Soul row onto any Slate's Soul slot sets it.
-- With no Souls the section shows one line, "No Souls yet", and `[+ New]`.
+- The **active identity** has a filled verdigris dot. Selecting an identity makes it the default identity in the Photoshoot, Cards (lifestyle) and Motion Slates. Each Slate can still override it.
+- Hover or focus shows a `⋯` menu: Open, Rename, Export `identity.json` (zip), Duplicate, Delete (with a confirm that names the identity).
+- `[+ New]` opens the identity tool. `[Import]` accepts a `identity.json` zip (`API:145-146`).
+- **Drag and drop**: dragging an identity row onto any Slate's identity slot sets it.
+- With no identities the section shows one line, "No identities yet", and `[+ New]`.
 
 ### 2.3 History
 
-- Every pipeline run across tools, newest first. Each row shows a status glyph, the run id, the tool and a relative time. The last 8 rows show in the Rail; `[All runs]` opens a full-width table with tool, status and Soul filters.
+- Every pipeline run across tools, newest first. Each row shows a status glyph, the run id, the tool and a relative time. The last 8 rows show in the Rail; `[All runs]` opens a full-width table with tool, status and identity filters.
 - **Status glyphs**:
   - `●` safelight: live (pending, queued or running);
   - `✓` ink: succeeded;
@@ -117,9 +117,9 @@ The pill shows whether the server can reach Comfy. It never shows or collects a 
 | Route | Screen |
 |---|---|
 | `/` | Home pinboard (§3) |
-| `/soul`, `/soul/[id]` | Soul tool: create, then the Soul detail view (§4) |
+| `/identity`, `/identity/[id]` | Identity tool: create, then the identity detail view (§4) |
 | `/photoshoot` | Photoshoot (§5) |
-| `/cards` | Marketplace Cards (§6) |
+| `/listing` | Listing Images (§6) |
 | `/motion` | Motion (§8) |
 | `/runs` | All runs table (§2.3) |
 | `?run=<id>` on any tool | Deep link to a run, used by History |
@@ -130,14 +130,14 @@ The pill shows whether the server can reach Comfy. It never shows or collects a 
 
 ```
 ┌ Rail ┬───────────────────────────────────────────────────────────────┐
-│      │  Good evening. Your Soul "Maya" is ready.                     │
+│      │  Good evening. Your identity "Maya" is ready.                     │
 │      │  ┌────┐┌────┐┌────┐┌────┐   MAYA · 4 refs · style card        │
 │      │  │ ▢  ││ ▢  ││ ▢  ││ ▢  │   "short curly auburn hair, …"      │
-│      │  └────┘└────┘└────┘└────┘   [Shoot with Maya] [Export soul.json]
+│      │  └────┘└────┘└────┘└────┘   [Shoot with Maya] [Export identity.json]
 │      │  ───────────────────────────────────────────────────────────  │
 │      │  NEXT STEP                                                    │
 │      │  ┌─────────────┐┌─────────────┐┌─────────────┐┌─────────────┐ │
-│      │  │ 1 Soul   ✓  ││ 2 Photoshoot││ 3 Cards     ││ 4 Motion    │ │
+│      │  │ 1 identity   ✓  ││ 2 Photoshoot││ 3 Cards     ││ 4 Motion    │ │
 │      │  │ done        ││ add product ││ 13 frames   ││ 5 s clip    │ │
 │      │  └─────────────┘└─────────────┘└─────────────┘└─────────────┘ │
 │      │  LATEST SHEET  (run 0412 · Photoshoot)                        │
@@ -145,16 +145,16 @@ The pill shows whether the server can reach Comfy. It never shows or collects a 
 └──────┴───────────────────────────────────────────────────────────────┘
 ```
 
-- **Top block**: the active Soul's refs (best first), name, ref count, the first 120 characters of the style card, and two actions. With no Soul this block becomes the empty state in §10.
-- **Next step strip**: four step cards in demo order. The next undone step is outlined in safelight. A step card shows "done" once any successful run of that tool exists for the active Soul or product. This is our replacement for template galleries: it teaches the flow.
+- **Top block**: the active identity's refs (best first), name, ref count, the first 120 characters of the style card, and two actions. With no identity this block becomes the empty state in §10.
+- **Next step strip**: four step cards in demo order. The next undone step is outlined in safelight. A step card shows "done" once any successful run of that tool exists for the active identity or product. This is our replacement for template galleries: it teaches the flow.
 - **Latest sheet**: the six newest frames from any tool.
 - Home has no Slate. The canvas spans both centre columns.
 
 ---
 
-## 4. Soul tool
+## 4. Identity tool
 
-Soul creation is a three-step wizard inside the Slate, and the Sheet shows the photos as they are checked. Steps: **Photos → Curate → Preview & save**.
+Identity creation is a three-step wizard inside the Slate, and the Sheet shows the photos as they are checked. Steps: **Photos → Curate → Preview & save**.
 
 ### 4.1 Step 1: Photos
 
@@ -181,7 +181,7 @@ Soul creation is a three-step wizard inside the Slate, and the Sheet shows the p
 
 - **Inputs**:
   - Name: one short word, required. Higgsfield asks for a single-word name too [HF] (`HS/higgsfield-soul-id/SKILL.md:43`).
-  - Photos: 3–12 candidates (`lib/contracts/soul.ts:59`). We recommend 6–10. Higgsfield's trained Soul asks for 5–20 with 8–12 ideal [HF] (`HS/higgsfield-soul-id/references/photo-guide.md:7-8`). Our Instant Soul keeps only the best 3–6 (`lib/contracts/soul.ts:12-13`), so we need fewer.
+  - Photos: 3–12 candidates (`lib/contracts/identity.ts:59`). We recommend 6–10. Higgsfield's trained Soul ID asks for 5–20 with 8–12 ideal [HF] (`HS/higgsfield-soul-id/references/photo-guide.md:7-8`). Our Instant identity keeps only the best 3–6 (`lib/contracts/identity.ts:12-13`), so we need fewer.
   - Accepted files: PNG, JPEG or WebP, ≤ 20 MB each (`API:23`). Drop, browse, paste (`⌘V`) or a phone camera on mobile.
 - **Live photo checks.** These run in the browser on drop, before upload, and again on the server in the photo QA step (`API:127`). Each photo tile gets a badge:
   - `✓` usable;
@@ -212,7 +212,7 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 │ ✓ Crop & dedupe                                             │
 │ ✓ Pick best refs     4 chosen                               │
 │ ● Preview sheet      Waiting for GPU · #2 in line           │
-│ ○ Save soul.json                                            │
+│ ○ Save identity.json                                            │
 │                                                             │
 │ CHOSEN REFS (drag to reorder · click to swap)               │
 │ ┌────┐┌────┐┌────┐┌────┐   ┌────┐  bench                    │
@@ -223,7 +223,7 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 ```
 
 - **Ref strip**: 3–6 chosen refs, best first. Ref ★1 is the "primary" ref, the one Motion uses as `<Picture 1>` (`API:179`). Users can reorder, swap a bench photo in, or remove a ref (never below 3). An edit made after the preview has rendered marks the preview "stale" and offers `[Re-render preview]`. That re-render is one new job, and the button says so.
-- **Rejected list**: each rejected photo with its reason (`SoulResult.rejected`, `API:128`).
+- **Rejected list**: each rejected photo with its reason (`IdentityResult.rejected`, `API:128`).
 
 ### 4.3 Step 3: Preview and save
 
@@ -236,18 +236,18 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 │ └──────────────────────────────┘  Eyes   [green         ] │
 │                                   Keep   (mole above lip ×)│
 │                                          (+ add)          │
-│ [Export soul.json]  [Shoot with Maya →]                    │
+│ [Export identity.json]  [Shoot with Maya →]                    │
 ```
 
-- **Preview sheet**: one Klein multi-ref render showing the Soul in a few neutral framings. It is optional (`SoulRequest.preview`, `lib/contracts/soul.ts:61-62`). Under it: "This is how Maya looks to the models. If it drifts, swap a ref."
-- **Style card editor** (`lib/contracts/soul.ts:37-43`):
+- **Preview sheet**: one Klein multi-ref render showing the identity in a few neutral framings. It is optional (`IdentityRequest.preview`, `lib/contracts/identity.ts:61-62`). Under it: "This is how Maya looks to the models. If it drifts, swap a ref."
+- **Style card editor** (`lib/contracts/identity.ts:37-43`):
   - `description`: ≤ 400 characters, with a live counter;
   - a trait field per `StyleTrait` (skin tone, hair, eyes, face shape, age range, accessories, wardrobe), all optional;
   - `keep`: chips for features that must never change.
 
-  Edits autosave to the Soul. They do not need a new run.
-- **Primary action**: `Shoot with <Name> →` opens Photoshoot with the Soul preselected. The secondary action `Export soul.json` downloads a zip of `soul.json` plus `refs/NN.png` (`API:145`).
-- **Soul detail** (`/soul/[id]`) is this same screen for an existing Soul. Its Sheet adds a "Made with Maya" contact sheet: every frame from any tool that used this Soul.
+  Edits autosave to the identity. They do not need a new run.
+- **Primary action**: `Shoot with <Name> →` opens Photoshoot with the identity preselected. The secondary action `Export identity.json` downloads a zip of `identity.json` plus `refs/NN.png` (`API:145`).
+- **Identity detail** (`/identity/[id]`) is this same screen for an existing identity. Its Sheet adds a "Made with Maya" contact sheet: every frame from any tool that used this identity.
 
 ---
 
@@ -257,7 +257,7 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 
 ```
 ┌ Rail ┬──────────────────────────────────────────────┬ SLATE ──────────────────┐
-│      │ RUN 0412 · lifestyle_scene · 4:5 · 4 frames  │ PRODUCT  ▢ serum.png ×  │
+│      │ RUN 0412 · in_context · 4:5 · 4 frames  │ PRODUCT  ▢ serum.png ×  │
 │      │ ┌────────┐┌────────┐┌────────┐┌────────┐     │          ▢ back.png  ×  │
 │      │ │        ││        ││░░░░░░░░││        │     │          [+ angle]      │
 │      │ │   ▢    ││   ▢    ││░ 62% ░░││ #3 in  │     │ SOUL     (● Maya ▾)(none│
@@ -287,21 +287,21 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 ### 5.2 Slate inputs (top to bottom)
 
 1. **Product**: 0–N product images (`PhotoshootRequest.images`, `API:152`). The first image is the hero ref. Without a product, only the text route is available (Type C; `PS-SPEC:204`). A banner then says "Upload a product photo for much better fidelity". The "photo preferred" stance comes from [HF] (`HS/higgsfield-product-photoshoot/SKILL.md:105`).
-2. **Soul**: the active Soul by default, or `(none)`. Its chip shows the Soul's avatar. It is hidden for modes that never use Soul refs (`product_shot`, `conceptual_product`; `PS-SPEC:49,57`) and shown with the hint "used for the model" for `virtual_model_tryout` (`PS-SPEC:56`).
+2. **Identity**: the active identity by default, or `(none)`. Its chip shows the identity's avatar. It is hidden for modes that never use identity refs (`packshot`, `concept`; `PS-SPEC:49,57`) and shown with the hint "used for the model" for `on_model` (`PS-SPEC:56`).
 3. **Mode**: a chip grid of the 10 modes, with friendly labels (ids in tooltips):
 
    | Chip | Mode id |
    |---|---|
-   | Product shot | `product_shot` |
-   | Lifestyle | `lifestyle_scene` |
-   | Hands / close-up | `closeup_product_with_person` |
-   | Pin | `moodboard_pin` |
-   | Hero banner | `hero_banner` |
-   | Carousel | `social_carousel` |
-   | Ad pack | `ad_creative_pack` |
-   | Try-on | `virtual_model_tryout` |
-   | Concept | `conceptual_product` |
-   | Restyle | `restyle` |
+   | Product shot | `packshot` |
+   | Lifestyle | `in_context` |
+   | Hands / close-up | `hands_on` |
+   | Pin | `mood_still` |
+   | Hero banner | `wide_banner` |
+   | Carousel | `carousel_set` |
+   | Ad pack | `ad_variants` |
+   | Try-on | `on_model` |
+   | Concept | `concept` |
+   | Restyle | `restage` |
 
    The mode list is [HF] (`HS/higgsfield-product-photoshoot/SKILL.md:50-61`). Typing an intent first and leaving the mode as `Auto` (the default chip) lets the router pick (`PS-SPEC:101-146`). The chosen mode then lights up with a small "auto" tag. When the router finds two formats ("hero banner and a pin"), it shows the split chips `(Hero banner)(Pin)(Both: 2 runs)` (`PS-SPEC:146`).
 4. **Quick questions**: the interview chip sheet (`PS-SPEC:151-232`).
@@ -326,7 +326,7 @@ The Sheet turns into the build view. Each pipeline step shows as a row (`API:127
 
 ---
 
-## 6. Marketplace Cards tool
+## 6. Listing Images tool
 
 ### 6.1 Layout: the 13-frame board
 
@@ -337,20 +337,20 @@ The Sheet is a fixed board. The order and the slots always follow the scope tabl
 │      │ RUN 0409 · full-set · 13 frames      [Export ZIP]     │ PRODUCT ▢▢ [+]     │
 │      │ ┌───────────────┐ ┌──────┐┌──────┐┌──────┐            │ SCOPE              │
 │      │ │               │ │ info ││multi ││detail│            │ (Main)(+5 product) │
-│      │ │  MAIN  ▢      │ │  ▢   ││ ▢▢   ││  ▢   │            │ (A+ set)(Full 13)• │
+│      │ │  MAIN  ▢      │ │  ▢   ││ ▢▢   ││  ▢   │            │ (Story set)(Complete 13)• │
 │      │ │               │ └──────┘└──────┘└──────┘            │ (Custom…)          │
 │      │ │ ✓ white 99.8% │ ┌──────┐┌──────┐                    │ ── listing copy ── │
 │      │ │ ✓ fill 86%    │ │life  ││in box│                    │ Product name *     │
 │      │ │ ✓ no text     │ │ ░62%░││ ✎ add│                    │ [GLOW serum 30 ml] │
 │      │ └───────────────┘ └──────┘└──────┘                    │ Bullets (1–5)      │
-│      │ A+ MODULES (1464×600)                                 │ [ ] [ ] [+]        │
+│      │ STORY PANELS (1464×600)                                 │ [ ] [ ] [+]        │
 │      │ ┌──────────────────────────┐┌──────────────────────────┐│ Pain points       │
 │      │ │ hero banner   ▢          ││ pain points  ▢           ││ How to use        │
 │      │ └──────────────────────────┘└──────────────────────────┘│ Efficacy + source │
 │      │ ┌──────────────────────────┐┌──────────────────────────┐│ Endorsement       │
 │      │ │ features      ✓          ││ ingredients  #4 in line  ││ What's in the box │
 │      │ └──────────────────────────┘└──────────────────────────┘│ Category (Beauty▾)│
-│      │ ┌──────────────────────────┐┌──────────────────────────┐│ Soul for lifestyle│
+│      │ ┌──────────────────────────┐┌──────────────────────────┐│ identity for lifestyle│
 │      │ │ efficacy  ✎ needs source ││ how to use   ▢           ││ (● Maya)(none)    │
 │      │ └──────────────────────────┘└──────────────────────────┘│ 13 frames · ~4 min │
 │      │ ┌──────────────────────────┐                           │ ┏━━━━━━━━━━━━━━━━┓ │
@@ -362,17 +362,17 @@ The Sheet is a fixed board. The order and the slots always follow the scope tabl
 ### 6.2 Slate inputs
 
 1. **Product images**: 1–6 (`API:165`). The first one is cut out to make the main image.
-2. **Scope**: chips `Main` (1), `+5 product images` (6), `A+ set` (8), `Full set` (13), `Custom…`. The scope names and counts are [HF] (`HS/higgsfield-marketplace-cards/SKILL.md:39-46`). `Custom…` opens a checklist of the 13 asset ids. `main_image` is always checked and locked unless a previous main is reused (`MC-SPEC:56-57`).
+2. **Scope**: chips `Main` (1), `+5 product images` (6), `Story set` (8), `Full set` (13), `Custom…`. The scope sizes follow [HF]; the names are ours (`HS/higgsfield-marketplace-cards/SKILL.md:39-46`). `Custom…` opens a checklist of the 13 asset ids. `hero` is always checked and locked unless a previous main is reused (`MC-SPEC:56-57`).
 3. **Reuse main**: when a run of this product already has a passing main image, the Slate offers `Reuse main from run 0407 ✓`. This is the anchor reuse [HF] (`HS/higgsfield-marketplace-cards/SKILL.md:75`), as `mainJobId` in our API (`API:165`).
 4. **Listing copy**: the fields from `MC-SPEC:197-220`. Only the fields that the chosen scope uses are shown. Each field shows which tiles it feeds ("used by: infographic, features"). Required fields carry `*`. Efficacy claims require a source line; without one, the efficacy tile becomes `needs_input` (`API:170`).
 5. **Category**: a select that drives the lifestyle scene.
-6. **Soul for lifestyle**: optional (`MC-SPEC:130`).
+6. **Identity for lifestyle**: optional (`MC-SPEC:130`).
 7. **Confirmation**: no interview. When the scope is bigger than `Main` and listing copy is empty, the button asks one inline question: "Make 13 cards now and fill copy later? (Yes, make them)(Add copy first)". This follows the one-confirmation rule [HF] (`HS/higgsfield-marketplace-cards/SKILL.md:32`).
 8. **Primary action**: `MAKE n CARDS`, with the estimate line above it.
 
 ### 6.3 Tile behaviours
 
-- Tile states follow `CardTile.state`: `queued | running | succeeded | needs_input | failed` (`CardTileState`, `lib/contracts/marketplace.ts:15`; `API:213`).
+- Tile states follow `CardTile.state`: `queued | running | succeeded | needs_input | failed` (`CardTileState`, `lib/contracts/listing.ts:15`; `API:213`).
 - **Main tile**: always rendered first and twice the size of the others. Under it is the **compliance checklist** (`MC-SPEC:144-178`): white border ≥ 99%, product fill, no text, size ≥ 2000 px. Each check is a ✓ or ✕ with its value. If the main image fails compliance, the run fails before fan-out (`API:118`). The main tile then shows the failing check and two actions: `[Re-cut]` (new cutout job) and `[Use another photo]`. The other tiles stay ghosted with "Waiting for a passing main image".
 - **needs_input**: the tile shows `✎` and the missing fields ("Needs: efficacy source"). Clicking it focuses those fields in the Slate. Once they are filled, the tile offers `[Make this card]`.
 - **Per-tile regenerate**: in the hover rail. It keeps the anchor and the style block and changes only the seed (`API:171`). Copy: "Regenerate: 1 new job, same look".
@@ -444,7 +444,7 @@ Every frame tile and every pipeline-step row renders the same state machine. The
 └──────┴──────────────────────────────────────────────┴──────────────────────────┘
 ```
 
-- **Picture 1, person**: a Soul (it uses ref ★1) or an uploaded person image. Exactly one is required (`API:182`).
+- **Picture 1, person**: an identity (it uses ref ★1) or an uploaded person image. Exactly one is required (`API:182`).
 - **Picture 2, product**: upload, or `[pick from sheet]`, which opens a picker over all Photoshoot and Cards frames (the main-image cutout is the top suggestion).
 - **Prompt**: a short line. `(+Person)` and `(+Product)` insert role tokens, shown as coloured inline chips. The prompt builder maps them to `<Picture 1>` and `<Picture 2>` (`API:179`). Users never type the raw tags.
 - **Length**: 5, 8 or 10 s (default 5 s). The server snaps lengths to the model's frame grid (`docs/spikes/h3-r2v.md:60`).
@@ -462,7 +462,7 @@ Every frame tile and every pipeline-step row renders the same state machine. The
 
 - Runs are grouped, newest first. Each group has a sticky header (run id · tool · key settings · status).
 - Frames keep their true aspect ratio inside a uniform-height row per run. They are never cropped in the grid.
-- Columns: 2 below 640 px, 3 at 640–1023 px, 4–5 above 1024 px. Wide A+ modules span 2 columns.
+- Columns: 2 below 640 px, 3 at 640–1023 px, 4–5 above 1024 px. Wide story panels span 2 columns.
 - **Lazy loading**: thumbnails come from the re-hosted output route (`API:25`) as 512 px WebP previews. The full image loads only in the lightbox or on download.
 - Live frames sit in their final slot from the start, so the grid never reflows when they finish.
 - Selection: click to select, `⇧`-click for a range, `⌘`-click to toggle. The selection bar offers Download (zip), Use as product in Motion, Send to Cards as product image, and Delete from history.
@@ -475,7 +475,7 @@ The **hover rail** (and a long-press sheet on touch) shows at most three icons: 
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ ◀  02 / 04  · lifestyle_scene · seed 9032          ✕         │
+│ ◀  02 / 04  · in_context · seed 9032          ✕         │
 │ ┌──────────────────────────────────┐  VARIATION              │
 │ │                                  │  preset   golden hour   │
 │ │             ▢                    │  light    window        │
@@ -498,12 +498,12 @@ Each empty state is one sentence, one action and an outline of a contact sheet: 
 
 | Screen | Headline | Line | Action |
 |---|---|---|---|
-| Home, no Soul | "Start with a Soul." | "3–12 photos of one person become a reusable identity you can export." | `[Make a Soul]` |
-| Soul library (Rail) | "No Souls yet" | – | `[+ New]` |
+| Home, no identity | "Start with an identity." | "3–12 photos of one person become a reusable identity you can export." | `[Make an identity]` |
+| Identity library (Rail) | "No identities yet" | – | `[+ New]` |
 | Photoshoot, no runs | "Your first sheet goes here." | "Add a product photo, pick a mode, shoot." | Focuses the Product drop zone |
-| Photoshoot, no product and no Soul | same | "No product? Describe it instead, but a photo is much better." | `[Upload product]` |
+| Photoshoot, no product and no identity | same | "No product? Describe it instead, but a photo is much better." | `[Upload product]` |
 | Cards, no runs | "13 marketplace frames, one product photo." | "Main image first; the rest are built around it." | `[Upload product]` |
-| Motion, no Soul and no person | "Clips need a person and a product." | "Use a Soul or upload a photo." | `[Pick a Soul]` |
+| Motion, no identity and no person | "Clips need a person and a product." | "Use an identity or upload a photo." | `[Pick an identity]` |
 | History | "Nothing has run yet." | – | – |
 | Server not configured | "Can't reach Comfy." | "The server has no `COMFY_API_KEY` or `COMFY_BASE_URL`." | `[Setup guide]` |
 
@@ -519,7 +519,7 @@ Each empty state is one sentence, one action and an outline of a contact sheet: 
 │ ┌──────────┐┌──────────┐  │      │╭─────────────────────────╮│
 │ │    ▢     ││    ▢     │  │      ││ ━━  SLATE  (drag up)    ││
 │ └──────────┘└──────────┘  │      ││ Product ▢ [+]           ││
-│ 01 ✓        02 ✓          │      ││ Soul (● Maya)           ││
+│ 01 ✓        02 ✓          │      ││ identity (● Maya)           ││
 │ ┌──────────┐┌──────────┐  │      ││ Mode (Lifestyle) ▸      ││
 │ │ ░ 62% ░  ││ #3 in    │  │      ││ Use it on (Instagram)•… ││
 │ └──────────┘└──────────┘  │      ││ Count 4  Aspect 4:5     ││
@@ -528,15 +528,15 @@ Each empty state is one sentence, one action and an outline of a contact sheet: 
 │ │ [ SHOOT 4 ]           │ │      ││ ┗━━━━━━━━━━━━━━━━━━━━━┛ ││
 │ ╰───────────────────────╯ │      │╰─────────────────────────╯│
 ├───────────────────────────┤      ├───────────────────────────┤
-│ ◆Soul ◆Shoot ◆Cards ◆Mot. │      │ ◆Soul ◆Shoot ◆Cards ◆Mot. │
+│ ◆identity ◆Shoot ◆Cards ◆Mot. │      │ ◆identity ◆Shoot ◆Cards ◆Mot. │
 └───────────────────────────┘      └───────────────────────────┘
    collapsed Slate                    expanded Slate (sheet)
 ```
 
-- **Rail → bottom tab bar** with the four tools. `≡` opens a drawer with the Souls, History and the server pill.
+- **Rail → bottom tab bar** with the four tools. `≡` opens a drawer with the identities, History and the server pill.
 - **Slate → bottom sheet**. Collapsed, it shows a one-line summary and the primary action, so the primary action is always reachable with a thumb. Expanded, it scrolls internally. The primary action stays pinned at the bottom of the sheet, above the safe-area inset.
-- The Soul upload uses the camera picker (`accept="image/*"`, multiple). The live checks run the same way as on desktop.
-- The Cards board becomes one column: main, then 5 secondary tiles in a 2-column grid, then A+ modules full width.
+- The identity upload uses the camera picker (`accept="image/*"`, multiple). The live checks run the same way as on desktop.
+- The Cards board becomes one column: main, then 5 secondary tiles in a 2-column grid, then story panels full width.
 - Hover rails become long-press action sheets, and the lightbox supports swipe.
 - Touch targets are ≥ 44 px, with no horizontal page scroll and a 16 px side gutter.
 - **Tablet**: the Rail is collapsed to icons by default. The Slate becomes a right drawer of 360 px over the Sheet.
@@ -551,20 +551,20 @@ Single-key shortcuts are disabled while a text field has focus. `⌘` means `Ctr
 |---|---|
 | `⌘ ↵` | Primary action of the current tool (Build / Shoot / Make / Roll). Works inside text fields |
 | `Esc` | Close the lightbox, popover or sheet. While a confirm is open, it means "No" |
-| `1` `2` `3` `4` | Switch tool: Soul, Photoshoot, Cards, Motion |
+| `1` `2` `3` `4` | Switch tool: Identity, Photoshoot, Cards, Motion |
 | `H` | Home |
 | `[` | Collapse or expand the Rail |
 | `]` | Collapse or expand the Slate |
 | `/` | Focus the Intent / Prompt field |
 | `U` | Open the file picker for the current tool's main upload |
 | `⌘ V` | Paste an image into the current tool's main upload |
-| `S` | Open the Soul picker in the Slate |
+| `S` | Open the identity picker in the Slate |
 | `M` | Focus the Mode chips (Photoshoot); arrow keys move, `Space` picks |
 | `← →` | Previous or next frame in the lightbox |
 | `↵` | Open the focused frame in the lightbox |
 | `D` | Download the focused frame or selection |
 | `R` | Retry or regenerate the focused frame (opens the confirm with its cost; `↵` confirms) |
-| `E` | Export: `soul.json` on Soul screens, the ZIP on Cards |
+| `E` | Export: `identity.json` on identity screens, the ZIP on Cards |
 | `.` | Open the run HUD |
 | `?` | Shortcut sheet |
 
@@ -572,23 +572,23 @@ Single-key shortcuts are disabled while a text field has focus. `⌘` means `Ctr
 
 ## 13. The 3-minute live demo path
 
-This is the path through the UI the demo script (`docs/PLAN.md:199`) relies on. The time targets come from `docs/PLAN.md:190`: Soul preview < 60 s, 4-image shoot < 90 s, 13 cards < 4 min, H3 clip < 3 min. Serially these add up to more than 3 minutes. So the path **overlaps runs** with the run HUD, and switches Motion to Preview quality when the queue is long.
+This is the path through the UI the demo script (`docs/PLAN.md:199`) relies on. The time targets come from `docs/PLAN.md:190`: Identity preview < 60 s, 4-image shoot < 90 s, 13 cards < 4 min, H3 clip < 3 min. Serially these add up to more than 3 minutes. So the path **overlaps runs** with the run HUD, and switches Motion to Preview quality when the queue is long.
 
 | t | Screen | User does | UI shows |
 |---|---|---|---|
-| 0:00 | Home (empty) | Clicks `[Make a Soul]` | Soul step 1 |
-| 0:05 | Soul · Photos | Drops 8 selfies, types "Maya" | Tiles badge live. One "2 faces" photo is blocked and one blurry photo gets `~`. The checklist turns green. "6 usable" |
-| 0:20 | Soul · Curate | `⌘↵` Build Soul | The step rows tick. Refs appear with QA scores. "Preview sheet: Waiting for GPU · #1 in line", then "Developing…" |
-| 0:20–1:10 | (in parallel) | Clicks `2` for Photoshoot **while the preview renders**. The Soul is already selectable, because refs are saved before the preview step | The run HUD shows `◐ 1 live` |
+| 0:00 | Home (empty) | Clicks `[Make an identity]` | Identity step 1 |
+| 0:05 | Identity · Photos | Drops 8 selfies, types "Maya" | Tiles badge live. One "2 faces" photo is blocked and one blurry photo gets `~`. The checklist turns green. "6 usable" |
+| 0:20 | Identity · Curate | `⌘↵` Build identity | The step rows tick. Refs appear with QA scores. "Preview sheet: Waiting for GPU · #1 in line", then "Developing…" |
+| 0:20–1:10 | (in parallel) | Clicks `2` for Photoshoot **while the preview renders**. The identity is already selectable, because refs are saved before the preview step | The run HUD shows `◐ 1 live` |
 | 0:30 | Photoshoot | Drops serum.png. Mode `Hands / close-up`. Count 4. Use it on `(Instagram)`. `⌘↵` | 4 frames: two "Waiting for GPU", two "Developing…" |
 | 0:45 | Cards | Clicks `3`. The product carries over. Scope `Full set`. Types the product name and 3 bullets. Clicks `MAKE 13 CARDS` | The main tile develops first. The compliance ticks turn green. The other 12 fan out |
-| 1:10 | Soul (toast) | Toast "Maya preview ready". Opens it and shows the style card | The identity sheet |
+| 1:10 | Identity (toast) | Toast "Maya preview ready". Opens it and shows the style card | The identity sheet |
 | 1:30 | Photoshoot | Returns. 4 frames done. Opens the lightbox on #2 and shows the variation panel | Maya holding the serum |
 | 1:45 | Motion | Clicks `4`. Picture 1 = Maya. `[pick from sheet]` → frame #2. Prompt: `(+Person)` holds `(+Product)` up to the light. Quality: Preview if the HUD shows more than 2 live jobs, otherwise Final. `⌘↵` | "Developing… 12%", with a time-left estimate |
 | 2:00 | Cards | Shows the 13-frame board filling in. Fills one `needs_input` tile (efficacy source) live, then `[Export ZIP]` | Ready tiles. One text edit re-renders instantly with no job |
 | 2:30 | Motion | The clip finishes (or the presenter opens the **pre-rendered** golden clip, which is clearly labelled `pre-run`) | The player loops |
-| 2:45 | Soul detail | `E`: Export `soul.json` | The download chip shows `maya.soul.zip · 4 refs · 1.9 MB` |
-| 3:00 | – | Close line: "Your Soul is a file you own." | – |
+| 2:45 | Identity detail | `E`: Export `identity.json` | The download chip shows `maya.identity.zip · 4 refs · 1.9 MB` |
+| 3:00 | – | Close line: "Your identity is a file you own." | – |
 
 **Demo-safety requirements [OURS]**
 - **Pre-run results** (`docs/PLAN.md:191`, golden demo assets) can be loaded into History from `fixtures/golden/`. They always carry a visible `pre-run` tag. The UI never passes them off as live.
@@ -625,7 +625,7 @@ The names are semantic. Wave 2 maps them into `app/globals.css` (Tailwind `@them
 | `--safelight` | `#D9431E` | `#FF6A3D` | primary CTA, focus, live state |
 | `--safelight-ink` | `#FFFFFF` | `#1B0B05` | text on safelight |
 | `--safelight-wash` | `#F7DCCF` | `#3A1E14` | queued shimmer, selected chip bg |
-| `--verdigris` | `#2E7D6B` | `#5CC0A6` | Soul identity: active Soul dot, Soul chips, Person token |
+| `--verdigris` | `#2E7D6B` | `#5CC0A6` | Identity identity: active identity dot, identity chips, Person token |
 | `--brass` | `#A86B12` | `#E0A23A` | partial / warning, Product token |
 | `--ok` | `#2F6B3A` | `#7BC48A` | compliance pass, succeeded glyph |
 | `--danger` | `#B3261E` | `#FF7B72` | failed, compliance fail |
@@ -636,13 +636,13 @@ Rules: safelight appears only on the one primary action per screen, on focus and
 ### 15.2 Type
 
 All three families are OFL and self-hosted; the card renderer already bundles OFL fonts (`docs/PLAN.md:178`).
-- **Display**: *Fraunces* (soft serif, opsz axis), used for page titles, empty-state headlines and the Soul name.
+- **Display**: *Fraunces* (soft serif, opsz axis), used for page titles, empty-state headlines and the identity name.
 - **UI**: *IBM Plex Sans*.
 - **Captions and data**: *IBM Plex Mono*, used for frame numbers, seeds, run ids, percentages and the shortcut sheet.
 
 | Token | Size / line-height | Family / weight | Use |
 |---|---|---|---|
-| `--t-display` | 40 / 44 | Fraunces 600, opsz 72 | Home greeting, Soul name |
+| `--t-display` | 40 / 44 | Fraunces 600, opsz 72 | Home greeting, identity name |
 | `--t-h1` | 28 / 34 | Fraunces 600 | screen titles |
 | `--t-h2` | 20 / 26 | Plex Sans 600 | Slate section heads, run headers |
 | `--t-body` | 15 / 22 | Plex Sans 400 | default |
@@ -674,4 +674,4 @@ On mobile, `--t-display` drops to 32/36 and `--t-h1` to 24/30.
 
 1. **Running-time estimates.** These need the latency meter (`docs/PLAN.md`, Backend row). Until real timings exist, the estimate line shows the plan targets with a `~`. **Per-job cost is an estimate or unavailable:** `X-Comfy-Credits-Used` exists only on some Router responses, and its absence does not mean free (Comfy docs `development/comfy-router/billing.mdx:23`); our graphs run as API v2 jobs, not Router calls. The workspace usage endpoint is drawn from invoices, so recent usage may be missing: a reporting surface, not a real-time meter (`openapi-cloud.yaml:2356-2358`). So the UI shows "≈ N credits (estimate)" from the Wave 3 calibration table (#41), or no credit figure at all; never an exact per-job cost.
 2. **Photo checks in the browser.** Client-side face counting needs a small open face detector, such as MediaPipe Face Detection in WASM. If that is too heavy, the browser checks only size and type, and the face checks show after the server QA step, with the same tile badges.
-3. **Saving refs before the preview.** The demo overlap in §13 assumes the Soul's refs are persisted before the optional preview step finishes. Today's step order is "preview → write `soul.json`" (`API:127`). The registry should save refs first and attach the preview later. Raise this with the API owner.
+3. **Saving refs before the preview.** The demo overlap in §13 assumes the identity's refs are persisted before the optional preview step finishes. Today's step order is "preview → write `identity.json`" (`API:127`). The registry should save refs first and attach the preview later. Raise this with the API owner.

@@ -1,5 +1,5 @@
 /**
- * Product Photoshoot: 10 modes, <=4-question interview, 1-10 varied outputs, aspect whitelist.
+ * Product Shoot: 10 modes, <=4-question interview, 1-10 varied outputs, aspect whitelist.
  * Spec: docs/spec/photoshoot.md. Product fixtures: fixtures/products/*.png (procedural).
  */
 import { join } from "node:path";
@@ -10,16 +10,16 @@ import { resetMock, setMockScenario } from "../mock-comfy/control.ts";
 
 const PRODUCT = join(process.cwd(), "fixtures/products/product-bottle-confetti.png");
 const MODES = [
-  "product_shot",
-  "lifestyle_scene",
-  "closeup_product_with_person",
-  "moodboard_pin",
-  "hero_banner",
-  "social_carousel",
-  "ad_creative_pack",
-  "virtual_model_tryout",
-  "conceptual_product",
-  "restyle",
+  "packshot",
+  "in_context",
+  "hands_on",
+  "mood_still",
+  "wide_banner",
+  "carousel_set",
+  "ad_variants",
+  "on_model",
+  "concept",
+  "restage",
 ] as const;
 const ASPECTS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"] as const;
 
@@ -29,13 +29,13 @@ test.beforeEach(async () => {
 
 test("Photoshoot page renders", async ({ page }) => {
   await page.goto("/photoshoot");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/photoshoot/i);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/product shoot/i);
 });
 
 test.describe("Photoshoot dock", () => {
   test.fixme("mode rail lists all 10 modes and the aspect picker only offers the whitelist", async ({ page }) => {
     // TODO(wave2 frontend: Photoshoot dock): one control per mode in MODES; aspect options equal ASPECTS;
-    // moodboard_pin defaults to 2:3, hero_banner to a >=16:9 aspect.
+    // mood_still defaults to 2:3, wide_banner to a >=16:9 aspect.
     await page.goto("/photoshoot");
     expect(MODES).toHaveLength(10);
     expect(ASPECTS).toHaveLength(9);
@@ -47,7 +47,7 @@ test.describe("Photoshoot dock", () => {
     await page.goto("/photoshoot");
   });
 
-  test.fixme("product_shot x4: upload product, generate, gallery shows 4 varied images", async ({ page }) => {
+  test.fixme("packshot x4: upload product, generate, gallery shows 4 varied images", async ({ page }) => {
     // TODO(wave2): setInputFiles(PRODUCT); count=4; submit. Mock multi_output returns images+video;
     // gallery must show only images for photoshoot. Assert 4 tiles, each src under /api/jobs/.../outputs/...
     // and each request body (mockRequests().jobPosts) carries a different preset/light/angle/palette prompt.
@@ -56,7 +56,7 @@ test.describe("Photoshoot dock", () => {
     void PRODUCT;
   });
 
-  test.fixme("social_carousel shares one style block across 3-10 slides", async ({ page }) => {
+  test.fixme("carousel_set shares one style block across 3-10 slides", async ({ page }) => {
     // TODO(wave2 enhancer style lock): N slides submitted; prompts differ but share the style block.
     await page.goto("/photoshoot");
   });

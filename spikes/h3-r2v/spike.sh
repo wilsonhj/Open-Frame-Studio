@@ -4,7 +4,7 @@
 # Never loops/retries a submit. COMFY_API_KEY is read from env by the SDK and is never printed.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-OUT="${SPIKE_OUT:-<scratchpad>"
+OUT="${SPIKE_OUT:-$HERE/../../spike-out/h3-r2v}"  # spike-out/ is gitignored
 export OBJECT_INFO="${OBJECT_INFO:-$OUT/object_info.json}"
 mkdir -p "$OUT"
 [ -s "$OBJECT_INFO" ] || curl -sS -H "Authorization: Bearer $COMFY_API_KEY" https://cloud.comfy.org/api/object_info -o "$OBJECT_INFO"
@@ -16,12 +16,23 @@ python3 run.py fixtures_t2i.api.json --submit --timeout 600 --out "$OUT/fixtures
 P=$(ls "$OUT"/fixtures/h3_ref_person*.png | head -1)
 M=$(ls "$OUT"/fixtures/h3_ref_product*.png | head -1)
 
-probe() {  # frames, fps, size, audio streams
+probe() {  # frames, fps, size, audio streams. Reports only: never aborts the run after a billed job.
+  local f sz found=0
   for f in "$1"/*.mp4; do
+    [ -e "$f" ] || continue  # no match: the glob stays literal
+    found=1
     ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,channels \
-      -show_entries format=duration,size -of compact "$f"
-    sz=$(stat -c %s "$f"); [ "$sz" -lt 5000000 ] && cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
+      -show_entries format=duration,size -of compact "$f" || echo "ffprobe failed for $f" >&2
+    sz=$(wc -c < "$f" 2>/dev/null | tr -d " ") || sz=0  # portable (GNU and BSD/macOS); unreadable: 0
+    [ -n "$sz" ] || sz=0
+    if [ "$sz" -lt 5000000 ]; then
+      cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
+    else
+      echo "kept $(basename "$f") in $1 only ($sz bytes, not copied into the repo)"
+    fi
   done
+  [ "$found" = 1 ] || echo "no .mp4 output in $1" >&2
+  return 0
 }
 
 # 2) turbo clip (4 steps, 480x864, 124 frames)

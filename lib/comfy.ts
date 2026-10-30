@@ -17,8 +17,12 @@
  *  3. No `metadata` is ever passed to `submit()`.
  *  4. We poll `GET /api/v2/jobs/{id}`; we do not rely on SSE events.
  *  5. Outputs are re-hosted through our own route: signed URLs expire, and
- *     the browser never sees a Comfy URL or the API key.
+ *     the browser never sees a Comfy URL or the API key, and addresses jobs
+ *     only through signed handles (lib/access.ts).
  *  6. Workflows must be API format; UI exports are rejected locally.
+ *  7. A job past its deadline gets a cancel request, but it is only reported
+ *     terminal once Comfy says it is: a failed or pending cancel leaves it
+ *     observable (lib/job-deadlines.ts keeps enforcing it server-side).
  *
  * The API key is read from the environment (COMFY_API_KEY) and never logged.
  */
@@ -43,7 +47,7 @@ import { TERMINAL_STATUSES } from "./types.ts";
 
 export type { Workflow } from "@comfyorg/sdk";
 
-const CLIENT_INFO = "open-soul-studio";
+const CLIENT_INFO = "open-frame-studio";
 const WORKFLOW_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 // ---------------------------------------------------------------------------
@@ -95,6 +99,27 @@ export class SubmitAmbiguousError extends Error {
     this.idempotencyKey = idempotencyKey;
     this.httpStatus = httpStatus;
   }
+}
+
+/**
+ * HTTP status our routes return for a rejected submit. Account problems on
+ * the server's key (401/403) are not the user's input, so they become 503;
+ * Comfy's own rate limit stays 429; credits stay 402; the rest is 422.
+ */
+export function rejectedSubmitStatus(httpStatus: number | null): number {
+  if (httpStatus === 402 || httpStatus === 429) return httpStatus;
+  if (httpStatus === 401 || httpStatus === 403) return 503;
+  return 422;
+}
+
+/** User-facing message for a rejected submit (never leaks the key). */
+export function rejectedSubmitMessage(error: SubmitRejectedError): string {
+  if (error.httpStatus === 401 || error.httpStatus === 403) {
+    return "The studio's Comfy account can't run jobs right now (check the API key and that the plan allows API jobs).";
+  }
+  if (error.httpStatus === 402) return "The studio's Comfy account is out of credits.";
+  if (error.httpStatus === 429) return "Comfy is busy; try again in a minute.";
+  return error.message;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,37 +269,122 @@ export function outputUrl(jobId: string, outputId: string): string {
   return `/api/jobs/${encodeURIComponent(jobId)}/outputs/${encodeURIComponent(outputId)}`;
 }
 
-export function normalizeJob(job: SdkJob): Job {
+export type NormalizeOptions = {
+  /** Public id the browser uses for this job (a signed handle); defaults to the Comfy id. */
+  publicId?: string;
+  /** Only these nodes' outputs are exposed (see WorkflowBinding.outputNodes). */
+  outputNodes?: readonly string[];
+};
+
+/**
+ * True when an output may be shown. An output with no node id can't be
+ * attributed, so it is kept rather than silently dropping the result.
+ */
+export function isExposedOutput(nodeId: string, outputNodes: readonly string[] | undefined): boolean {
+  if (!outputNodes || outputNodes.length === 0 || !nodeId) return true;
+  return outputNodes.includes(nodeId);
+}
+
+export function normalizeJob(job: SdkJob, options: NormalizeOptions = {}): Job {
   const status = normalizeStatus(job.status);
-  const outputs: OutputRef[] = job.outputs.map((output) => ({
-    id: output.id,
-    jobId: job.id,
-    nodeId: output.nodeId,
-    name: output.name,
-    type: output.type,
-    contentType: output.contentType,
-    sizeBytes: output.sizeBytes,
-    url: outputUrl(job.id, output.id),
-  }));
+  const publicId = options.publicId ?? job.id;
+  const outputs: OutputRef[] = job.outputs
+    .filter((output) => isExposedOutput(output.nodeId, options.outputNodes))
+    .map((output) => ({
+      id: output.id,
+      jobId: publicId,
+      nodeId: output.nodeId,
+      name: output.name,
+      type: output.type,
+      contentType: output.contentType,
+      sizeBytes: output.sizeBytes,
+      url: outputUrl(publicId, output.id),
+    }));
   const raw = job.error;
   const error: JobErrorInfo | null = raw
     ? { code: raw.code, message: raw.message, nodeId: raw.node_id ?? null, classType: raw.class_type ?? null }
     : status === "failed" || status === "expired" || status === "canceled"
       ? { code: status, message: `Job ${status}.` }
       : null;
+  const progress = job.progress;
+  const step =
+    progress && progress.step !== null && progress.steps !== null && progress.steps > 0
+      ? { current: progress.step, total: progress.steps, nodeClass: progress.currentNodeClass }
+      : null;
   return {
-    id: job.id,
+    id: publicId,
     status,
     terminal: isTerminalStatus(status),
-    progress: job.progress?.value ?? null,
+    progress: progress?.value ?? null,
+    step,
     queuePosition: job.queuePosition,
     outputs,
     error,
   };
 }
 
-export async function getJob(client: Comfy, id: string, signal?: AbortSignal): Promise<Job> {
-  return normalizeJob(await fetchSdkJob(client, id, signal));
+/** Re-key a normalized job onto the public id the browser uses, filtering outputs. */
+export function withPublicId(job: Job, publicId: string, outputNodes?: readonly string[]): Job {
+  return {
+    ...job,
+    id: publicId,
+    outputs: job.outputs
+      .filter((output) => isExposedOutput(output.nodeId, outputNodes))
+      .map((output) => ({ ...output, jobId: publicId, url: outputUrl(publicId, output.id) })),
+  };
+}
+
+export async function getJob(
+  client: Comfy,
+  id: string,
+  signal?: AbortSignal,
+  options: NormalizeOptions = {},
+): Promise<Job> {
+  return normalizeJob(await fetchSdkJob(client, id, signal), options);
+}
+
+/**
+ * Outcome of asking Comfy to cancel an overdue job:
+ * - `canceled`: Comfy reports the job terminal (canceled, or it finished first).
+ * - `cancel_requested`: Comfy accepted the request but the job is still live
+ *   (e.g. `canceling`).
+ * - `cancel_failed`: the request itself failed; the job may still be running.
+ */
+export type CancelOutcome = "canceled" | "cancel_requested" | "cancel_failed";
+
+/**
+ * Ask Comfy to cancel `comfyJobId` and adopt the state it returns. Never
+ * claims a cancel it didn't see: only an upstream terminal status counts.
+ */
+export async function requestCancel(
+  client: Comfy,
+  comfyJobId: string,
+  options: NormalizeOptions = {},
+): Promise<{ outcome: CancelOutcome; job: Job | null; error?: string }> {
+  try {
+    const sdkJob = await client.jobs.get(comfyJobId);
+    await sdkJob.cancel();
+    const job = normalizeJob(sdkJob, options);
+    return { outcome: job.terminal ? "canceled" : "cancel_requested", job };
+  } catch (error) {
+    return { outcome: "cancel_failed", job: null, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Annotate a still-live overdue job for the browser. It stays non-terminal,
+ * so the client keeps watching it (and can still collect its outputs).
+ */
+export function overdueJob(job: Job, outcome: Exclude<CancelOutcome, "canceled">, budgetMs: number): Job {
+  const minutes = Math.round(budgetMs / 60_000);
+  return {
+    ...job,
+    terminal: false,
+    error:
+      outcome === "cancel_requested"
+        ? { code: outcome, message: `Over its ${minutes}-minute budget; cancel requested, waiting for Comfy to stop it.` }
+        : { code: outcome, message: `Over its ${minutes}-minute budget, but the cancel request failed; retrying.` },
+  };
 }
 
 async function fetchSdkJob(client: Comfy, id: string, signal?: AbortSignal): Promise<SdkJob> {
@@ -294,9 +404,11 @@ export type PollOptions = {
 };
 
 /**
- * Poll until terminal or until `timeoutMs` elapses. Never throws on timeout:
- * a job still non-terminal (typically `unknown` on a proxy) at the deadline
- * is returned as `terminal: true` with error code `poll_timeout`.
+ * Poll until terminal or until `timeoutMs` elapses (for server-side
+ * pipelines). Never throws on timeout: at the deadline a still-live job
+ * (typically `unknown` on a proxy) gets a cancel request and is returned
+ * `terminal: true` (stop polling) with error code `poll_timeout`, whose
+ * message reports the real upstream outcome of the cancel.
  */
 export async function pollJob(client: Comfy, id: string, options: PollOptions): Promise<Job> {
   const timeoutMs = options?.timeoutMs;
@@ -312,13 +424,20 @@ export async function pollJob(client: Comfy, id: string, options: PollOptions): 
     if (job.terminal) return job;
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
+      // The caller (a pipeline step) records `timed_out` and keeps the job id,
+      // so the job stays reachable; say exactly what happened to it upstream.
+      const cancel = await requestCancel(client, id);
+      const upstream = cancel.job ?? job;
+      const what =
+        cancel.outcome === "canceled"
+          ? `ended ${upstream.status}`
+          : cancel.outcome === "cancel_requested"
+            ? `cancel requested (still ${upstream.status})`
+            : `cancel failed (${cancel.error}); it may still be running`;
       return {
-        ...job,
+        ...upstream,
         terminal: true,
-        error: {
-          code: "poll_timeout",
-          message: `Job ${id} was still ${job.status} after ${timeoutMs} ms; giving up.`,
-        },
+        error: { code: "poll_timeout", message: `Job ${id} was still ${job.status} after ${timeoutMs} ms; ${what}.` },
       };
     }
     await sleep(Math.min(interval, remaining), options.signal);
@@ -358,31 +477,77 @@ export function apiOrigin(): string {
 }
 
 /**
- * Fetch an output's bytes as a streamable Response.
+ * Fetch an output's bytes as a streamable Response, with safe re-hosting
+ * headers (see outputResponseHeaders).
  *
  * Cloud: `getDownloadUrl()` returns a short-lived signed URL on a storage
  * host; we fetch it WITHOUT our bearer token and stream it through.
  * Self-hosted proxy: the URL is the asset's own endpoint on the API origin
  * (which may need auth), so we read the bytes through the SDK instead.
  */
-export async function fetchOutput(client: Comfy, jobId: string, outputId: string): Promise<Response> {
+export async function fetchOutput(
+  client: Comfy,
+  jobId: string,
+  outputId: string,
+  options: { outputNodes?: readonly string[] } = {},
+): Promise<Response> {
   const job = await client.jobs.get(jobId);
-  const output = job.outputs.find((candidate) => candidate.id === outputId);
+  const output = job.outputs.find(
+    (candidate) => candidate.id === outputId && isExposedOutput(candidate.nodeId, options.outputNodes),
+  );
   if (!output) throw new OutputNotFoundError(jobId, outputId);
   const fallbackType = output.contentType || "application/octet-stream";
   const { url } = await output.getDownloadUrl();
-  if (new URL(url).origin === apiOrigin()) {
+  // A self-hosted proxy may return a path-relative asset URL.
+  const resolved = new URL(url, apiOrigin());
+  if (resolved.origin === apiOrigin()) {
     const bytes = await output.toBytes();
-    return new Response(bytes as Uint8Array<ArrayBuffer>, { status: 200, headers: { "Content-Type": fallbackType } });
+    const headers = outputResponseHeaders(fallbackType, output.name);
+    headers.set("Content-Length", String(bytes.byteLength));
+    return new Response(bytes as Uint8Array<ArrayBuffer>, { status: 200, headers });
   }
-  const response = await fetch(url);
+  const response = await fetch(resolved);
   if (!response.ok || !response.body) {
     await response.body?.cancel();
     throw new Error(`Output download failed with HTTP ${response.status}.`);
   }
-  return new Response(response.body, {
-    status: 200,
-    headers: { "Content-Type": response.headers.get("Content-Type") ?? fallbackType },
+  const headers = outputResponseHeaders(response.headers.get("Content-Type") ?? fallbackType, output.name);
+  // fetch() decodes gzip/br bodies but keeps the encoded Content-Length, so
+  // the length only describes the bytes we stream when nothing was encoded.
+  const length = response.headers.get("Content-Length");
+  if (length && !response.headers.get("Content-Encoding")) headers.set("Content-Length", length);
+  return new Response(response.body, { status: 200, headers });
+}
+
+/** Media types served inline from our origin. Anything else is a download. */
+const INLINE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+  "video/webm",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/ogg",
+  "audio/flac",
+]);
+
+/**
+ * Response headers for re-hosted output bytes. Only an allowlist of
+ * raster/media types is served inline; HTML, SVG, JS and unknown types are
+ * forced to an opaque attachment, and the CSP sandbox keeps any script inert.
+ */
+export function outputResponseHeaders(contentType: string | null, filename: string): Headers {
+  const type = (contentType ?? "").split(";")[0].trim().toLowerCase();
+  const inline = INLINE_TYPES.has(type);
+  const safeName = filename.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) || "output";
+  return new Headers({
+    "Content-Type": inline ? type : "application/octet-stream",
+    "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${safeName}"`,
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "Cache-Control": "private, max-age=300",
   });
 }
 
