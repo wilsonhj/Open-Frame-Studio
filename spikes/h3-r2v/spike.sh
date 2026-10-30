@@ -16,13 +16,22 @@ python3 run.py fixtures_t2i.api.json --submit --timeout 600 --out "$OUT/fixtures
 P=$(ls "$OUT"/fixtures/h3_ref_person*.png | head -1)
 M=$(ls "$OUT"/fixtures/h3_ref_product*.png | head -1)
 
-probe() {  # frames, fps, size, audio streams
+probe() {  # frames, fps, size, audio streams. Reports only: never aborts the run after a billed job.
+  local f sz found=0
   for f in "$1"/*.mp4; do
+    [ -e "$f" ] || continue  # no match: the glob stays literal
+    found=1
     ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,channels \
-      -show_entries format=duration,size -of compact "$f"
+      -show_entries format=duration,size -of compact "$f" || echo "ffprobe failed for $f" >&2
     sz=$(wc -c < "$f" | tr -d " ")  # portable (GNU and BSD/macOS)
-    [ "$sz" -lt 5000000 ] && cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
+    if [ "$sz" -lt 5000000 ]; then
+      cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
+    else
+      echo "kept $(basename "$f") in $1 only ($sz bytes, not copied into the repo)"
+    fi
   done
+  [ "$found" = 1 ] || echo "no .mp4 output in $1" >&2
+  return 0
 }
 
 # 2) turbo clip (4 steps, 480x864, 124 frames)

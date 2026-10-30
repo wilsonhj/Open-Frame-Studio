@@ -105,16 +105,18 @@ export function assertMaySubmit(request: Request, accessCode: string | null): ()
   signingSecret(); // fail before billing a job we couldn't hand back
   const required = process.env.STUDIO_ACCESS_CODE?.trim();
   if (required) {
+    if (process.env.NODE_ENV === "production" && required.length < MIN_ACCESS_CODE_LENGTH) {
+      throw new AccessError(
+        503,
+        "not_configured",
+        `STUDIO_ACCESS_CODE must be at least ${MIN_ACCESS_CODE_LENGTH} characters; use a long random value.`,
+      );
+    }
     // No code at all isn't a guess, so it isn't counted.
     if (!accessCode?.trim()) {
       throw new AccessError(401, "access_code_required", "Enter the studio access code to run jobs.");
     }
-    const ip = clientIp(request);
-    takeCredentialAttempt(ip);
-    if (!sameSecret(accessCode.trim(), required)) {
-      throw new AccessError(401, "access_code_required", "That access code is wrong.");
-    }
-    refundCredentialAttempt(ip);
+    checkCredentialAttempt(clientIp(request), sameSecret(accessCode.trim(), required));
   } else if (process.env.NODE_ENV === "production" && process.env.ALLOW_PUBLIC_SUBMIT !== "true") {
     throw new AccessError(
       503,
@@ -203,57 +205,54 @@ function takeRateLimit(ip: string | null, now = Date.now()): () => void {
 
 // ---------------------------------------------------------------------------
 // Failed access codes
+//
+// Guessing is made impractical by the code itself: production requires at
+// least MIN_ACCESS_CODE_LENGTH characters (a long random value). There is no
+// global failure cap: with no trusted proxy every caller looks the same, so
+// a global lockout would let anyone lock every real user out with 200 bad
+// codes. With a trusted proxy (TRUSTED_PROXY_HOPS), one address that keeps
+// guessing is locked out for the rest of the window, right code included,
+// since letting a right code through would tell a guesser it was right.
 // ---------------------------------------------------------------------------
 
+export const MIN_ACCESS_CODE_LENGTH = 12;
 const ATTEMPT_WINDOW_MS = 15 * 60_000;
 const FAILURES_PER_IP = 10;
-/** Caps guessing spread across many addresses (or with no trusted proxy, all of it). */
-const FAILURES_TOTAL = 200;
 
 type FailureWindow = { count: number; resetAt: number };
 const failures = new Map<string, FailureWindow>();
-let failuresTotal: FailureWindow = { count: 0, resetAt: 0 };
 
 /**
- * Takes one access-code attempt for this client, counted as a failure up
- * front; throws 429 when it (or everyone) is over the limit. Check and count
- * are one synchronous step, so concurrent requests can't all pass the check
- * before the first failure lands. Call refundCredentialAttempt once the code
- * turns out right. `ip` null (no trusted proxy): only the global cap applies.
+ * Throws 429 if this client is locked out, else 401 (and counts a failure)
+ * when the code is wrong. A right code changes nothing: failures only expire
+ * with their window, so a real user's success can't reset a guesser sharing
+ * the address. Synchronous end to end, so concurrent requests can't all pass
+ * the check before their failures land. `ip` null (no trusted proxy): only
+ * the code's strength applies.
  */
-export function takeCredentialAttempt(ip: string | null, now: number = Date.now()): void {
-  if (failuresTotal.resetAt <= now) failuresTotal = { count: 0, resetAt: now + ATTEMPT_WINDOW_MS };
+function checkCredentialAttempt(ip: string | null, correct: boolean, now: number = Date.now()): void {
   let current = ip === null ? undefined : failures.get(ip);
   if (current && current.resetAt <= now) {
     failures.delete(ip!);
     current = undefined;
   }
-  const blockedUntil = Math.max(
-    current && current.count >= FAILURES_PER_IP ? current.resetAt : 0,
-    failuresTotal.count >= FAILURES_TOTAL ? failuresTotal.resetAt : 0,
-  );
-  if (blockedUntil) {
-    const retryAfter = Math.ceil((blockedUntil - now) / 1000);
+  if (current && current.count >= FAILURES_PER_IP) {
+    const retryAfter = Math.ceil((current.resetAt - now) / 1000);
     throw new AccessError(429, "too_many_attempts", "Too many wrong access codes; try again later.", retryAfter);
   }
-  failuresTotal.count += 1;
-  if (ip === null) return;
-  if (current) {
-    current.count += 1;
-    return;
+  if (correct) return;
+  if (ip !== null) {
+    if (current) current.count += 1;
+    else {
+      if (failures.size >= MAX_TRACKED_IPS) {
+        for (const [key, window] of failures) if (window.resetAt <= now) failures.delete(key);
+        // Still full: drop the oldest entry (Maps iterate in insertion order).
+        if (failures.size >= MAX_TRACKED_IPS) failures.delete(failures.keys().next().value!);
+      }
+      failures.set(ip, { count: 1, resetAt: now + ATTEMPT_WINDOW_MS });
+    }
   }
-  if (failures.size >= MAX_TRACKED_IPS) {
-    for (const [key, window] of failures) if (window.resetAt <= now) failures.delete(key);
-    // Still full: drop the oldest entry (Maps iterate in insertion order).
-    if (failures.size >= MAX_TRACKED_IPS) failures.delete(failures.keys().next().value!);
-  }
-  failures.set(ip, { count: 1, resetAt: now + ATTEMPT_WINDOW_MS });
-}
-
-/** The code was right: un-count the attempt and clear this client's earlier failures. */
-export function refundCredentialAttempt(ip: string | null): void {
-  if (ip !== null) failures.delete(ip);
-  if (failuresTotal.count > 0) failuresTotal.count -= 1;
+  throw new AccessError(401, "access_code_required", "That access code is wrong.");
 }
 
 /** Test hook. */
@@ -266,7 +265,6 @@ export function resetRateLimits(): void {
   hits.clear();
   lastPruneAt = 0;
   failures.clear();
-  failuresTotal = { count: 0, resetAt: 0 };
 }
 
 export function accessErrorResponse(error: AccessError): Response {

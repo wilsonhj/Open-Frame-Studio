@@ -148,18 +148,29 @@ describe("failed access codes", () => {
     assertMaySubmit(from("5.6.7.8"), "open-sesame"); // other clients are unaffected
   });
 
-  it("a right code clears that client's earlier failures; a missing code isn't counted", () => {
+  it("a right code doesn't reset a shared address's failures; a missing code isn't counted", () => {
     for (let i = 0; i < 9; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
     for (let i = 0; i < 50; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), null), 401, "access_code_required");
-    assertMaySubmit(from("1.2.3.4"), "open-sesame");
-    for (let i = 0; i < 10; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
+    assertMaySubmit(from("1.2.3.4"), "open-sesame"); // a real user behind the same NAT
+    expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required"); // 10th failure
     expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 429, "too_many_attempts");
   });
 
-  it("caps guessing spread across addresses (and without trusted proxies) globally", () => {
-    delete env.TRUSTED_PROXY_HOPS;
-    for (let i = 0; i < 200; i += 1) expectAccess(() => assertMaySubmit(from(`10.0.${i >> 8}.${i & 255}`), "wrong"), 401, "access_code_required");
-    expectAccess(() => assertMaySubmit(from("10.9.9.9"), "wrong"), 429, "too_many_attempts");
+  it("other people's wrong codes never lock out the right code (no global lockout)", () => {
+    delete env.TRUSTED_PROXY_HOPS; // every caller looks the same
+    for (let i = 0; i < 1_000; i += 1) expectAccess(() => assertMaySubmit(from(`10.0.${i >> 8}.${i & 255}`), "wrong"), 401, "access_code_required");
+    assertMaySubmit(from("10.9.9.9"), "open-sesame");
+    env.TRUSTED_PROXY_HOPS = "1";
+    for (let i = 0; i < 300; i += 1) expectAccess(() => assertMaySubmit(from(`10.1.${i >> 8}.${i & 255}`), "wrong"), 401, "access_code_required");
+    assertMaySubmit(from("10.9.9.9"), "open-sesame");
+  });
+
+  it("requires a long access code in production", () => {
+    env.NODE_ENV = "production";
+    env.STUDIO_ACCESS_CODE = "short";
+    expectAccess(() => assertMaySubmit(from("1.2.3.4"), "short"), 503, "not_configured");
+    env.STUDIO_ACCESS_CODE = "a-long-random-access-code";
+    assertMaySubmit(from("1.2.3.4"), "a-long-random-access-code");
   });
 
   it("concurrent wrong submits can't all slip past the check before failures are recorded", async () => {
