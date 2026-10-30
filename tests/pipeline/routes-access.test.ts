@@ -98,4 +98,37 @@ describe("pipeline routes: access policy", () => {
     assert.match(res.headers.get("content-disposition") ?? "", /^attachment/);
     assert.match(res.headers.get("content-security-policy") ?? "", /sandbox/);
   });
+
+  it("cancel still works for a caller whose last submit slot is spent", async () => {
+    env.SUBMITS_PER_HOUR = "1";
+    try {
+      const created = await create.POST(post("http://localhost/api/pipelines/motion", { ok: true }), kindParams("motion"));
+      assert.equal(created.status, 202);
+      const run = await created.json();
+      await runner.whenIdle(run.id);
+      const again = await create.POST(post("http://localhost/api/pipelines/motion", { ok: true }), kindParams("motion"));
+      assert.equal(again.status, 429);
+      const cancel = await actions.POST(post("http://localhost/x", {}), actionParams(run.id, ["cancel"]));
+      assert.equal(cancel.status, 200);
+    } finally {
+      delete env.SUBMITS_PER_HOUR;
+    }
+  });
+
+  it("rejects mislabelled and oversized uploads before any asset is created", async () => {
+    const send = (bytes: Uint8Array, type: string) => {
+      const form = new FormData();
+      form.set("request", JSON.stringify({ ok: true, image: { upload: "product" } }));
+      form.set("product", new File([bytes as Uint8Array<ArrayBuffer>], "p.png", { type }));
+      return create.POST(new Request("http://localhost/api/pipelines/motion", { method: "POST", body: form }), kindParams("motion"));
+    };
+    const html = await send(new TextEncoder().encode("<html><script>x</script></html>"), "image/png");
+    assert.equal(html.status, 400);
+    assert.equal((await html.json()).field, "product");
+    const big = new Uint8Array(21 * 1024 * 1024);
+    big.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const oversized = await send(big, "image/png");
+    assert.equal(oversized.status, 400);
+    assert.match((await oversized.json()).error, /20 MB/);
+  });
 });

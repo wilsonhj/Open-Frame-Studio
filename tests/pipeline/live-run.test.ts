@@ -170,4 +170,124 @@ describe("runner review fixes", () => {
     await until(async () => (await store.loadRun(id))?.status === "succeeded");
     assert.equal(flakyCalls, 2);
   });
+
+  it("concurrent retries on a finished run are both applied", async () => {
+    const calls: Record<string, number> = { a: 0, b: 0 };
+    const flaky = (id: string) => async () => (++calls[id] === 1 ? { status: "failed", error: { code: "x", message: "first try" } } : {});
+    runner.registerDefinition({
+      kind: "identity",
+      validate: (raw: unknown) => ({ ok: true, value: raw }),
+      plan: async () => [codeStep("a"), codeStep("b")],
+      handlers: { a: flaky("a"), b: flaky("b") },
+      buildResult: async () => null,
+      actions: {
+        retry: {
+          method: "POST",
+          path: "items/:id/retry",
+          run: async (ctx: { run: { steps: { id: string }[] }; params: { id: string } }) => ({
+            type: "replan",
+            steps: ctx.run.steps.map((st) => (st.id === ctx.params.id ? codeStep(st.id) : st)),
+          }),
+        },
+      },
+    } as unknown as AnyPipelineDefinition);
+    const res = await runner.createRun("identity", {});
+    assert.ok(res.ok);
+    const id = res.run.id;
+    await runner.whenIdle(id);
+    assert.equal((await store.loadRun(id))?.status, "failed");
+    const [ra, rb] = await Promise.all([
+      runner.runAction("identity", id, "POST", ["items", "a", "retry"], null),
+      runner.runAction("identity", id, "POST", ["items", "b", "retry"], null),
+    ]);
+    assert.equal(ra.type, "run");
+    assert.equal(rb.type, "run");
+    await until(async () => (await store.loadRun(id))?.status === "succeeded");
+    assert.deepEqual(calls, { a: 2, b: 2 });
+  });
+
+  it("a code step past its deadline times out even if the handler ignores the signal", async () => {
+    runner.registerDefinition({
+      kind: "motion",
+      validate: (raw: unknown) => ({ ok: true, value: raw }),
+      plan: async () => [{ ...codeStep("slow"), timeoutMs: 30 }],
+      handlers: { slow: async () => (await new Promise((r) => setTimeout(r, 200)), {}) },
+      buildResult: async () => null,
+    } as unknown as AnyPipelineDefinition);
+    const res = await runner.createRun("motion", {});
+    assert.ok(res.ok);
+    await runner.whenIdle(res.run.id);
+    assert.equal(await stepStatus(res.run.id, "slow"), "timed_out");
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(await stepStatus(res.run.id, "slow"), "timed_out");
+  });
+
+  it("recovering a canceled run asks Comfy to stop its live jobs", async () => {
+    const canceled: string[] = [];
+    const previous = rt().client;
+    rt().client = {
+      jobs: {
+        get: async (jobId: string) => ({
+          id: jobId,
+          get status() {
+            return canceled.includes(jobId) ? "canceled" : "running";
+          },
+          outputs: [],
+          error: null,
+          progress: null,
+          queuePosition: null,
+          cancel: async () => void canceled.push(jobId),
+        }),
+      },
+    };
+    try {
+      runner.registerDefinition({
+        kind: "listing",
+        validate: (raw: unknown) => ({ ok: true, value: raw }),
+        plan: async () => [],
+        handlers: {},
+        buildResult: async () => null,
+      } as unknown as AnyPipelineDefinition);
+      const id = crypto.randomUUID();
+      const stamp = new Date().toISOString();
+      await store.saveRun({
+        schema: "open-frame-studio/run@1",
+        id,
+        kind: "listing",
+        status: "running",
+        createdAt: stamp,
+        updatedAt: stamp,
+        timeoutMs: 60_000,
+        progress: 0,
+        cancelRequested: true,
+        request: {},
+        result: null,
+        error: null,
+        steps: [
+          {
+            id: "shot",
+            kind: "comfy",
+            workflow: "image_resize_smoke",
+            dependsOn: [],
+            inputs: {},
+            timeoutMs: 60_000,
+            status: "running",
+            jobId: "job-live",
+            startedAt: stamp,
+            deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+            submission: { idempotencyKey: "k", state: "accepted", mintedAt: stamp, attempts: 1 },
+          },
+        ],
+      } as never);
+      await runner.getRun(id);
+      await runner.whenIdle(id);
+      const run = await store.loadRun(id);
+      assert.deepEqual(canceled, ["job-live"]);
+      assert.equal(run?.status, "canceled");
+      assert.equal(run?.steps[0].status, "canceled");
+      assert.equal(run?.steps[0].error?.code, "canceled");
+    } finally {
+      rt().client = previous;
+    }
+  });
 });

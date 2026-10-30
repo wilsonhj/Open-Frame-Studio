@@ -10,6 +10,7 @@ import { applyBindings } from "../bindings/apply.ts";
 import { getBinding } from "../bindings/index.ts";
 import { prepareGraph } from "../bindings/prepare.ts";
 import { SubmitAmbiguousError, SubmitRejectedError, apiOrigin, createClient, fetchOutput, loadGraph, pollJob, requestCancel, submitOnce } from "../comfy.ts";
+import { IMAGE_TYPES, MAX_IMAGE_BYTES, verifyImageBytes } from "../inputs.ts";
 import { listRunIds, loadRun, readRunFile, saveRun, writeRunFile } from "../store.ts";
 import type { CodePipelineStep, ComfyPipelineStep, GraphValue, ImageRef, JobErrorInfo, OutputRef, PipelineKind, PipelineRun, PipelineStep, StepInputRef } from "../types.ts";
 import { RUN_SCHEMA, SUBMIT_UNCONFIRMED, TERMINAL_STEP_STATUSES } from "../types.ts";
@@ -29,16 +30,18 @@ type Runtime = {
   aborts: Map<string, AbortController>;
   /** Wakes an active loop that is waiting on in-flight steps (after a replan). */
   wakers: Map<string, () => void>;
+  locks: Map<string, Promise<void>>;
   overrides: Map<string, Def>;
   client?: Comfy;
   resumed?: boolean;
 };
 
 const g = globalThis as typeof globalThis & { __ossRunner?: Runtime };
-const rt: Runtime = (g.__ossRunner ??= { active: new Map(), live: new Map(), aborts: new Map(), wakers: new Map(), overrides: new Map() });
+const rt: Runtime = (g.__ossRunner ??= { active: new Map(), live: new Map(), aborts: new Map(), wakers: new Map(), locks: new Map(), overrides: new Map() });
 rt.live ??= new Map();
 rt.aborts ??= new Map();
 rt.wakers ??= new Map();
+rt.locks ??= new Map();
 const BAD = new Set(["failed", "timed_out", "needs_input", "canceled", "expired", "unknown"]);
 const UNCONFIRMED_MSG = "A job may have been created and billed; its id was lost. Not resubmitted. Use Regenerate.";
 
@@ -84,8 +87,8 @@ async function persist(run: PipelineRun): Promise<void> {
 // I/O lent to handlers
 // ---------------------------------------------------------------------------
 
-async function uploadAsset(run: PipelineRun, bytes: Uint8Array, filename: string, contentType: string): Promise<string> {
-  const id = await client().assets.fromBytes(bytes, { filename, contentType }).commit();
+async function uploadAsset(run: PipelineRun, bytes: Uint8Array, filename: string, contentType: string, signal?: AbortSignal): Promise<string> {
+  const id = await client().assets.fromBytes(bytes, { filename, contentType }).commit(signal);
   await writeRunFile(run.id, `_assets/${seg(id)}`, bytes);
   return id;
 }
@@ -111,37 +114,37 @@ function resolveRef(run: PipelineRun, ref: StepInputRef): OutputRef {
   return out;
 }
 
-async function readBytes(run: PipelineRun, source: ByteSource | ImageRef): Promise<Uint8Array> {
+async function readBytes(run: PipelineRun, source: ByteSource | ImageRef, signal?: AbortSignal): Promise<Uint8Array> {
   if ("upload" in source) throw new Error("Unresolved upload ref.");
   if ("fromStep" in source) {
     const out = resolveRef(run, source);
     const rel = fileRel(run, out);
     const local = rel ? await readRunFile(run.id, rel) : null;
     if (local) return local;
-    return readBytes(run, { assetId: out.id });
+    return readBytes(run, { assetId: out.id }, signal);
   }
   const local = await readRunFile(run.id, `_assets/${seg(source.assetId)}`);
   if (local) return local;
   for (const s of run.steps) {
     const out = s.outputs?.find((o) => o.id === source.assetId);
-    if (out) return readBytes(run, { fromStep: s.id, index: s.outputs!.indexOf(out) });
+    if (out) return readBytes(run, { fromStep: s.id, index: s.outputs!.indexOf(out) }, signal);
   }
   const asset = await client().assets.get(source.assetId);
-  const { url } = await asset.getDownloadUrl();
+  const { url } = await asset.getDownloadUrl(signal);
   // A self-hosted proxy may return a path-relative URL. The Comfy key goes to
   // the configured API origin only, never to a signed object-storage URL.
   const resolved = new URL(url, apiOrigin());
   const key = process.env.COMFY_API_KEY?.trim();
   const auth = key && resolved.origin === apiOrigin() ? { headers: { "X-API-Key": key, Authorization: `Bearer ${key}` } } : undefined;
-  const res = await fetch(resolved, auth);
+  const res = await fetch(resolved, { ...auth, signal });
   if (!res.ok) throw new Error(`Asset download failed with HTTP ${res.status}.`);
   return new Uint8Array(await res.arrayBuffer());
 }
 
 function runIo(run: PipelineRun, signal: AbortSignal): RunIo {
   return {
-    readBytes: (source) => readBytes(run, source),
-    uploadAsset: (bytes, filename, ct) => uploadAsset(run, bytes, filename, ct),
+    readBytes: (source) => readBytes(run, source, signal),
+    uploadAsset: (bytes, filename, ct) => uploadAsset(run, bytes, filename, ct, signal),
     signal,
   };
 }
@@ -149,6 +152,22 @@ function runIo(run: PipelineRun, signal: AbortSignal): RunIo {
 // ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------
+
+/** Names of every `{ upload: name }` reference in a request. */
+function uploadNames(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(uploadNames);
+  if (!value || typeof value !== "object") return [];
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.upload === "string" && Object.keys(rec).length === 1) return [rec.upload];
+  return Object.values(rec).flatMap(uploadNames);
+}
+
+function uploadProblem(name: string, part: UploadPart): string | null {
+  if (part.bytes.byteLength === 0) return `Upload an image for "${name}".`;
+  if (!(IMAGE_TYPES as readonly string[]).includes(part.contentType)) return `"${name}" must be PNG, JPEG or WebP.`;
+  if (part.bytes.byteLength > MAX_IMAGE_BYTES) return `"${name}" must be under 20 MB.`;
+  return null;
+}
 
 async function rewriteUploads(value: unknown, upload: (name: string) => Promise<string>): Promise<unknown> {
   if (Array.isArray(value)) return Promise.all(value.map((v) => rewriteUploads(v, upload)));
@@ -180,6 +199,19 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
   if (!checked.ok) return { ok: false, status: 400, error: checked.error, field: checked.field };
   const runId = crypto.randomUUID();
   const run = { schema: RUN_SCHEMA, id: runId, kind: def.kind, status: "pending", createdAt: now(), updatedAt: now(), timeoutMs: 0, progress: 0, steps: [], request: null, result: null, error: null } as unknown as PipelineRun;
+  // Every referenced upload must be a real PNG/JPEG/WebP under 20 MB (the
+  // /api/jobs rules) before any asset is created or job submitted.
+  for (const name of uploadNames(checked.value)) {
+    const part = uploads.get(name);
+    if (!part) continue;
+    const bad = uploadProblem(name, part);
+    if (bad) return { ok: false, status: 400, error: bad, field: name };
+    try {
+      await verifyImageBytes({ [name]: new File([part.bytes as Uint8Array<ArrayBuffer>], part.filename, { type: part.contentType }) });
+    } catch (e) {
+      return { ok: false, status: 400, error: e instanceof Error ? e.message : String(e), field: name };
+    }
+  }
   let missing: string | null = null;
   const request = await rewriteUploads(checked.value, async (name) => {
     const part = uploads.get(name);
@@ -239,6 +271,25 @@ function runSignal(run: PipelineRun): AbortSignal | undefined {
   return rt.aborts.get(run.id)?.signal;
 }
 
+/**
+ * Serializes action transitions per run (read → handler → merge → persist →
+ * schedule), so concurrent actions on an idle run share one canonical object.
+ * The drive loop never takes it, so actions don't wait for running steps.
+ */
+async function withRunLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const prev = rt.locks.get(id) ?? Promise.resolve();
+  let release!: () => void;
+  const mine = prev.then(() => new Promise<void>((r) => (release = r)));
+  rt.locks.set(id, mine);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (rt.locks.get(id) === mine) rt.locks.delete(id);
+  }
+}
+
 /** The in-memory run an active loop is driving, else the stored copy. */
 async function currentRun(id: string): Promise<PipelineRun | null> {
   return rt.live.get(id) ?? (await loadRun(id));
@@ -285,6 +336,12 @@ async function drive(def: Def, run: PipelineRun): Promise<void> {
   }
   await Promise.allSettled(inflight.values());
   for (const s of run.steps) {
+    // A cancel persisted before a restart: steps that reached Comfy are asked
+    // to stop upstream, not just marked canceled locally.
+    if (!isTerminal(s) && run.cancelRequested && s.kind === "comfy" && (s.jobId || s.submission)) {
+      await cancelUpstream(run, s).catch((e) => finish(s, "canceled", errInfo("cancel_failed", e)));
+      continue;
+    }
     if (!isTerminal(s)) {
       s.status = run.cancelRequested ? "canceled" : "skipped";
       s.finishedAt = now();
@@ -334,7 +391,16 @@ async function runCode(def: Def, run: PipelineRun, step: CodePipelineStep): Prom
   const cancel = runSignal(run);
   const signal = cancel ? AbortSignal.any([AbortSignal.timeout(remaining(step)), cancel]) : AbortSignal.timeout(remaining(step));
   try {
-    const result = await handler({ ...runIo(run, signal), run, step });
+    // The deadline (or a cancel) ends the step even if the handler ignores the
+    // signal; a result that arrives later is dropped, never committed.
+    const result = await Promise.race([
+      handler({ ...runIo(run, signal), run, step }),
+      new Promise<never>((_, reject) => {
+        const stop = () => reject(signal.reason ?? new Error("Step deadline passed."));
+        if (signal.aborted) stop();
+        else signal.addEventListener("abort", stop, { once: true });
+      }),
+    ]);
     const outputs: OutputRef[] = [];
     for (const f of result.files ?? []) {
       const rel = `${seg(step.id)}/${safe(f.name)}`;
@@ -371,6 +437,24 @@ async function graphValues(run: PipelineRun, step: ComfyPipelineStep): Promise<R
     values[name] = value;
   }
   return values;
+}
+
+/** Ask Comfy to stop a step's job and record the outcome Comfy actually reports. */
+async function cancelUpstream(run: PipelineRun, step: ComfyPipelineStep): Promise<void> {
+  if (!step.jobId) {
+    const unknown = step.submission && step.submission.state !== "rejected";
+    finish(step, "canceled", unknown ? { code: SUBMIT_UNCONFIRMED, message: "Canceled; a job may have been created and billed, and its id is unknown." } : null);
+    return persist(run);
+  }
+  const cancel = await requestCancel(client(), step.jobId);
+  const message =
+    cancel.outcome === "canceled"
+      ? `Canceled; Comfy reports the job ${cancel.job?.status ?? "ended"}.`
+      : cancel.outcome === "cancel_requested"
+        ? `Cancel requested; Comfy still reports the job ${cancel.job?.status ?? "live"}, so it may finish and be billed.`
+        : `Cancel request failed (${cancel.error}); the job may still run and be billed.`;
+  finish(step, "canceled", { code: cancel.outcome, message });
+  return persist(run);
 }
 
 async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void> {
@@ -429,15 +513,7 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
     });
   } catch (e) {
     if (!run.cancelRequested) throw e;
-    // Ask Comfy to stop the job and record what it actually reports.
-    const cancel = await requestCancel(c, step.jobId!);
-    const message =
-      cancel.outcome === "canceled"
-        ? `Canceled; Comfy reports the job ${cancel.job?.status ?? "ended"}.`
-        : cancel.outcome === "cancel_requested"
-          ? `Cancel requested; Comfy still reports the job ${cancel.job?.status ?? "live"}, so it may finish and be billed.`
-          : `Cancel request failed (${cancel.error}); the job may still run and be billed.`;
-    return (finish(step, "canceled", { code: cancel.outcome, message }), persist(run));
+    return cancelUpstream(run, step);
   }
   if (job.error?.code === "poll_timeout") return (finish(step, "timed_out", job.error), persist(run));
   if (job.status !== "succeeded") return (finish(step, job.status === "unknown" ? "failed" : job.status, job.error), persist(run));
@@ -496,6 +572,10 @@ function matchPath(pattern: string, segments: string[]): Record<string, string> 
 export type ActionOutcome = Exclude<ActionResult, { type: "replan" }> | { type: "run"; run: PipelineRun };
 
 export async function runAction(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown): Promise<ActionOutcome> {
+  return withRunLock(runId, () => actionLocked(kind, runId, method, segments, body));
+}
+
+async function actionLocked(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown): Promise<ActionOutcome> {
   const def = definitionFor(kind);
   const run = await currentRun(runId);
   if (!def || !run || run.kind !== kind) return { type: "error", status: 404, error: "Run not found." };

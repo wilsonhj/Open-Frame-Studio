@@ -5,7 +5,7 @@
  * server-minted UUID, so it is itself the capability (as a signed job handle
  * is for /api/jobs).
  */
-import { AccessError, accessErrorResponse, assertMaySubmit } from "../access.ts";
+import { AccessError, accessErrorResponse, assertMayControl, assertMaySubmit } from "../access.ts";
 
 /** Header the studio client sends the access code in (JSON and multipart alike). */
 export const ACCESS_CODE_HEADER = "x-access-code";
@@ -20,10 +20,16 @@ export function gateSubmit(request: Request, formCode: string | null = null): { 
   }
 }
 
-/** An unbilled write (cancel): the same code check, without keeping a slot. */
+/**
+ * An unbilled write (cancel): the same access-code check, but no rate-limit
+ * slot, so a caller at quota can still stop the job that used their last one.
+ */
 export function gateWrite(request: Request): Response | null {
-  const gate = gateSubmit(request);
-  if (gate instanceof Response) return gate;
-  gate.refund();
-  return null;
+  try {
+    assertMayControl(request, request.headers.get(ACCESS_CODE_HEADER));
+    return null;
+  } catch (error) {
+    if (error instanceof AccessError) return accessErrorResponse(error);
+    throw error;
+  }
 }
