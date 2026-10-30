@@ -266,6 +266,7 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
 
         <Field label="Notes">
           <textarea
+            aria-label="Notes"
             value={notes}
             maxLength={MAX_NOTES}
             rows={2}
