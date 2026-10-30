@@ -8,6 +8,7 @@ import {
   createJobHandle,
   readJobHandle,
   resetRateLimits,
+  trackedRateLimitKeys,
 } from "../lib/access.ts";
 
 const env = process.env as Record<string, string | undefined>;
@@ -36,14 +37,14 @@ beforeEach(() => {
 
 describe("job handles", () => {
   it("round-trip without any cookie, so concurrent first submits can't strand each other", () => {
-    const a = createJobHandle({ workflow: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
-    const b = createJobHandle({ workflow: "image_resize_smoke", submittedAt: 1_700_000_000_001, jobId: "j-2" });
-    assert.deepEqual(readJobHandle(a), { workflow: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
+    const a = createJobHandle({ binding: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
+    const b = createJobHandle({ binding: "image_resize_smoke", submittedAt: 1_700_000_000_001, jobId: "j-2" });
+    assert.deepEqual(readJobHandle(a), { binding: "image_resize_smoke", submittedAt: 1_700_000_000_000, jobId: "j.1" });
     assert.equal(readJobHandle(b).jobId, "j-2");
   });
 
   it("rejects raw ids, tampered handles and handles signed with another secret", () => {
-    const handle = createJobHandle({ workflow: "image_resize_smoke", submittedAt: 1, jobId: "abc" });
+    const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt: 1, jobId: "abc" });
     expectAccess(() => readJobHandle("abc"), 404, "job_not_found");
     expectAccess(() => readJobHandle(handle.replace(".abc.", ".abd.")), 404, "job_not_found");
     expectAccess(() => readJobHandle(handle.replace(".1.", ".0.")), 404, "job_not_found");
@@ -94,6 +95,28 @@ describe("submit gate", () => {
     expectAccess(() => assertMaySubmit(from("9.9.9.3", "198.51.100.1"), null), 429, "rate_limited");
     assertMaySubmit(from("9.9.9.4", "198.51.100.2"), null);
     expectAccess(() => assertMaySubmit(from("9.9.9.5", "198.51.100.3"), null), 429, "rate_limited");
+  });
+
+  it("refunding a slot for a submit Comfy never accepted frees it, once", () => {
+    env.SUBMITS_PER_HOUR_PER_IP = "1";
+    env.SUBMITS_PER_HOUR = "5";
+    env.TRUSTED_PROXY_HOPS = "1";
+    const from = () => request({ "x-forwarded-for": "198.51.100.7" });
+    const refund = assertMaySubmit(from(), null);
+    expectAccess(() => assertMaySubmit(from(), null), 429, "rate_limited");
+    refund();
+    refund(); // idempotent: must not free a second, still-used slot
+    assertMaySubmit(from(), null);
+    expectAccess(() => assertMaySubmit(from(), null), 429, "rate_limited");
+  });
+
+  it("drops quiet addresses so the limiter's memory stays bounded", () => {
+    env.SUBMITS_PER_HOUR = "100000";
+    env.TRUSTED_PROXY_HOPS = "1";
+    for (let i = 0; i < 10_050; i++) {
+      assertMaySubmit(request({ "x-forwarded-for": `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}` }), null);
+    }
+    assert.ok(trackedRateLimitKeys() <= 10_001, `tracked ${trackedRateLimitKeys()} keys`);
   });
 
   it("without trusted proxies, only the global limit applies", () => {

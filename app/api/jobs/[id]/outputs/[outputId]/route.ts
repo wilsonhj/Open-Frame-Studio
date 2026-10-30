@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   try {
     const { id, outputId } = await params;
     const handle = readJobHandle(id);
-    const binding = getBinding(handle.workflow);
+    const binding = getBinding(handle.binding);
     const output = await fetchOutput(createClient(), handle.jobId, outputId, {
       outputNodes: binding ? Object.values(binding.outputs) : undefined,
     });

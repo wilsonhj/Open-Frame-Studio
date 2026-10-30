@@ -37,12 +37,18 @@ function save(workflow: string, job: Job | null): void {
   }
 }
 
+/** A 4xx other than timeout/rate-limit won't change on retry (e.g. 404: the handle is no longer valid). */
+function isPermanent(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 function describe(job: Job): string {
   if (job.status === "succeeded") return "Done.";
-  if (!job.terminal && job.error) return job.error.message; // e.g. over budget, cancel pending
+  // Before the status: an over-budget or timed-out job can still carry a live status.
+  if (job.error) return job.error.message;
   if (job.status === "queued") return "Waiting for a GPU…";
   if (job.status === "running") return `Running${job.progress !== null ? ` (${Math.round(job.progress * 100)}%)` : ""}…`;
-  return job.error?.message ?? `Job ${job.status}.`;
+  return `Job ${job.status}.`;
 }
 
 export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: string }) {
@@ -80,7 +86,17 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
       try {
         const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, { cache: "no-store" });
         const next = (await response.json()) as Job & { error?: unknown };
-        if (!response.ok) throw new Error(typeof next.error === "string" ? next.error : "Could not check job status.");
+        if (!response.ok) {
+          const detail = typeof next.error === "string" ? next.error : "Could not check job status.";
+          if (isPermanent(response.status)) {
+            save(workflow, null);
+            setJob(null);
+            setPollRetry(0);
+            setMessage(`${detail} This job can no longer be checked; start a new run.`);
+            return;
+          }
+          throw new Error(detail);
+        }
         save(workflow, next);
         setJob(next);
         setPollRetry(0);

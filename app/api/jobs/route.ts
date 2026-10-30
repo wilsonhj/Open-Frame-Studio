@@ -37,12 +37,14 @@ export async function POST(request: Request) {
   }
 
   const name = form.get("workflow");
-  const binding = typeof name === "string" ? getBinding(name) : undefined;
+  const bindingName = typeof name === "string" ? name : "";
+  const binding = getBinding(bindingName);
   if (!binding) return NextResponse.json({ error: "Unknown workflow." }, { status: 400 });
 
+  let refundSlot: () => void;
   try {
     const accessCode = form.get("access_code");
-    assertMaySubmit(request, typeof accessCode === "string" ? accessCode : null);
+    refundSlot = assertMaySubmit(request, typeof accessCode === "string" ? accessCode : null);
   } catch (error) {
     if (error instanceof AccessError) return accessErrorResponse(error);
     throw error;
@@ -51,6 +53,7 @@ export async function POST(request: Request) {
   // Created on first use, after every field has validated, so a bad form is a
   // 400 even when Comfy is not configured.
   let client: Comfy | undefined;
+  let accepted = false;
   try {
     const values = await parseInputs(binding, form, async (file) => {
       client ??= createClient();
@@ -63,11 +66,14 @@ export async function POST(request: Request) {
     const graph = applyBindings(await loadGraph(binding.workflow), binding, values);
     const workflow = client.workflows.fromJson(graph);
     const submitted = await submitOnce(client, workflow, { idempotencyKey: crypto.randomUUID() });
+    accepted = true;
     const submittedAt = Date.now();
     await recordJob(submitted.id, binding.workflow, submittedAt);
-    const handle = createJobHandle({ workflow: binding.workflow, submittedAt, jobId: submitted.id });
+    const handle = createJobHandle({ binding: bindingName, submittedAt, jobId: submitted.id });
     return NextResponse.json(withPublicId(submitted, handle, Object.values(binding.outputs)), { status: 202 });
   } catch (error) {
+    // Nothing was billed unless Comfy may have accepted the job: give the slot back.
+    if (!accepted && !(error instanceof SubmitAmbiguousError)) refundSlot();
     if (error instanceof InputError) {
       return NextResponse.json({ error: error.message, field: error.field }, { status: 400 });
     }

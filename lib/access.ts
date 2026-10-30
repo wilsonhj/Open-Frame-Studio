@@ -8,7 +8,7 @@
  *  2. Submits are rate-limited per client IP and globally (per instance).
  *     Forwarding headers are trusted only for TRUSTED_PROXY_HOPS proxies.
  *  3. The browser addresses a job only through a signed, unguessable handle
- *     `<workflow>.<submittedAt>.<jobId>.<sig>`: a capability, like a share
+ *     `<binding>.<submittedAt>.<jobId>.<sig>`: a capability, like a share
  *     link. Whoever holds it can poll and download that job; nobody can
  *     forge one for another job. It carries no cookie, so concurrent tabs
  *     can't overwrite each other's ownership.
@@ -57,14 +57,15 @@ function signingSecret(): string {
 // Job handles
 // ---------------------------------------------------------------------------
 
-export type JobHandle = { workflow: string; submittedAt: number; jobId: string };
+/** `binding` is the registry name (lib/bindings), not the workflow file it loads. */
+export type JobHandle = { binding: string; submittedAt: number; jobId: string };
 
 function sign(payload: string): string {
   return createHmac("sha256", signingSecret()).update(`job-handle\n${payload}`).digest("base64url");
 }
 
 export function createJobHandle(handle: JobHandle): string {
-  const payload = `${handle.workflow}.${handle.submittedAt}.${handle.jobId}`;
+  const payload = `${handle.binding}.${handle.submittedAt}.${handle.jobId}`;
   return `${payload}.${sign(payload)}`;
 }
 
@@ -74,13 +75,13 @@ export function readJobHandle(raw: string): JobHandle {
   const parts = raw.split(".");
   if (parts.length < 4) throw notFound;
   const sig = parts.pop()!;
-  const [workflow, submittedAtRaw, ...jobIdParts] = parts;
+  const [binding, submittedAtRaw, ...jobIdParts] = parts;
   const expected = Buffer.from(sign(parts.join(".")));
   const actual = Buffer.from(sig);
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) throw notFound;
   const submittedAt = Number(submittedAtRaw);
   if (!Number.isSafeInteger(submittedAt)) throw notFound;
-  return { workflow, submittedAt, jobId: jobIdParts.join(".") };
+  return { binding, submittedAt, jobId: jobIdParts.join(".") };
 }
 
 // ---------------------------------------------------------------------------
@@ -93,8 +94,12 @@ function sameSecret(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
-/** Throws AccessError unless the caller may submit a (billed) job. */
-export function assertMaySubmit(request: Request, accessCode: string | null): void {
+/**
+ * Throws AccessError unless the caller may submit a (billed) job. Takes a
+ * rate-limit slot and returns its refund: call it if Comfy never accepted
+ * the job, so failed submits don't lock the caller out.
+ */
+export function assertMaySubmit(request: Request, accessCode: string | null): () => void {
   signingSecret(); // fail before billing a job we couldn't hand back
   const required = process.env.STUDIO_ACCESS_CODE?.trim();
   if (required) {
@@ -108,7 +113,7 @@ export function assertMaySubmit(request: Request, accessCode: string | null): vo
       "Job submission is disabled: set STUDIO_ACCESS_CODE (or ALLOW_PUBLIC_SUBMIT=true).",
     );
   }
-  takeRateLimit(clientIp(request));
+  return takeRateLimit(clientIp(request));
 }
 
 /**
@@ -130,7 +135,26 @@ export function clientIp(request: Request): string | null {
 }
 
 const WINDOW_MS = 60 * 60_000;
+/** Distinct addresses kept; past this the least recently seen are dropped. */
+const MAX_TRACKED_IPS = 10_000;
+const PRUNE_EVERY_MS = 60_000;
 const hits = new Map<string, number[]>();
+let lastPruneAt = 0;
+
+/** Drop windows that have emptied, then cap the address count, so the map can't grow without bound. */
+function pruneHits(now: number): void {
+  if (now - lastPruneAt < PRUNE_EVERY_MS && hits.size <= MAX_TRACKED_IPS) return;
+  lastPruneAt = now;
+  for (const [key, times] of hits) {
+    const recent = times.filter((at) => now - at < WINDOW_MS);
+    if (recent.length) hits.set(key, recent);
+    else hits.delete(key);
+  }
+  for (const key of hits.keys()) {
+    if (hits.size <= MAX_TRACKED_IPS) break;
+    if (key !== "global") hits.delete(key); // Map order: least recently refreshed first
+  }
+}
 
 function limit(name: string, fallback: number): number {
   const value = Number(process.env[name]);
@@ -141,9 +165,11 @@ function limit(name: string, fallback: number): number {
  * Sliding one-hour window, in memory. Per server instance: on a multi-instance
  * host the real ceiling is limit × instances, so keep the access code on.
  */
-function takeRateLimit(ip: string | null, now = Date.now()): void {
+function takeRateLimit(ip: string | null, now = Date.now()): () => void {
+  pruneHits(now);
   const check = (key: string, max: number, scope: string) => {
     const recent = (hits.get(key) ?? []).filter((at) => now - at < WINDOW_MS);
+    hits.delete(key); // re-insert, so Map order tracks recency for pruneHits
     hits.set(key, recent);
     if (recent.length >= max) {
       const retryAfter = Math.ceil((recent[0] + WINDOW_MS - now) / 1000);
@@ -152,13 +178,29 @@ function takeRateLimit(ip: string | null, now = Date.now()): void {
   };
   if (ip !== null) check(`ip:${ip}`, limit("SUBMITS_PER_HOUR_PER_IP", 20), "from this address");
   check("global", limit("SUBMITS_PER_HOUR", 200), "on this server");
-  if (ip !== null) hits.get(`ip:${ip}`)!.push(now);
-  hits.get("global")!.push(now);
+  const keys = ip !== null ? [`ip:${ip}`, "global"] : ["global"];
+  for (const key of keys) hits.get(key)!.push(now);
+  let refunded = false;
+  return () => {
+    if (refunded) return;
+    refunded = true;
+    for (const key of keys) {
+      const times = hits.get(key);
+      const at = times?.lastIndexOf(now) ?? -1;
+      if (at >= 0) times!.splice(at, 1);
+    }
+  };
+}
+
+/** Test hook. */
+export function trackedRateLimitKeys(): number {
+  return hits.size;
 }
 
 /** Test hook. */
 export function resetRateLimits(): void {
   hits.clear();
+  lastPruneAt = 0;
 }
 
 export function accessErrorResponse(error: AccessError): Response {

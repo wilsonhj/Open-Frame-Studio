@@ -17,7 +17,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   try {
     const { id } = await params;
     const handle = readJobHandle(id);
-    const binding = getBinding(handle.workflow);
+    const binding = getBinding(handle.binding);
     const client = createClient();
     void sweepJobs(); // opportunistic: also covers hosts where the interval can't run
     const options = { publicId: id, outputNodes: binding ? Object.values(binding.outputs) : undefined };
