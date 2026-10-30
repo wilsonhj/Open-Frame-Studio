@@ -5,12 +5,12 @@
  * Fixtures: fixtures/faces/ is intentionally EMPTY in the repo (no real faces). Flows that need a
  * face set read FACES_DIR and skip when absent; see fixtures/README.md.
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import { resetMock, setMockScenario } from "../mock-comfy/control.ts";
+import { mockRequests, resetMock, setMockScenario } from "../mock-comfy/control.ts";
 
 const FACES_DIR = process.env.E2E_FACES_DIR ?? join(process.cwd(), "fixtures/faces");
 const faces = existsSync(FACES_DIR) ? readdirSync(FACES_DIR).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)) : [];
@@ -26,7 +26,7 @@ test("Identity page renders", async ({ page }) => {
 
 test("likeness consent gates the photo picker", async ({ page }) => {
   await page.goto("/identity");
-  const consent = page.getByRole("checkbox", { name: /photos of me, or I have this person's permission/i });
+  const consent = page.locator("form").getByRole("checkbox", { name: /photos of me, or I have this person's permission/i });
   const picker = page.getByLabel(/^Photos/);
   const create = page.getByRole("button", { name: "Create identity" });
 
@@ -49,32 +49,55 @@ test("likeness consent gates the photo picker", async ({ page }) => {
 });
 
 test.describe("Identity wizard", () => {
-  test.fixme("rejects too few photos and non-image files before upload", async ({ page }) => {
-    // TODO(wave2 frontend: Identity wizard): client-side photo QA.
-    // - < 5 photos: submit disabled with a "need 5-20 photos (8-12 ideal)" hint.
-    // - > 20 photos: extra files refused with a visible message.
-    // - a .txt / .gif file: refused by type, never uploaded (assert mock.assetPosts unchanged via
-    //   mockRequests() from ../mock-comfy/control.ts: assetPosts stays 0).
-    // - product fixtures (no face) should be flagged "no face found" once server QA exists.
+  test("server QA rejects photos without one usable face, and nothing reaches Comfy", async ({ page }) => {
     await page.goto("/identity");
+    await page.getByLabel("Name").fill("Nobody");
+    await page.locator("form").getByRole("checkbox", { name: /photos of me, or I have this person's permission/i }).check();
+    const picker = page.getByLabel(/^Photos/);
+    const products = ["product-bottle-confetti.png", "product-box-checker.png", "product-mug-tiles.png", "product-bottle-transparent.png"];
+    // Fewer than 5: the form will not submit.
+    await picker.setInputFiles(products.map((f) => join(process.cwd(), "fixtures/products", f)));
+    await expect(page.getByRole("button", { name: "Create identity" })).toBeDisabled();
+    // Four product photos plus a text file: the server checks every one, and none has a face.
+    await picker.setInputFiles([
+      ...products.map((f) => ({ name: f, mimeType: "image/png", buffer: readFileSync(join(process.cwd(), "fixtures/products", f)) })),
+      { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a photo") },
+    ]);
+    await page.getByRole("button", { name: "Create identity" }).click();
+    const report = page.getByTestId("photo-report");
+    await expect(report.locator("li")).toHaveCount(5);
+    await expect(report.locator('li[data-reason="no_face"]')).toHaveCount(4);
+    await expect(report.locator('li[data-reason="unsupported_type"]')).toHaveCount(1);
+    await expect(page.getByText("Need at least 3 usable photos.")).toBeVisible();
+    // QA runs on this server: no asset upload and no job.
+    const requests = await mockRequests();
+    expect(requests.assetPosts).toBe(0);
+    expect(requests.jobPosts).toHaveLength(0);
   });
 
-  test.fixme("instant Identity: upload -> QA -> pick refs -> preview sheet -> save identity.json", async ({ page }) => {
+  test("instant Identity: upload -> QA -> pick refs -> preview sheet -> save identity.json", async ({ page }) => {
     test.skip(faces.length < 5, `needs >=5 consented/AI face images in ${FACES_DIR}`);
-    // TODO(wave2 frontend+backend: Identity wizard, lib/identity/**):
-    // 1. setInputFiles(faces.slice(0, 8)); per-photo QA chips render (face count, size >=1024px).
-    // 2. Curated set: 3-6 refs auto-picked, user can swap one; style card fields editable.
-    // 3. "Create Identity" submits the identity_instant preview pipeline (mock scenario: multi_output,
-    //    so the preview sheet shows several images).
-    // 4. Download identity.json: assert it parses, has refs[3..6] and a style card, and contains no
-    //    absolute URLs to the mock/Cloud (refs are portable).
-    await setMockScenario({ scenario: "multi_output" });
+    await setMockScenario({ scenario: "succeeded", queuedMs: 0 });
     await page.goto("/identity");
+    await page.getByLabel("Name").fill("Demo");
+    await page.locator("form").getByRole("checkbox", { name: /photos of me, or I have this person's permission/i }).check();
+    await page.getByLabel(/^Photos/).setInputFiles(faces.slice(0, 8).map((f) => join(FACES_DIR, f)));
+    await page.getByRole("button", { name: "Create identity" }).click();
+    await expect(page.getByTestId("identity-message")).toHaveText(/Identity Demo ready/, { timeout: 60_000 });
+    const refs = page.getByTestId("identity-refs").locator("img");
+    expect(await refs.count()).toBeGreaterThanOrEqual(3);
+    expect((await mockRequests()).assetPosts).toBe(0);
+    await page.getByRole("button", { name: "Render preview sheet" }).click();
+    await expect(page.getByAltText("Identity preview sheet")).toBeVisible({ timeout: 60_000 });
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download .identity.zip" }).click();
+    expect((await download).suggestedFilename()).toBe("demo.identity.zip");
   });
 
   test.fixme("S-R1: Identity reuse across separate jobs after export/import (docs/spec/identity.md §6.6)", async ({ page }) => {
     test.skip(faces.length < 5, `needs >=5 consented/AI face images in ${FACES_DIR}`);
-    // TODO(wave2 Identity registry + frontend): the UI and /api/identities routes do not exist yet.
+    // Covered at unit level on the mock (tests/soul/registry.test.ts "S-R1"); this browser
+    // version still needs a consented face set and the Photoshoot/Motion identity slots (D, F).
     // 1. Create an identity (job A: preview). Each ref has sha256.
     // 2. Export .identity.zip: contains identity.json + refs/ref_N.png; no assetIds or Comfy/mock URLs;
     //    every refs[].sha256 matches its PNG.

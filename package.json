@@ -24,7 +24,9 @@
   },
   "dependencies": {
     "@comfyorg/sdk": "0.5.0",
+    "fflate": "0.8.3",
     "next": "16.4.3",
+    "onnxruntime-node": "1.30.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "server-only": "0.0.1",
@@ -40,5 +42,11 @@
     "eslint-config-next": "16.4.3",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3"
+  },
+  "//": "pnpm.ignoredBuiltDependencies: onnxruntime-node's postinstall only downloads optional GPU (CUDA) providers from NuGet. The CPU runtime the YuNet face detector uses ships inside the package, so the script is skipped and installs need no network.",
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "onnxruntime-node"
+    ]
   }
 }
