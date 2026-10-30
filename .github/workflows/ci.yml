@@ -29,6 +29,8 @@ jobs:
         env:
           OWNERS_BASE: origin/${{ github.base_ref || 'main' }}
       - run: pnpm check:models
+      # Offline: workflows vs the saved Comfy Cloud object_info snapshot.
+      - run: pnpm check:graphs
       - run: pnpm lint
       - run: pnpm typecheck
       # Offline: tests run against tests/mock-comfy, never the real Comfy API.
