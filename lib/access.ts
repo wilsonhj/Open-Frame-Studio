@@ -265,16 +265,30 @@ function checkCredentialAttempt(ip: string | null, correct: boolean, now: number
   if (correct) return;
   if (ip !== null) {
     if (current) current.count += 1;
-    else {
-      if (failures.size >= MAX_TRACKED_IPS) {
-        for (const [key, window] of failures) if (window.resetAt <= now) failures.delete(key);
-        // Still full: drop the oldest entry (Maps iterate in insertion order).
-        if (failures.size >= MAX_TRACKED_IPS) failures.delete(failures.keys().next().value!);
-      }
-      failures.set(ip, { count: 1, resetAt: now + ATTEMPT_WINDOW_MS });
-    }
+    else if (makeRoomForFailure(now)) failures.set(ip, { count: 1, resetAt: now + ATTEMPT_WINDOW_MS });
   }
   throw new AccessError(401, "access_code_required", "That access code is wrong.");
+}
+
+/**
+ * Frees a slot in the failure tracker if it is full: expired windows first,
+ * then the oldest address that is not locked out. A locked-out address is
+ * never evicted, or a guesser with many addresses (an IPv6 block) could
+ * flush its own lockout. Returns false when every tracked address is locked
+ * out: the new address then goes untracked until a window ends.
+ */
+function makeRoomForFailure(now: number): boolean {
+  if (failures.size < MAX_TRACKED_IPS) return true;
+  for (const [key, window] of failures) if (window.resetAt <= now) failures.delete(key);
+  if (failures.size < MAX_TRACKED_IPS) return true;
+  // Maps iterate in insertion order, so the first unlocked entry is the oldest.
+  for (const [key, window] of failures) {
+    if (window.count < FAILURES_PER_IP) {
+      failures.delete(key);
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Test hook. */

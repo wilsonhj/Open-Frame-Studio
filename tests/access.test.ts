@@ -168,6 +168,17 @@ describe("failed access codes", () => {
     expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 429, "too_many_attempts");
   });
 
+  it("a locked-out client stays locked out when the tracker fills up with other addresses", () => {
+    for (let i = 0; i < 10; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
+    // One wrong code from each of 10,000 other addresses (e.g. an IPv6 block) fills the tracker.
+    for (let i = 0; i < 10_000; i += 1) {
+      const ip = `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+      expectAccess(() => assertMaySubmit(from(ip), "wrong"), 401, "access_code_required");
+    }
+    expectAccess(() => assertMaySubmit(from("1.2.3.4"), "guess"), 429, "too_many_attempts");
+    expectAccess(() => assertMaySubmit(from("1.2.3.4"), "open-sesame"), 429, "too_many_attempts");
+  });
+
   it("other people's wrong codes never lock out the right code (no global lockout)", () => {
     delete env.TRUSTED_PROXY_HOPS; // every caller looks the same
     for (let i = 0; i < 1_000; i += 1) expectAccess(() => assertMaySubmit(from(`10.0.${i >> 8}.${i & 255}`), "wrong"), 401, "access_code_required");
