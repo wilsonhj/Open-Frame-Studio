@@ -62,8 +62,15 @@ describe("pre-commit hook", () => {
 
   function hookStatus(userEmail: string, env: Record<string, string> = {}) {
     const dir = mkdtempSync(join(tmpdir(), "hook-"));
+    // git var prefers GIT_AUTHOR_EMAIL over user.email. Drop the parent
+    // identity so this test is the one that decides which address is used.
+    const clean: NodeJS.ProcessEnv = { ...process.env, ...isolated };
+    delete clean.GIT_AUTHOR_NAME;
+    delete clean.GIT_AUTHOR_EMAIL;
+    delete clean.GIT_COMMITTER_NAME;
+    delete clean.GIT_COMMITTER_EMAIL;
     try {
-      const run = (cmd: string, args: string[]) => spawnSync(cmd, args, { cwd: dir, encoding: "utf8", env: { ...process.env, ...isolated, ...env } });
+      const run = (cmd: string, args: string[]) => spawnSync(cmd, args, { cwd: dir, encoding: "utf8", env: { ...clean, ...env } });
       run("git", ["init", "-q"]);
       run("git", ["config", "user.name", "T"]);
       run("git", ["config", "user.email", userEmail]);
