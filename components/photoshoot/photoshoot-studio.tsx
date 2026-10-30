@@ -11,6 +11,7 @@ import { Frame } from "./frame";
 import { DEMO_MODES, MODE_TEMPLATES, type DemoMode } from "../../lib/enhancer/modes";
 import { SURFACES } from "../../lib/brand";
 import { useRun } from "../../lib/client/use-run";
+import { MAX_NOTES, errorDetail, humanReason } from "../../lib/photoshoot/copy";
 import type { PhotoshootRequest, PipelineStep, VariationPick } from "../../lib/types";
 
 const TERMINAL = new Set(["succeeded", "partial", "failed", "canceled"]);
@@ -24,8 +25,23 @@ function variationOf(step: PipelineStep | undefined): VariationPick | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as unknown as VariationPick) : null;
 }
 
-export function PhotoshootStudio() {
-  const { run, error, polling, start, cancel, action, reset } = useRun("photoshoot");
+/** The aspect the plan resolved (stored on each shot step), never the raw requested ratio. */
+function plannedAspect(steps: PipelineStep[]): string | null {
+  for (const step of steps) {
+    const data = step.data;
+    if (step.id.startsWith("shot-") && data && typeof data === "object" && !Array.isArray(data) && typeof data.aspect === "string") {
+      return data.aspect;
+    }
+  }
+  return null;
+}
+
+const TERMINAL_STEPS = new Set(["succeeded", "failed", "timed_out", "canceled", "expired", "skipped", "unknown", "needs_input"]);
+
+export function PhotoshootStudio({ runId }: { runId?: string }) {
+  const { run, error, polling, start, cancel, action, reset } = useRun("photoshoot", runId ? { runId } : undefined);
+  // Frames whose retry request is in flight (one click, one request).
+  const [retrying, setRetrying] = useState<ReadonlySet<number>>(new Set());
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<DemoMode>("in_context");
   const [count, setCount] = useState<number>(MODE_TEMPLATES.in_context.count.def);
@@ -74,7 +90,23 @@ export function PhotoshootStudio() {
 
   const sheet = run ? buildSheet(run.steps) : null;
   const sheetMode = run && (run.request.mode as DemoMode) in MODE_TEMPLATES ? MODE_TEMPLATES[run.request.mode as DemoMode] : template;
-  const aspect = run?.result?.aspectRatio ?? run?.request.aspectRatio ?? sheetMode.defaultAspect;
+  const aspect = run?.result?.aspectRatio ?? (run ? plannedAspect(run.steps) : null) ?? sheetMode.defaultAspect;
+  // A failed (terminal, not succeeded) cutout is re-run by a frame retry: two jobs.
+  const cutoutNeedsRerun = !!sheet?.cutout && sheet.cutout.status !== "succeeded" && TERMINAL_STEPS.has(sheet.cutout.status);
+
+  async function retry(index: number) {
+    if (retrying.has(index)) return;
+    setRetrying((s) => new Set(s).add(index));
+    try {
+      await action(`items/${index}/retry`);
+    } finally {
+      setRetrying((s) => {
+        const next = new Set(s);
+        next.delete(index);
+        return next;
+      });
+    }
+  }
   const shotLabel = sheetMode.sharedStyle ? "S" : "Frame";
   const shootLabel = mode === "carousel_set" ? `Shoot ${count} slides` : `Shoot ${count}`;
 
@@ -93,14 +125,18 @@ export function PhotoshootStudio() {
 
         {run?.result?.notices.length ? <p className="text-xs text-muted">{run.result.notices.join(" · ")}</p> : null}
         {run?.error ? (
-          <p role="alert" className="rounded-md border border-red-600/40 px-3 py-2 text-sm text-red-700 dark:text-red-400">
-            <span className="font-mono">{run.error.code}</span>: {run.error.message}
+          <p
+            role="alert"
+            title={errorDetail(run.error)}
+            className="rounded-md border border-red-600/40 px-3 py-2 text-sm text-red-700 dark:text-red-400"
+          >
+            {humanReason(run.error)}
           </p>
         ) : null}
         {sheet?.cutout ? (
-          <p className="font-mono text-[11px] text-muted">
+          <p className="font-mono text-[11px] text-muted" title={errorDetail(sheet.cutout.error)}>
             cutout · {sheet.cutout.status}
-            {sheet.cutout.error ? ` · ${sheet.cutout.error.code}: ${sheet.cutout.error.message}` : ""}
+            {sheet.cutout.error ? ` · ${humanReason({ ...sheet.cutout.error, code: "cutout_failed" })}` : ""}
           </p>
         ) : null}
 
@@ -128,7 +164,9 @@ export function PhotoshootStudio() {
                       : null)
                   }
                   variation={item?.variation ?? variationOf(step)}
-                  onRetry={live ? undefined : () => void action(`items/${i}/retry`)}
+                  onRetry={live ? undefined : () => void retry(i)}
+                  retryJobs={cutoutNeedsRerun ? 2 : 1}
+                  retrying={retrying.has(i)}
                 />
               );
             })}
@@ -184,7 +222,7 @@ export function PhotoshootStudio() {
         <Field label="Notes">
           <textarea
             value={notes}
-            maxLength={200}
+            maxLength={MAX_NOTES}
             rows={2}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="What should these shots say? e.g. on a sunlit kitchen counter"
