@@ -368,6 +368,19 @@ describe("outputs: filtering, safe headers, relative URLs", () => {
     });
   }
 
+  for (const type of ["text/html", "image/svg+xml"]) {
+    it(`re-hosted ${type} output is a sandboxed download, never rendered on our origin`, async () => {
+      mock.state.outputContentType = type;
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+      const response = await comfy.fetchOutput(client, submitted.id, done.outputs[0].id);
+      assert.equal(response.headers.get("Content-Type"), "application/octet-stream");
+      assert.match(response.headers.get("Content-Disposition") ?? "", /^attachment;/);
+      assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    });
+  }
+
   it("gzipped storage: drops the encoded Content-Length and streams every decoded byte", async () => {
     mock.state.contentMode = "cloud";
     mock.state.gzipSigned = true;
