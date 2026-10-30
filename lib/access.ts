@@ -138,6 +138,16 @@ export function assertMaySubmit(request: Request, accessCode: string | null): ()
 }
 
 /**
+ * Takes `count` more submit slots for a request that already passed
+ * assertMaySubmit (a pipeline run that plans several Comfy jobs), and returns
+ * their refund. Throws AccessError 429 when the window can't hold them all.
+ */
+export function takeSubmitSlots(request: Request, count: number): () => void {
+  if (count <= 0) return () => {};
+  return takeRateLimit(clientIp(request), Date.now(), count);
+}
+
+/**
  * TRUSTED_PROXY_HOPS as a positive integer, or null when it is unset or
  * invalid (per-IP limits are then off). The one parser for this setting, so
  * the startup warning and clientIp can't disagree.
@@ -198,13 +208,13 @@ function limit(name: string, fallback: number): number {
  * Sliding one-hour window, in memory. Per server instance: on a multi-instance
  * host the real ceiling is limit × instances, so keep the access code on.
  */
-function takeRateLimit(ip: string | null, now = Date.now()): () => void {
+function takeRateLimit(ip: string | null, now = Date.now(), count = 1): () => void {
   pruneHits(now);
   const check = (key: string, max: number, scope: string) => {
     const recent = (hits.get(key) ?? []).filter((at) => now - at < WINDOW_MS);
     hits.delete(key); // re-insert, so Map order tracks recency for pruneHits
     hits.set(key, recent);
-    if (recent.length >= max) {
+    if (recent.length + count > max) {
       const retryAfter = Math.ceil((recent[0] + WINDOW_MS - now) / 1000);
       throw new AccessError(429, "rate_limited", `Too many jobs ${scope}; try again later.`, retryAfter);
     }
@@ -212,15 +222,17 @@ function takeRateLimit(ip: string | null, now = Date.now()): () => void {
   if (ip !== null) check(`ip:${ip}`, limit("SUBMITS_PER_HOUR_PER_IP", 20), "from this address");
   check("global", limit("SUBMITS_PER_HOUR", 200), "on this server");
   const keys = ip !== null ? [`ip:${ip}`, "global"] : ["global"];
-  for (const key of keys) hits.get(key)!.push(now);
+  for (const key of keys) for (let i = 0; i < count; i++) hits.get(key)!.push(now);
   let refunded = false;
   return () => {
     if (refunded) return;
     refunded = true;
     for (const key of keys) {
       const times = hits.get(key);
-      const at = times?.lastIndexOf(now) ?? -1;
-      if (at >= 0) times!.splice(at, 1);
+      for (let i = 0; i < count; i++) {
+        const at = times?.lastIndexOf(now) ?? -1;
+        if (at >= 0) times!.splice(at, 1);
+      }
     }
   };
 }

@@ -5,7 +5,7 @@
  * server-minted UUID, so it is itself the capability (as a signed job handle
  * is for /api/jobs).
  */
-import { AccessError, accessErrorResponse, assertMayControl, assertMaySubmit } from "../access.ts";
+import { AccessError, accessErrorResponse, assertMayControl, assertMaySubmit, takeSubmitSlots } from "../access.ts";
 
 /** Header the studio client sends the access code in (JSON and multipart alike). */
 export const ACCESS_CODE_HEADER = "x-access-code";
@@ -22,6 +22,16 @@ export function gateSubmit(request: Request): { refund: () => void } | Response 
     if (error instanceof AccessError) return accessErrorResponse(error);
     throw error;
   }
+}
+
+/**
+ * Charges a gated request for the Comfy jobs it plans: the gate's slot paid
+ * for the first, so `jobs - 1` more are taken. Returns their refund; throws
+ * AccessError (429) when they don't fit in the window. The runner calls it
+ * after planning and before submitting anything.
+ */
+export function jobCharge(request: Request): (jobs: number) => () => void {
+  return (jobs) => takeSubmitSlots(request, jobs - 1);
 }
 
 /**
