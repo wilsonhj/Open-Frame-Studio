@@ -31,7 +31,7 @@ export default function RunsPage() {
       <h1 className="text-[28px] leading-[34px]">Recent runs</h1>
       {runs.length === 0 ? (
         <p className="text-ink-2">
-          No runs in this tab yet. Start one from {SURFACES.photoshoot.label} or {SURFACES.listing.label}.
+          No runs in this tab yet. Start one from {SURFACES.photoshoot.label}, {SURFACES.listing.label} or {SURFACES.motion.label}.
         </p>
       ) : (
         <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
