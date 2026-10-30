@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { ADOPT_AFTER_MS, RECOVERY_PREFIX, forgetJob, recoverJob, rememberJob, tabId, type StorageLike } from "../lib/job-recovery.ts";
+import {
+  ADOPT_AFTER_MS,
+  LEGACY_ACTIVE_KEY,
+  LEGACY_MAP_KEY,
+  RECOVERY_PREFIX,
+  forgetJob,
+  recoverJob,
+  recoverRun,
+  rememberJob,
+  tabId,
+  touchJob,
+  type StorageLike,
+} from "../lib/job-recovery.ts";
 import type { Job } from "../lib/types.ts";
 
 /** In-memory Web Storage double (one instance = one origin's localStorage, shared by tabs). */
@@ -115,6 +127,66 @@ describe("unfinished-job recovery", () => {
     local.setItem(`${RECOVERY_PREFIX}broken`, "not json");
     assert.equal(recoverJob(local, "tab-a", "w", 1_000 + 25 * 60 * 60_000), null, "older than a day");
     assert.deepEqual([...local.data.keys()], ["unrelated"]);
+  });
+
+  it("migrates the old single-slot format to a per-job key any tab may adopt", () => {
+    const local = memoryStorage();
+    local.setItem(LEGACY_ACTIVE_KEY, JSON.stringify({ workflow: "w", job: job("OLD") }));
+    assert.equal(recoverJob(local, "tab-a", "w", 5_000)?.id, "OLD");
+    assert.equal(local.getItem(LEGACY_ACTIVE_KEY), null, "legacy key removed");
+    assert.ok(local.getItem(`${RECOVERY_PREFIX}OLD`), "now on its own key");
+  });
+
+  it("migrates the old shared map, keeping each entry's tab, without overwriting newer per-job records", () => {
+    const local = memoryStorage();
+    rememberJob(local, "tab-b", "w", { ...job("B"), progress: 0.9 }, 2_000); // newer than the map's copy
+    local.setItem(
+      LEGACY_MAP_KEY,
+      JSON.stringify({
+        A: { workflow: "w", tab: "tab-a", savedAt: 1_000, job: job("A") },
+        B: { workflow: "w", tab: "tab-b", savedAt: 1_000, job: job("B") },
+        D: { workflow: "w", tab: "tab-a", savedAt: 1_000, job: job("D", true) },
+        bad: null,
+      }),
+    );
+    assert.equal(recoverJob(local, "tab-a", "w", 3_000)?.id, "A");
+    assert.equal(recoverJob(local, "tab-b", "w", 3_000)?.progress, 0.9, "per-job record kept, not the map's copy");
+    assert.equal(local.getItem(`${RECOVERY_PREFIX}D`), null, "finished jobs are not migrated");
+    assert.equal(local.getItem(LEGACY_MAP_KEY), null);
+  });
+
+  it("corrupt or old-format legacy records don't crash or erase unrelated live records", () => {
+    for (const legacy of ["not json", "[1,2]", '"x"', "null", '{"A":{"job":"nope"}}']) {
+      const local = memoryStorage();
+      rememberJob(local, "tab-b", "w", job("LIVE"), 1_000);
+      local.setItem("unrelated", "keep me");
+      local.setItem(LEGACY_MAP_KEY, legacy);
+      local.setItem(LEGACY_ACTIVE_KEY, legacy);
+      assert.doesNotThrow(() => recoverJob(local, "tab-a", "w", 2_000));
+      assert.equal(recoverJob(local, "tab-b", "w", 2_000)?.id, "LIVE", legacy);
+      assert.equal(local.getItem("unrelated"), "keep me");
+      assert.equal(local.getItem(LEGACY_MAP_KEY), null);
+      assert.equal(local.getItem(LEGACY_ACTIVE_KEY), null);
+    }
+  });
+
+  it("keeps the submitted seeds (including 0) when polls rewrite the entry, and restores them", () => {
+    const local = memoryStorage();
+    rememberJob(local, "tab-a", "w", job("A"), 1_000, { seed: 0 });
+    rememberJob(local, "tab-a", "w", { ...job("A"), progress: 0.5 }, 2_000); // a poll: plain Job, no seeds
+    assert.deepEqual(recoverRun(local, "tab-a", "w", 3_000), { job: { ...job("A"), progress: 0.5 }, seeds: { seed: 0 } });
+    // An adopting tab gets the seeds too.
+    assert.deepEqual(recoverRun(local, "tab-b", "w", 3_000 + ADOPT_AFTER_MS)?.seeds, { seed: 0 });
+  });
+
+  it("a watching tab whose polls fail or pause keeps its run by refreshing it", () => {
+    const local = memoryStorage();
+    rememberJob(local, "tab-a", "w", job("A"), 0);
+    for (let at = 30_000; at <= 10 * ADOPT_AFTER_MS; at += 30_000) touchJob(local, "tab-a", "A", at); // heartbeat only
+    assert.equal(recoverJob(local, "tab-b", "w", 10 * ADOPT_AFTER_MS + 1_000), null, "not adopted");
+    assert.ok(ADOPT_AFTER_MS >= 2 * 60_000, "well above hidden-tab timer throttling");
+    touchJob(local, "tab-b", "A", 10 * ADOPT_AFTER_MS + 2_000); // another tab can't refresh it on A's behalf
+    assert.equal(JSON.parse(local.getItem(`${RECOVERY_PREFIX}A`)!).tab, "tab-a");
   });
 
   it("a tab id is stable across reloads of the same tab", () => {

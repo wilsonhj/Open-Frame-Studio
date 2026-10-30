@@ -7,7 +7,15 @@
 import { useEffect, useState } from "react";
 
 import { getBinding, seedInputs } from "../lib/bindings";
-import { forgetJob, recoverJob, rememberJob, tabId } from "../lib/job-recovery";
+import {
+  TOUCH_EVERY_MS,
+  forgetJob,
+  recoverRun,
+  rememberJob,
+  tabId,
+  touchJob,
+  type RecoveredRun,
+} from "../lib/job-recovery";
 import { describeJob } from "../lib/job-status";
 import type { Job, SubmittedJob } from "../lib/types";
 
@@ -25,9 +33,16 @@ const MAX_POLL_FAILURES = 30;
  * Storage may be blocked; the job still runs and is still deadline-enforced
  * server-side, so failures here are ignored.
  */
-function remember(workflow: string, job: Job): void {
+function remember(workflow: string, job: Job, seeds?: Record<string, number>): void {
   try {
-    rememberJob(window.localStorage, tabId(window.sessionStorage), workflow, job);
+    rememberJob(window.localStorage, tabId(window.sessionStorage), workflow, job, Date.now(), seeds);
+  } catch {}
+}
+
+/** Mark the run as still watched, even when a poll failed or polling is paused. */
+function touch(jobId: string): void {
+  try {
+    touchJob(window.localStorage, tabId(window.sessionStorage), jobId);
   } catch {}
 }
 
@@ -37,9 +52,9 @@ function forget(job: Job | null): void {
   } catch {}
 }
 
-function recover(workflow: string): Job | null {
+function recover(workflow: string): RecoveredRun | null {
   try {
-    return recoverJob(window.localStorage, tabId(window.sessionStorage), workflow);
+    return recoverRun(window.localStorage, tabId(window.sessionStorage), workflow);
   } catch {
     return null;
   }
@@ -69,13 +84,22 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
     const timer = window.setTimeout(() => {
       const saved = recover(workflow);
       if (saved) {
-        setJob(saved);
+        setJob(saved.job);
+        setSeeds(saved.seeds);
         setMessage("Resuming the unfinished job…");
       }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [workflow]);
 
+  // Heartbeat while a run is unresolved, also while polls fail or are paused,
+  // so another tab doesn't mistake this one for gone and adopt its run.
+  const watchedId = job && !job.terminal ? job.id : null;
+  useEffect(() => {
+    if (!watchedId) return;
+    const timer = window.setInterval(() => touch(watchedId), TOUCH_EVERY_MS);
+    return () => window.clearInterval(timer);
+  }, [watchedId]);
 
   useEffect(() => {
     if (!job || job.terminal || pollRetry >= MAX_POLL_FAILURES) return;
@@ -99,6 +123,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
         setPollRetry(0);
         setMessage(describeJob(next));
       } catch (cause) {
+        touch(job.id);
         const detail = cause instanceof Error ? cause.message : "Could not check job status.";
         setMessage(
           pollRetry + 1 >= MAX_POLL_FAILURES
@@ -133,7 +158,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
       if (next.code === "access_code_required") setNeedsAccessCode(true);
       if (!response.ok) throw new Error(typeof next.error === "string" ? next.error : "Unable to submit job.");
       setPollRetry(0);
-      remember(workflow, next);
+      remember(workflow, next, next.seeds);
       setJob(next);
       setSeeds(next.seeds ?? {});
       setMessage(describeJob(next));
