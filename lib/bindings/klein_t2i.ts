@@ -1,6 +1,6 @@
 /**
  * FLUX.2 Klein 4B distilled text-to-image (Cards backdrops, text-only
- * product_shot, fixtures).
+ * packshot, fixtures).
  *
  * Graph: workflows/klein_t2i.api.json = the shared loaders (59, 2, 3) plus the
  * `p*` chain of spikes/klein-multiref/flux2_klein_t2i_fixtures.api.json; the

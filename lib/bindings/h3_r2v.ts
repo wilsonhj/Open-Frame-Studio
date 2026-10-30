@@ -11,7 +11,7 @@ import type { GraphBinding, MotionAspect } from "../types.ts";
 export const h3R2v = {
   workflow: "h3_r2v",
   inputs: {
-    /** `<Picture 1>`: person / Soul ref. */
+    /** `<Picture 1>`: person / identity ref. */
     image_1: { node: "137", field: "image", kind: "image", required: true },
     /** `<Picture 2>`: product. */
     image_2: { node: "139", field: "image", kind: "image" },

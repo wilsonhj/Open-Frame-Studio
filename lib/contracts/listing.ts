@@ -1,11 +1,11 @@
 /**
- * Contracts: Marketplace Cards (part of the frozen Wave 1 contract; barrel:
+ * Contracts: Listing Images (part of the frozen Wave 1 contract; barrel:
  * lib/types.ts). No runtime dependencies.
  */
 import type { ImageRef, JobErrorInfo } from "./job.ts";
 import type { AspectRatio } from "./photoshoot.ts";
 import type { PipelineStepStatus } from "./pipeline.ts";
-import type { CropBox } from "./soul.ts";
+import type { CropBox } from "./identity.ts";
 
 // ---------------------------------------------------------------------------
 // Pipeline request / result
@@ -18,7 +18,7 @@ export type CardsRequest = {
   /** Default `main` when neither scope nor assets is given; `assets` wins over `scope`. */
   scope?: CardScope;
   assets?: CardAssetId[];
-  /** Reuse a stored main result instead of regenerating `main_image`. */
+  /** Reuse a stored main result instead of regenerating `hero`. */
   mainJobId?: string;
   /** 1–6; the first is the hero. */
   productImages: ImageRef[];
@@ -39,7 +39,7 @@ export type CardsRequest = {
   efficacySource?: string;
   howToUse?: string[];
   endorsement?: { type: "review" | "expert" | "certification"; text: string; by: string; rightsConfirmed: boolean };
-  soulId?: string;
+  identityId?: string;
   /** BCP-47. */
   language?: string;
   seed?: number;
@@ -50,7 +50,7 @@ export type MainImageCheck = { id: string; ok: boolean; level: "error" | "warn";
 export type MainImageResult = {
   jobId: string;
   compositeUrl: string;
-  /** The anchor every secondary / A+ asset is conditioned on. */
+  /** The anchor every gallery / story panel is conditioned on. */
   cutoutRgbaUrl: string;
   cutoutBbox: CropBox;
   checks: MainImageCheck[];
@@ -77,28 +77,28 @@ export type CardsResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Marketplace Cards
+// Listing Images
 // ---------------------------------------------------------------------------
 
 export const CARD_ASSETS = [
-  "main_image",
-  "infographic",
-  "multi_angle",
-  "detail_shot",
-  "lifestyle",
-  "whats_in_box",
-  "aplus_hero_banner",
-  "aplus_pain_points",
-  "aplus_features",
-  "aplus_ingredients",
-  "aplus_efficacy",
-  "aplus_how_to_use",
-  "aplus_endorsement",
+  "hero",
+  "gallery_callouts",
+  "gallery_angles",
+  "gallery_detail",
+  "gallery_in_use",
+  "gallery_contents",
+  "story_banner",
+  "story_problem_solution",
+  "story_feature_grid",
+  "story_materials",
+  "story_results",
+  "story_how_to",
+  "story_social_proof",
 ] as const;
 
 export type CardAssetId = (typeof CARD_ASSETS)[number];
 
-export type CardScope = "main" | "product-images" | "aplus" | "full-set";
+export type CardScope = "hero" | "gallery" | "story" | "complete";
 
 export type CardAsset = {
   id: CardAssetId;
@@ -106,11 +106,11 @@ export type CardAsset = {
   /** Every non-main asset is conditioned on the main image. */
   anchoredOnMain: boolean;
   aspect: AspectRatio;
-  /** Copy rendered in code (never by diffusion). Empty for main_image. */
+  /** Copy rendered in code (never by diffusion). Empty for hero. */
   textSlots: readonly string[];
   scopes: readonly CardScope[];
   // Additive (PR #1 review): CARD_SPECS table columns (`lib/cards/assets.ts`,
-  // docs/spec/marketplace.md §4.2). The planner derives steps from these.
+  // docs/spec/listing.md §4.2). The planner derives steps from these.
   /** Diffusion used for this asset, if any. */
   diffusion?: "none" | "klein_edit" | "klein_t2i" | "backdrop_optional";
   /** How the product appears: pasted cutout, regenerated from ref, or absent. */

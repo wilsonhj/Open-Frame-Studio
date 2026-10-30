@@ -9,9 +9,9 @@ import { expect, test } from "@playwright/test";
 import { mockRequests, resetMock } from "../mock-comfy/control.ts";
 
 const TOOLS = [
-  { href: "/soul", name: /soul/i },
-  { href: "/photoshoot", name: /photoshoot/i },
-  { href: "/cards", name: /marketplace|cards/i },
+  { href: "/identity", name: /identity/i },
+  { href: "/photoshoot", name: /product shoot/i },
+  { href: "/listing", name: /listing/i },
   { href: "/motion", name: /motion/i },
 ] as const;
 
@@ -22,7 +22,7 @@ test.beforeEach(async () => {
 test("landing page renders and links to the 4 tools", async ({ page }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
-  await expect(page).toHaveTitle(/Open Soul Studio/);
+  await expect(page).toHaveTitle(/Open Frame Studio/);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
   const main = page.getByRole("main");

@@ -10,7 +10,7 @@
  * Products: plain synthetic shapes (bottle, mug, box) on deliberately busy backgrounds, so
  * cutout / background-removal and "pure white main image" steps have something to do.
  *
- * Faces: NONE. This script never draws or fetches faces. The Soul ID face set is either
+ * Faces: NONE. This script never draws or fetches faces. The Identity face set is either
  * AI-generated on Comfy Cloud later, or supplied by a consenting person (see fixtures/README.md).
  */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";

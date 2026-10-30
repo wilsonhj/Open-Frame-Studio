@@ -5,11 +5,11 @@ import { APP_NAME, SURFACES } from "../lib/brand";
 const TOOLS = [
   {
     ...SURFACES.identity,
-    body: "Turn 5–20 photos into a reusable identity: a checked reference set you can save as a portable file.",
+    body: "Turn 5–20 photos into a reusable identity: the best reference crops plus a style card, saved as a portable identity.json you keep.",
   },
   {
     ...SURFACES.photoshoot,
-    body: "Pick a shot style and an output format, from clean packshots to on-person series, with varied lighting, angles and palettes.",
+    body: "Ten shoot modes, from clean packshots to on-model shots and ad sets, with varied settings, lighting, angles and palettes.",
   },
   {
     ...SURFACES.listing,

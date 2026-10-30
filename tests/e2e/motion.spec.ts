@@ -1,5 +1,5 @@
 /**
- * Motion (MiniMax H3 reference-to-video): Soul still + product still -> short clip.
+ * Motion (MiniMax H3 reference-to-video): Identity still + product still -> short clip.
  * Graph: workflows/h3_r2v.api.json (spike: docs/spikes/h3-r2v.md). Turbo for live, 20-25 steps for hero.
  */
 import { join } from "node:path";
@@ -20,8 +20,8 @@ test("Motion page renders", async ({ page }) => {
 });
 
 test.describe("Motion panel", () => {
-  test.fixme("Soul + product -> clip renders in a <video> element", async ({ page }) => {
-    // TODO(wave2 frontend: Motion panel): pick a Soul (imported soul.json) + upload PRODUCT; submit.
+  test.fixme("Identity + product -> clip renders in a <video> element", async ({ page }) => {
+    // TODO(wave2 frontend: Motion panel): pick an identity (imported identity.json) + upload PRODUCT; submit.
     // Mock multi_output returns 2 images + 1 video/mp4 (node 12): the panel must render the video
     // output in <video src="/api/jobs/.../outputs/..."> and ignore/thumbnail the images.
     // The MP4 is a stub (ftyp box only): assert src + content-type, not playback.

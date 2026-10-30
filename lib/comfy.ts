@@ -47,7 +47,7 @@ import { TERMINAL_STATUSES } from "./types.ts";
 
 export type { Workflow } from "@comfyorg/sdk";
 
-const CLIENT_INFO = "open-soul-studio";
+const CLIENT_INFO = "open-frame-studio";
 const WORKFLOW_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 // ---------------------------------------------------------------------------

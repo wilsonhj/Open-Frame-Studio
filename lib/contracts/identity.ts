@@ -1,25 +1,25 @@
 /**
- * Contracts: Soul ID (part of the frozen Wave 1 contract; barrel:
+ * Contracts: Identity (part of the frozen Wave 1 contract; barrel:
  * lib/types.ts). No runtime dependencies.
  */
 import type { ImageRef, OutputRef } from "./job.ts";
 
 // ---------------------------------------------------------------------------
-// Soul ID (Instant): curated refs + style card, portable as soul.json
+// Identity (Instant): curated refs + style card, portable as identity.json
 // ---------------------------------------------------------------------------
 
-export const SOUL_SCHEMA = "open-soul-studio/soul@1" as const;
-export const SOUL_MIN_REFS = 3;
-export const SOUL_MAX_REFS = 6;
+export const IDENTITY_SCHEMA = "open-frame-studio/identity@1" as const;
+export const IDENTITY_MIN_REFS = 3;
+export const IDENTITY_MAX_REFS = 6;
 
 /** Pixel rectangle in the source photo (top-left origin). */
 export type CropBox = { x: number; y: number; width: number; height: number };
 
 /**
  * One curated reference. Exactly one of `assetId` (Comfy asset, server-side
- * Soul registry) or `path` (relative to soul.json, in an exported bundle).
+ * identity registry) or `path` (relative to identity.json, in an exported bundle).
  */
-export type SoulRef = ({ assetId: string; path?: undefined } | { path: string; assetId?: undefined }) & {
+export type IdentityRef = ({ assetId: string; path?: undefined } | { path: string; assetId?: undefined }) & {
   crop: CropBox;
   /** 64-bit perceptual hash, 16 lowercase hex chars; used for near-duplicate rejection. */
   phash: string;
@@ -35,26 +35,26 @@ export type SoulRef = ({ assetId: string; path?: undefined } | { path: string; a
 export type StyleTrait = "skinTone" | "hair" | "eyes" | "faceShape" | "ageRange" | "accessories" | "wardrobe";
 
 export type StyleCard = {
-  /** Text block appended to every prompt that uses this Soul (≤ 400 chars). */
+  /** Text block appended to every prompt that uses this identity (≤ 400 chars). */
   description: string;
   traits: Partial<Record<StyleTrait, string>>;
   /** Features that must never change, e.g. "small mole above the left lip". */
   keep: readonly string[];
 };
 
-/** The contents of `soul.json`. */
-export type Soul = {
-  schema: typeof SOUL_SCHEMA;
+/** The contents of `identity.json`. */
+export type Identity = {
+  schema: typeof IDENTITY_SCHEMA;
   id: string;
   name: string;
   /** ISO-8601. */
   createdAt: string;
-  /** SOUL_MIN_REFS..SOUL_MAX_REFS crops, best first. */
-  refs: SoulRef[];
+  /** IDENTITY_MIN_REFS..IDENTITY_MAX_REFS crops, best first. */
+  refs: IdentityRef[];
   styleCard: StyleCard;
 };
 
-export type SoulRequest = {
+export type IdentityRequest = {
   name: string;
   /** 3–12 candidate photos; QA picks the best 3–6. */
   photos: ImageRef[];
@@ -71,9 +71,9 @@ export type PhotoQaReason =
   | "duplicate"
   | "unsupported_type";
 
-export type SoulResult = {
-  soul: Soul;
-  /** Candidate photos not used, by index into `SoulRequest.photos`. */
+export type IdentityResult = {
+  identity: Identity;
+  /** Candidate photos not used, by index into `IdentityRequest.photos`. */
   rejected: { index: number; reason: PhotoQaReason }[];
   preview: OutputRef | null;
 };

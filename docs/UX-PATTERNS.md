@@ -193,7 +193,7 @@ not in this repo.
 - **Evidence:** *observed* in `higgsfield-product-photoshoot/SKILL.md`: "Ask at most 4 short questions before
   submitting. Use labeled options, never open-ended", and "Skip questions whose answer is obvious from context".
   `/marketing-studio-intro` offers framing choices for one product ("closeup, faceless, full body, editorial, or UGC").
-- **On ComfyUI:** our taxonomy is already different: `ShotStyle × OutputFormat` in `lib/types.ts`. Ask at most two
+- **On ComfyUI:** our mode ids are our own (`lib/contracts/photoshoot.ts`, `PHOTOSHOOT_MODES`). Ask at most two
   chip questions ("What is it for?" → format, "What should it look like?" → style), each skippable, then build the
   graph inputs.
 - **Don't copy:** none of their 10 mode ids, request types A–F, aesthetic lists or tie-breaker table. Our two-axis model
@@ -316,7 +316,7 @@ General rules:
 - Higgsfield's name appears only in factual context (the challenge title, a "what inspired this" line). Never as a feature label or in ids.
 - Repo slug and folder: rename `open-soul-studio` → `open-frame-studio` before submission, if the GitHub repo can be renamed (it redirects).
 - Update `docs/PLAN.md` wording (Soul, Soul ID, mode ids, "Amazon set", comparison page) or mark it as historical.
-- Code ids are fine as they are (`identity`, `photoshoot`, `listing`, `motion`, `ShotStyle`, `ListingSlotId`).
+- Code ids are fine as they are (`identity`, `photoshoot`, `listing`, `motion`, `PhotoshootMode`, `CardAssetId`).
 
 ---
 

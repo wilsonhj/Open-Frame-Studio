@@ -30,7 +30,7 @@
  *   asset_missing      like succeeded, but every asset id in state.missingAssetIds is gone:
  *                      GET /api/v2/assets/{id} (and /content) answer 404 asset_not_found, and a
  *                      job POST that references one is refused with 422 asset_not_found
- *                      (stale asset cache; Soul reuse test S-R1 step 7)
+ *                      (stale asset cache; Identity reuse test S-R1 step 7)
  *   drop_after_create  records the Idempotency-Key, creates the job (like succeeded), then
  *                      destroys the socket without responding (ambiguous submit). A same-key
  *                      re-send then gets 422 idempotency_key_reuse.
@@ -287,13 +287,13 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
   function outputsOf(job: MockJob): unknown[] {
     if (job.scenario === "multi_output") {
       return [
-        outputJson(job, storeOutput(job, "-img-1", PNG_1X1, "image/png", "open-soul-studio/multi_00001_.png"), "9", "image"),
-        outputJson(job, storeOutput(job, "-img-2", PNG_1X1, "image/png", "open-soul-studio/multi_00002_.png"), "9", "image"),
-        outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-soul-studio/multi_00001_.mp4"), "12", "video"),
+        outputJson(job, storeOutput(job, "-img-1", PNG_1X1, "image/png", "open-frame-studio/multi_00001_.png"), "9", "image"),
+        outputJson(job, storeOutput(job, "-img-2", PNG_1X1, "image/png", "open-frame-studio/multi_00002_.png"), "9", "image"),
+        outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-frame-studio/multi_00001_.mp4"), "12", "video"),
       ];
     }
     // Keep the original id (`out-<jobId>`) so existing tests and clients stay stable.
-    return [outputJson(job, storeOutput(job, "", PNG_1X1, "image/png", "open-soul-studio/smoke_00001_.png"), "3", "image")];
+    return [outputJson(job, storeOutput(job, "", PNG_1X1, "image/png", "open-frame-studio/smoke_00001_.png"), "3", "image")];
   }
 
   function jobJson(job: MockJob, advance: boolean) {

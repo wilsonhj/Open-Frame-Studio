@@ -1,6 +1,6 @@
 /**
- * FLUX.2 Klein 4B distilled multi-reference edit (Soul preview, Photoshoot,
- * Cards secondary / A+ tiles).
+ * FLUX.2 Klein 4B distilled multi-reference edit (identity preview, product shoot,
+ * listing gallery / story tiles).
  *
  * Graph: workflows/klein_edit_multiref.api.json, a verbatim copy of
  * spikes/klein-multiref/flux2_klein_edit_multiref.api.json.
