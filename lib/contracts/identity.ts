@@ -56,6 +56,12 @@ export type Identity = {
 
 export type IdentityRequest = {
   name: string;
+  /**
+   * Required literal: the uploader confirmed "These are photos of me, or I have
+   * this person's permission." (`IDENTITY_CONSENT_TEXT`). The API refuses a
+   * request without it before uploading anything (lib/identity/consent.ts).
+   */
+  consent: true;
   /** 3–12 candidate photos; QA picks the best 3–6. */
   photos: ImageRef[];
   /** Render an identity preview sheet with klein_edit_multiref (default true). */

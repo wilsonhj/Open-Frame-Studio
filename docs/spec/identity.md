@@ -349,7 +349,7 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
 1. `IdentityRef.sha256: string` (done: required in `lib/contracts/identity.ts`) and `IdentityRef.pose?: "front" | "three_quarter_left" | "three_quarter_right" | "profile"`.
 2. `identity.preferredAspect?: AspectRatio` and `identity.generator?: { model: string; workflow: string; app: string }`.
 3. `IdentityRequest.photos` doc comment: change "3–12" to "up to 20 (HF: 5–20, 8–12 ideal)".
-4. `IdentityRequest.consent: true` (required literal), so the API refuses requests without it.
+4. `IdentityRequest.consent: true` (required literal), so the API refuses requests without it. (done: `lib/contracts/identity.ts`; the check is `assertIdentityConsent` in `lib/identity/consent.ts`, and the `/identity` intake locks the photo picker until the box is ticked.)
 5. Optional: a `PhotoQaWarning` union (`low_resolution`, `soft_focus`, `exposure`, `eyes_not_found`, `same_pose`, `background_faces`), so warnings are typed like rejections.
 
 ## 11. Open questions

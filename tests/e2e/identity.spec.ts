@@ -24,6 +24,30 @@ test("Identity page renders", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/identity/i);
 });
 
+test("likeness consent gates the photo picker", async ({ page }) => {
+  await page.goto("/identity");
+  const consent = page.getByRole("checkbox", { name: /photos of me, or I have this person's permission/i });
+  const picker = page.getByLabel(/^Photos/);
+  const create = page.getByRole("button", { name: "Create identity" });
+
+  await expect(consent).not.toBeChecked();
+  await expect(picker).toBeDisabled();
+  await expect(create).toBeDisabled();
+
+  await consent.check();
+  await expect(picker).toBeEnabled();
+  const product = join(process.cwd(), "fixtures/products/product-box-checker.png");
+  await picker.setInputFiles([product, product]);
+  await expect(page.getByText("2 selected.", { exact: false })).toBeVisible();
+
+  // Withdrawing consent drops the selection and locks the picker again.
+  await consent.uncheck();
+  await expect(picker).toBeDisabled();
+  await expect(page.getByRole("status")).toHaveText(/photos removed/i);
+  await consent.check();
+  await expect(page.getByText("0 selected.", { exact: false })).toBeVisible();
+});
+
 test.describe("Identity wizard", () => {
   test.fixme("rejects too few photos and non-image files before upload", async ({ page }) => {
     // TODO(wave2 frontend: Identity wizard): client-side photo QA.
