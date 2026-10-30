@@ -1,0 +1,16 @@
+#!/bin/sh
+# Refuses a commit made with a personal email (CLAUDE.md, "Commit identity").
+# Checks the identities this commit will really use: user.email, but also
+# GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL and --author.
+# Install: git config core.hooksPath scripts/hooks
+for ident in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
+  email=$(git var "$ident" | sed -n 's/.*<\(.*\)>.*/\1/p')
+  case "$email" in
+    *@users.noreply.github.com) ;;
+    *)
+      echo "pre-commit: $ident email is '$email', not a GitHub noreply address." >&2
+      echo "Run: git config user.email 39320700+wilsonhj@users.noreply.github.com (and unset GIT_AUTHOR_EMAIL / GIT_COMMITTER_EMAIL)" >&2
+      exit 1
+      ;;
+  esac
+done

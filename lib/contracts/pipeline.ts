@@ -128,7 +128,7 @@ export const DEFAULT_STEP_TIMEOUT_MS: Record<WorkflowName, number> = {
   h3_r2v: 900_000,
 };
 
-/** `partial`: finished, but some steps failed / timed out / need input. */
+/** `partial`: finished with a deliverable, but a step failed, timed out, needs input, or a Comfy step was skipped. */
 export type PipelineRunStatus = "pending" | "running" | "succeeded" | "partial" | "failed" | "canceled";
 
 export type PipelineRequestMap = {
