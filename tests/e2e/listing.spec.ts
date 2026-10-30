@@ -96,6 +96,12 @@ test.describe("Cards board", () => {
     const upInputs = byKind.upscale.map((p) => p.assetIds[0]);
     expect(new Set(upInputs).size).toBe(3);
     for (const id of upInputs) expect(editIds.has(id)).toBe(true);
+    // Detail, in use, and contents — not three copies of one edit.
+    const editText = new Map(byKind.edit.map((p) => [`out-${p.jobId}`, JSON.stringify(p.body)]));
+    const refined = upInputs.map((id) => editText.get(id) ?? "");
+    for (const marker of ["showing its Volume", "in use in a believable", "together with 1"]) {
+      expect(refined.some((text) => text.includes(marker)), marker).toBe(true);
+    }
   });
 
   test("per-tile regenerate submits exactly one new job for that tile", async ({ page }) => {
