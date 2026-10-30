@@ -28,7 +28,7 @@ Models (exact Cloud filenames):
 
 ## What was prepared (steps 2–4, built and validated, not run)
 
-All files are in `./spikes/lora-training/`:
+All files are in `spikes/lora-training/`:
 
 - `build_graphs.py` writes both API graphs. The trigger word is `ohwx_mira` (a fictional, synthetic subject).
 - `dataset_t2i.json` is the step 2 graph. It uses FLUX.2 Klein 4B distilled (`flux-2-klein-4b.safetensors` + `qwen_3_4b` + `flux2-vae`), 4 steps, cfg 1, 512×512, `batch_size` 6, and saves to node `13`.
@@ -52,8 +52,9 @@ Graph shape: the six `LoadImage` nodes feed an `ImageBatch` chain (`7`–`11`). 
 To run once the account is upgraded (≤3 submissions):
 
 ```bash
-cd ./spikes/lora-training
-OUT=<scratchpad>
+cd spikes/lora-training
+OUT=../../spike-out/lora-training  # spike-out/ is gitignored
+mkdir -p $OUT
 python3 run_job.py dataset_t2i.json --out $OUT --label dataset --timeout 600
 # split the 6 outputs if returned as one file each: soul_dataset_0000x_.png
 python3 run_job.py train_lora_50.json --out $OUT --label train50 --timeout 2400 \

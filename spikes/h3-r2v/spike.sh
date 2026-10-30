@@ -4,7 +4,7 @@
 # Never loops/retries a submit. COMFY_API_KEY is read from env by the SDK and is never printed.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-OUT="${SPIKE_OUT:-<scratchpad>"
+OUT="${SPIKE_OUT:-$HERE/../../spike-out/h3-r2v}"  # spike-out/ is gitignored
 export OBJECT_INFO="${OBJECT_INFO:-$OUT/object_info.json}"
 mkdir -p "$OUT"
 [ -s "$OBJECT_INFO" ] || curl -sS -H "Authorization: Bearer $COMFY_API_KEY" https://cloud.comfy.org/api/object_info -o "$OBJECT_INFO"
@@ -20,7 +20,8 @@ probe() {  # frames, fps, size, audio streams
   for f in "$1"/*.mp4; do
     ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,channels \
       -show_entries format=duration,size -of compact "$f"
-    sz=$(stat -c %s "$f"); [ "$sz" -lt 5000000 ] && cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
+    sz=$(wc -c < "$f" | tr -d " ")  # portable (GNU and BSD/macOS)
+    [ "$sz" -lt 5000000 ] && cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
   done
 }
 

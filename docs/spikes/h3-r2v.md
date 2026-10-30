@@ -17,7 +17,7 @@ I attempted one submit (the fixtures job) and did not retry it.
 
 ## What was built
 
-All files are in `./spikes/h3-r2v/`:
+All files are in `spikes/h3-r2v/`:
 
 | File | Purpose |
 |---|---|

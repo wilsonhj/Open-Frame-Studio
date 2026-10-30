@@ -59,7 +59,8 @@ lib/brand.ts                                product name and surface labels
 lib/comfy.ts                                server-only @comfyorg/sdk 0.5.0 wrapper (traps below)
 lib/bindings/index.ts                       registry: workflow name → GraphBinding {input → node id + field}
 lib/bindings/apply.ts                       applyBindings / checkBinding: values → API-format graph
-lib/inputs.ts                               multipart parsing → binding values (no graph mutation)
+lib/inputs.ts                               multipart parsing → binding values (no graph mutation), upload byte checks, random seeds
+lib/job-status.ts                           one-line status copy from what the server reported
 lib/contracts/*.ts                          contracts by domain: job, pipeline, bindings, identity, photoshoot, listing, motion
 lib/types.ts                                barrel re-exporting lib/contracts/*
 lib/job-deadlines.ts                        persisted /api/jobs deadlines + reconciler (started by instrumentation.ts)
@@ -77,6 +78,9 @@ tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / faile
 - The browser can only address a job through a signed, unguessable handle (a capability, like a share link). Nobody can forge one for another job on the account, even knowing its Comfy id. The page keeps the handle of an unfinished job, so a reload resumes watching it instead of starting a second paid run.
 - A job past its budget gets a cancel request, but is reported finished only once Comfy confirms it; a failed or pending cancel is retried and the job stays visible.
 - UI-format workflows are rejected locally.
+- Job status shows only what the server reports: queue position, the running node and its sampler step, and the reported fraction. Nothing is estimated in the browser.
+- Generation seeds are random on every run unless the form sends one; `/api/jobs` returns the seed it used, so the page can lock it to reproduce a result.
+- Uploads must start with the bytes of their declared PNG, JPEG or WebP type before anything is sent to Comfy.
 
 ## Licence and NOTICE
 
