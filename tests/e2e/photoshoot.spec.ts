@@ -90,6 +90,26 @@ test.describe("Photoshoot studio", () => {
     if (SHOTS) await page.screenshot({ path: join(SHOTS, "carousel-upscaled.png"), fullPage: true });
   });
 
+  test("upscale 2x survives a reload: the same job resumes, nothing is billed twice", async ({ page }) => {
+    await shootCarousel(page);
+    await expect(page.getByTestId("run-progress")).toHaveText(/5 of 5 jobs done/, { timeout: 45_000 });
+    await setMockScenario({ scenario: "slow_progress" });
+    const frame = page.getByTestId("frame-0");
+    await frame.getByRole("button", { name: "Upscale 2×" }).click();
+    await expect(frame.getByRole("button", { name: "Upscaling…" })).toBeVisible();
+    await expect.poll(async () => (await mockRequests()).jobPosts.length).toBe(6);
+
+    await page.reload();
+    // The paid job is still tracked: no fresh "Upscale 2×" offer, and it finishes.
+    await expect(frame.getByRole("button", { name: "Upscaling…" })).toBeVisible();
+    await expect(frame.getByTestId("upscale-result")).toContainText(/Upscaled 2×/, { timeout: 45_000 });
+    expect((await mockRequests()).jobPosts).toHaveLength(6);
+
+    // A finished upscale is still shown after another reload.
+    await page.reload();
+    await expect(frame.getByTestId("upscale-result")).toContainText(/Upscaled 2×/);
+  });
+
   test("narrow 4-up frames keep the label on one line while waiting for a GPU", async ({ page }) => {
     test.setTimeout(90_000);
     // Every job sits queued for 15 s: first the cutout, then the slides.
