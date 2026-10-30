@@ -117,8 +117,8 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 **Step status** is `PipelineStepStatus`, a superset of `JobStatus`: `pending | queued | running | succeeded | failed | canceled | expired | unknown | skipped | timed_out | needs_input`.
 
 **Run status** is decided like this:
-- `succeeded`: every step succeeded.
-- `partial`: the run finished, but at least one step is `failed`, `timed_out` or `needs_input`, and at least one deliverable exists.
+- `succeeded`: no step failed, and no Comfy step was skipped. A code step may be `skipped` on purpose.
+- `partial`: the run finished with a deliverable, and a step is `failed`, `timed_out`, or `needs_input`, or a Comfy step was `skipped`.
 - `failed`: nothing deliverable exists, or a gating step failed. For example, a failed main-image compliance check fails the run before fan-out (`docs/spec/listing.md:176`).
 
 ### 2.0 Durable run state and restart
