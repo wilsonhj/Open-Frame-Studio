@@ -38,7 +38,15 @@ function client(): Comfy {
 const now = () => new Date().toISOString();
 const isTerminal = (s: PipelineStep) => TERMINAL_STEP_STATUSES.includes(s.status);
 const safe = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").slice(0, 60) || "x";
-const fileUrl = (run: PipelineRun, name: string) => `/api/pipelines/${run.kind}/${run.id}/files/${encodeURIComponent(name)}`;
+/** Directory segment for a step id (store paths allow `[A-Za-z0-9._-]`). */
+const seg = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 128) || "x";
+const fileUrl = (run: PipelineRun, rel: string) => `/api/pipelines/${run.kind}/${run.id}/files/${rel.split("/").map(encodeURIComponent).join("/")}`;
+/** Store path of an OutputRef re-hosted under this run (null for a pass-through output). */
+const fileRel = (run: PipelineRun, out: OutputRef) => {
+  const prefix = `/api/pipelines/${run.kind}/${run.id}/files/`;
+  return out.url.startsWith(prefix) ? out.url.slice(prefix.length).split("/").map(decodeURIComponent).join("/") : null;
+};
+class InputMissingError extends Error {}
 const errInfo = (code: string, e: unknown): JobErrorInfo => ({ code, message: e instanceof Error ? e.message : String(e) });
 const outType = (ct: string): OutputRef["type"] =>
   ct.startsWith("image/") ? "image" : ct.startsWith("video/") ? "video" : ct.startsWith("audio/") ? "audio" : ct.startsWith("text/") ? "text" : "file";
@@ -61,15 +69,28 @@ async function persist(run: PipelineRun): Promise<void> {
 
 async function uploadAsset(run: PipelineRun, bytes: Uint8Array, filename: string, contentType: string): Promise<string> {
   const id = await client().assets.fromBytes(bytes, { filename, contentType }).commit();
-  await writeRunFile(run.id, `asset-${safe(id)}`, bytes);
+  await writeRunFile(run.id, `_assets/${seg(id)}`, bytes);
   return id;
 }
 
-function resolveRef(run: PipelineRun, ref: StepInputRef): OutputRef {
+/**
+ * steps[fromStep].outputs filtered by `outputNode`, then `[index ?? 0]`.
+ * `outputNode` is the binding's logical output name for a comfy step, the
+ * file name for a code step.
+ */
+function findRef(run: PipelineRun, ref: StepInputRef): OutputRef | undefined {
   const step = run.steps.find((s) => s.id === ref.fromStep);
-  const outs = (step?.outputs ?? []).filter((o) => ref.outputNode === undefined || o.nodeId === ref.outputNode);
-  const out = outs[ref.index ?? 0];
-  if (!out) throw new Error(`No output ${ref.index ?? 0} from step "${ref.fromStep}".`);
+  if (!step) return undefined;
+  const nodeId = step.kind === "comfy" && ref.outputNode !== undefined ? getBinding(step.workflow)?.outputs[ref.outputNode] : undefined;
+  const outs = (step.outputs ?? []).filter(
+    (o) => ref.outputNode === undefined || (step.kind === "comfy" ? o.nodeId === nodeId : o.name === ref.outputNode),
+  );
+  return outs[ref.index ?? 0];
+}
+
+function resolveRef(run: PipelineRun, ref: StepInputRef): OutputRef {
+  const out = findRef(run, ref);
+  if (!out) throw new InputMissingError(`No output ${ref.outputNode ?? ""}[${ref.index ?? 0}] from step "${ref.fromStep}".`);
   return out;
 }
 
@@ -77,11 +98,12 @@ async function readBytes(run: PipelineRun, source: ByteSource | ImageRef): Promi
   if ("upload" in source) throw new Error("Unresolved upload ref.");
   if ("fromStep" in source) {
     const out = resolveRef(run, source);
-    const local = await readRunFile(run.id, decodeURIComponent(out.url.split("/").pop() ?? ""));
+    const rel = fileRel(run, out);
+    const local = rel ? await readRunFile(run.id, rel) : null;
     if (local) return local;
     return readBytes(run, { assetId: out.id });
   }
-  const local = await readRunFile(run.id, `asset-${safe(source.assetId)}`);
+  const local = await readRunFile(run.id, `_assets/${seg(source.assetId)}`);
   if (local) return local;
   for (const s of run.steps) {
     const out = s.outputs?.find((o) => o.id === source.assetId);
@@ -119,7 +141,16 @@ async function rewriteUploads(value: unknown, upload: (name: string) => Promise<
   return value;
 }
 
-export type CreateResult = { ok: true; run: PipelineRun } | { ok: false; status: 400 | 404; error: string; field?: string };
+export type CreateResult = { ok: true; run: PipelineRun } | { ok: false; status: 400 | 404 | 500; error: string; field?: string };
+
+/** plan() errors: SoulNotFoundError → 404 soulId; `{ status: 400|404, field }` → that; else 500. */
+function planError(e: unknown): CreateResult {
+  const err = e as { name?: string; message?: string; status?: unknown; field?: unknown } | null;
+  const error = err?.message || "Unable to plan the run.";
+  if (err?.name === "SoulNotFoundError") return { ok: false, status: 404, error, field: "soulId" };
+  if ((err?.status === 400 || err?.status === 404) && typeof err.field === "string") return { ok: false, status: err.status, error, field: err.field };
+  return { ok: false, status: 500, error };
+}
 
 export async function createRun(kind: string, raw: unknown, uploads: Map<string, UploadPart> = new Map()): Promise<CreateResult> {
   const def = definitionFor(kind);
@@ -139,7 +170,11 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
   });
   if (missing) return { ok: false, status: 400, error: `Missing file part "${missing}".`, field: missing };
   run.request = request as PipelineRun["request"];
-  run.steps = await (def.plan as (r: unknown, c: PlanContext) => Promise<PipelineStep[]>)(request, planContext(runId));
+  try {
+    run.steps = await (def.plan as (r: unknown, c: PlanContext) => Promise<PipelineStep[]>)(request, planContext(runId));
+  } catch (e) {
+    return planError(e);
+  }
   run.timeoutMs = run.steps.reduce((sum, s) => sum + s.timeoutMs, 0);
   run.status = "running";
   await persist(run);
@@ -210,7 +245,8 @@ async function drive(def: Def, run: PipelineRun): Promise<void> {
     }
   }
   const bad = run.steps.some((s) => BAD.has(s.status));
-  const good = run.steps.some((s) => s.status === "succeeded");
+  // A deliverable is a succeeded leaf step (one no other step depends on).
+  const good = run.steps.some((s) => s.status === "succeeded" && !run.steps.some((x) => x.dependsOn.includes(s.id)));
   run.status = run.cancelRequested ? "canceled" : !bad ? "succeeded" : good ? "partial" : "failed";
   try {
     run.result = await (def.buildResult as (r: PipelineRun) => Promise<PipelineRun["result"]>)(run);
@@ -254,9 +290,9 @@ async function runCode(def: Def, run: PipelineRun, step: CodePipelineStep): Prom
     const result = await handler({ ...runIo(run, signal), run, step });
     const outputs: OutputRef[] = [];
     for (const f of result.files ?? []) {
-      const name = `${safe(step.id)}-${safe(f.name)}`;
-      await writeRunFile(run.id, name, f.bytes);
-      outputs.push({ id: name, jobId: "", nodeId: "", name: f.name, type: outType(f.contentType), contentType: f.contentType, sizeBytes: f.bytes.byteLength, url: fileUrl(run, name) });
+      const rel = `${seg(step.id)}/${safe(f.name)}`;
+      await writeRunFile(run.id, rel, f.bytes);
+      outputs.push({ id: `${step.id}/${f.name}`, jobId: "", nodeId: "", name: f.name, type: outType(f.contentType), contentType: f.contentType, sizeBytes: f.bytes.byteLength, url: fileUrl(run, rel) });
     }
     step.outputs = [...outputs, ...(result.outputs ?? [])];
     if (result.data !== undefined) step.data = result.data;
@@ -273,7 +309,13 @@ async function graphValues(run: PipelineRun, step: ComfyPipelineStep): Promise<R
   for (const [name, raw] of Object.entries(step.inputs)) {
     let value: GraphValue;
     if (typeof raw === "object") {
-      const out = resolveRef(run, raw);
+      const out = findRef(run, raw);
+      if (!out) {
+        // Unresolved: omit an optional input, fail the step on a required one.
+        if (binding?.inputs[name]?.required) throw new InputMissingError(`Required input "${name}" has no output from step "${raw.fromStep}".`);
+        continue;
+      }
+      // A code-step file is uploaded on first use (content-addressed, so re-use dedupes).
       const id = out.jobId ? out.id : await uploadAsset(run, await readBytes(run, raw), out.name || "input.png", out.contentType);
       value = (await (await client().assets.get(id)).asReference()) as GraphValue;
     } else if (typeof raw === "string" && binding?.inputs[name]?.kind === "image") {
@@ -293,7 +335,13 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
       step.submission.state = "unconfirmed";
       return (finish(step, "failed", { code: SUBMIT_UNCONFIRMED, message: UNCONFIRMED_MSG }), persist(run));
     }
-    const values = await graphValues(run, step);
+    let values: Record<string, GraphValue>;
+    try {
+      values = await graphValues(run, step);
+    } catch (e) {
+      if (!(e instanceof InputMissingError)) throw e;
+      return (finish(step, "failed", errInfo("input_missing", e)), persist(run));
+    }
     const graph = applyBindings(prepareGraph(step.workflow, await loadGraph(step.workflow), values), binding, values);
     await startStep(run, step);
     step.submission = step.submission
@@ -333,9 +381,9 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
   const outputs: OutputRef[] = [];
   for (const [i, out] of job.outputs.entries()) {
     const bytes = new Uint8Array(await (await fetchOutput(c, job.id, out.id)).arrayBuffer());
-    const name = `${safe(step.id)}-${i}${extFor(out.contentType)}`;
-    await writeRunFile(run.id, name, bytes);
-    outputs.push({ ...out, sizeBytes: bytes.byteLength, url: fileUrl(run, name) });
+    const rel = `${seg(step.id)}/${i}${extFor(out.contentType)}`;
+    await writeRunFile(run.id, rel, bytes);
+    outputs.push({ ...out, sizeBytes: bytes.byteLength, url: fileUrl(run, rel) });
   }
   step.outputs = outputs;
   finish(step, "succeeded");

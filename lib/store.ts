@@ -1,15 +1,15 @@
 /**
  * Durable run store (docs/spec/api.md §2.0): one JSON document per run at
  * `${DATA_DIR:-.data}/runs/<runId>.json`, written temp + fsync + rename
- * through a per-run write queue. Code-step files live in `runs/<runId>/files/`.
+ * through a per-run write queue. Step files live in `runs/<runId>/files/<stepId>/<name>`.
  */
 import { mkdir, open, readFile, readdir, rename } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { PipelineRun } from "./types.ts";
 
 const RUN_ID = /^[A-Za-z0-9_-]{1,64}$/;
-const FILE_NAME = /^[a-z0-9._-]{1,128}$/;
+const SEGMENT = /^[A-Za-z0-9._-]{1,128}$/;
 
 export function dataDir(): string {
   return process.env.DATA_DIR?.trim() || ".data";
@@ -23,8 +23,10 @@ export function isRunId(id: string): boolean {
   return RUN_ID.test(id);
 }
 
-export function isFileName(name: string): boolean {
-  return FILE_NAME.test(name) && name !== "." && name !== "..";
+/** A run file path relative to `files/`: `<stepId>/<name>` segments of `[A-Za-z0-9._-]`. */
+export function isFilePath(rel: string): boolean {
+  const parts = rel.split("/");
+  return parts.length >= 1 && parts.length <= 2 && parts.every((p) => SEGMENT.test(p) && p !== "." && p !== "..");
 }
 
 function runPath(id: string): string {
@@ -37,9 +39,9 @@ export function runFilesDir(id: string): string {
   return join(runsDir(), id, "files");
 }
 
-export function runFilePath(id: string, name: string): string {
-  if (!isFileName(name)) throw new Error(`Invalid file name: ${JSON.stringify(name)}`);
-  return join(runFilesDir(id), name);
+export function runFilePath(id: string, rel: string): string {
+  if (!isFilePath(rel)) throw new Error(`Invalid file path: ${JSON.stringify(rel)}`);
+  return join(runFilesDir(id), ...rel.split("/"));
 }
 
 async function writeAtomic(path: string, data: string | Uint8Array): Promise<void> {
@@ -93,17 +95,17 @@ export async function listRunIds(): Promise<string[]> {
   }
 }
 
-export async function writeRunFile(id: string, name: string, bytes: Uint8Array): Promise<string> {
-  await mkdir(runFilesDir(id), { recursive: true });
-  const path = runFilePath(id, name);
+export async function writeRunFile(id: string, rel: string, bytes: Uint8Array): Promise<string> {
+  const path = runFilePath(id, rel);
+  await mkdir(dirname(path), { recursive: true });
   await writeAtomic(path, bytes);
   return path;
 }
 
-export async function readRunFile(id: string, name: string): Promise<Uint8Array | null> {
-  if (!isRunId(id) || !isFileName(name)) return null;
+export async function readRunFile(id: string, rel: string): Promise<Uint8Array | null> {
+  if (!isRunId(id) || !isFilePath(rel)) return null;
   try {
-    return new Uint8Array(await readFile(runFilePath(id, name)));
+    return new Uint8Array(await readFile(runFilePath(id, rel)));
   } catch {
     return null;
   }

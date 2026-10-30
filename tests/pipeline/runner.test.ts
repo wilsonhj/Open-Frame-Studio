@@ -35,7 +35,10 @@ const fake = {
     return { ok: true, value: r as never };
   },
   async plan(request: unknown) {
-    const { photo } = request as { photo: { assetId: string } };
+    const { photo, planError } = request as { photo: { assetId: string }; planError?: string };
+    if (planError === "soul") throw Object.assign(new Error("Soul x not found."), { name: "SoulNotFoundError" });
+    if (planError === "field") throw Object.assign(new Error("bad mode"), { status: 400, field: "mode" });
+    if (planError === "other") throw new Error("boom");
     return [
       {
         id: "resize",
@@ -47,11 +50,29 @@ const fake = {
         status: "pending",
       },
       {
+        id: "rescale",
+        kind: "comfy",
+        workflow: "image_resize_smoke",
+        dependsOn: ["measure"],
+        inputs: { image: { fromStep: "measure", outputNode: "note.txt" }, scale: 2 },
+        timeoutMs: 20_000,
+        status: "pending",
+      },
+      {
+        id: "missing",
+        kind: "comfy",
+        workflow: "image_resize_smoke",
+        dependsOn: ["measure"],
+        inputs: { image: { fromStep: "measure", outputNode: "nope.png" } },
+        timeoutMs: 20_000,
+        status: "pending",
+      },
+      {
         id: "measure",
         kind: "code",
         workflow: "measure",
         dependsOn: ["resize"],
-        inputs: { source: { fromStep: "resize" } },
+        inputs: { source: { fromStep: "resize", outputNode: "image" } },
         timeoutMs: 10_000,
         status: "pending",
       },
@@ -64,7 +85,7 @@ const fake = {
     },
   },
   async buildResult(run: { steps: { data?: unknown }[] }) {
-    return { measured: run.steps[1].data } as never;
+    return { measured: run.steps.at(-1)!.data } as never;
   },
 } as unknown as AnyPipelineDefinition;
 
@@ -86,18 +107,24 @@ describe("pipeline runner", () => {
 
     const run = await store.loadRun(id);
     assert.ok(run);
-    assert.equal(run.status, "succeeded", JSON.stringify(run.steps.map((s) => [s.id, s.status, s.error])));
+    const by = Object.fromEntries(run.steps.map((s) => [s.id, s]));
+    const { resize, measure, rescale, missing } = by;
+    // `missing` (a leaf) failed, `rescale` (a leaf) succeeded: a deliverable exists.
+    assert.equal(run.status, "partial", JSON.stringify(run.steps.map((s) => [s.id, s.status, s.error])));
     assert.equal(run.progress, 1);
-    const [resize, measure] = run.steps;
+    assert.equal(rescale.status, "succeeded");
+    assert.equal(missing.status, "failed");
+    assert.equal(missing.error?.code, "input_missing");
     assert.equal(resize.kind, "comfy");
     assert.equal(resize.kind === "comfy" && resize.submission?.state, "accepted");
     assert.ok(resize.kind === "comfy" && resize.jobId);
-    assert.match(resize.outputs![0].url, new RegExp(`^/api/pipelines/soul/${id}/files/`));
+    assert.match(resize.outputs![0].url, new RegExp(`^/api/pipelines/soul/${id}/files/resize/0\\.png$`));
     assert.ok((measure.data as { size: number }).size > 0);
     assert.deepEqual(run.result, { measured: measure.data });
 
-    const name = decodeURIComponent(measure.outputs![0].url.split("/").pop()!);
-    const file = await store.readRunFile(id, name);
+    assert.equal(measure.outputs![0].id, "measure/note.txt");
+    assert.equal(measure.outputs![0].url, `/api/pipelines/soul/${id}/files/measure/note.txt`);
+    const file = await store.readRunFile(id, "measure/note.txt");
     assert.equal(new TextDecoder().decode(file!), "ok");
   });
 
@@ -109,6 +136,14 @@ describe("pipeline runner", () => {
     await runner.whenIdle(created.run.id);
     const run = await store.loadRun(created.run.id);
     assert.equal(run!.status, "failed");
-    assert.deepEqual(run!.steps.map((s) => s.status), ["failed", "skipped"]);
+    assert.deepEqual(run!.steps.map((s) => s.status), ["failed", "skipped", "skipped", "skipped"]);
+  });
+
+  it("maps plan() errors to 404 soulId / status+field / 500", async () => {
+    runner.registerDefinition(fake);
+    const photo = { assetId: "a" };
+    assert.deepEqual(await runner.createRun("soul", { photo, planError: "soul" }), { ok: false, status: 404, error: "Soul x not found.", field: "soulId" });
+    assert.deepEqual(await runner.createRun("soul", { photo, planError: "field" }), { ok: false, status: 400, error: "bad mode", field: "mode" });
+    assert.deepEqual(await runner.createRun("soul", { photo, planError: "other" }), { ok: false, status: 500, error: "boom" });
   });
 });
