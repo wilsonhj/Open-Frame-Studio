@@ -73,9 +73,44 @@ function writeStored(kind: PipelineKind, runId: string | null) {
   }
 }
 
+const ACCESS_CODE_KEY = "oss.accessCode";
+
+function storedAccessCode(): string | null {
+  try {
+    return sessionStorage.getItem(ACCESS_CODE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A billed request (start, actions). Sends the studio access code from this
+ * tab's session; on 401 `access_code_required` asks for it once and retries.
+ */
+async function sendBilled(url: string, init: RequestInit): Promise<Response> {
+  const send = (code: string | null) => {
+    const headers = new Headers(init.headers);
+    if (code) headers.set("X-Access-Code", code);
+    return fetch(url, { ...init, headers });
+  };
+  const response = await send(storedAccessCode());
+  if (response.status !== 401) return response;
+  const body = (await response.clone().json().catch(() => null)) as { code?: string } | null;
+  if (body?.code !== "access_code_required" || typeof window === "undefined") return response;
+  const code = window.prompt("Studio access code")?.trim();
+  if (!code) return response;
+  try {
+    sessionStorage.setItem(ACCESS_CODE_KEY, code);
+  } catch {
+    // storage blocked: use the code for this request only
+  }
+  return send(code);
+}
+
 async function errorMessage(response: Response): Promise<string> {
   try {
-    const body = (await response.json()) as { error?: { message?: string; code?: string } };
+    const body = (await response.json()) as { error?: string | { message?: string; code?: string } };
+    if (typeof body?.error === "string") return body.error;
     if (body?.error?.message) return body.error.message;
     if (body?.error?.code) return body.error.code;
   } catch {
@@ -166,7 +201,7 @@ export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions =
           body instanceof FormData
             ? { method: "POST", body }
             : { method: "POST", body: JSON.stringify(body), headers: { "Content-Type": "application/json" } };
-        const response = await fetch(base, init);
+        const response = await sendBilled(base, init);
         if (!response.ok) {
           setError(await errorMessage(response));
           return null;
@@ -189,7 +224,7 @@ export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions =
         return null;
       }
       try {
-        const response = await fetch(`${base}/${encodeURIComponent(runId)}/${path.replace(/^\/+/, "")}`, {
+        const response = await sendBilled(`${base}/${encodeURIComponent(runId)}/${path.replace(/^\/+/, "")}`, {
           method: "POST",
           headers: body === undefined ? undefined : { "Content-Type": "application/json" },
           body: body === undefined ? undefined : JSON.stringify(body),

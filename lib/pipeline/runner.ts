@@ -9,7 +9,7 @@ import type { Comfy } from "@comfyorg/sdk";
 import { applyBindings } from "../bindings/apply.ts";
 import { getBinding } from "../bindings/index.ts";
 import { prepareGraph } from "../bindings/prepare.ts";
-import { SubmitAmbiguousError, SubmitRejectedError, createClient, fetchOutput, loadGraph, pollJob, submitOnce } from "../comfy.ts";
+import { SubmitAmbiguousError, SubmitRejectedError, apiOrigin, createClient, fetchOutput, loadGraph, pollJob, requestCancel, submitOnce } from "../comfy.ts";
 import { listRunIds, loadRun, readRunFile, saveRun, writeRunFile } from "../store.ts";
 import type { CodePipelineStep, ComfyPipelineStep, GraphValue, ImageRef, JobErrorInfo, OutputRef, PipelineKind, PipelineRun, PipelineStep, StepInputRef } from "../types.ts";
 import { RUN_SCHEMA, SUBMIT_UNCONFIRMED, TERMINAL_STEP_STATUSES } from "../types.ts";
@@ -18,10 +18,27 @@ import type { ActionResult, AnyPipelineDefinition, ByteSource, PlanContext, RunI
 
 export type UploadPart = { bytes: Uint8Array; filename: string; contentType: string };
 type Def = AnyPipelineDefinition;
-type Runtime = { active: Map<string, Promise<void>>; overrides: Map<string, Def>; client?: Comfy; resumed?: boolean };
+/**
+ * `live` holds the one in-memory run object each active drive loop owns, so
+ * cancel and actions change the run being driven (not a detached disk copy);
+ * `aborts` stops that run's in-flight waits on cancel.
+ */
+type Runtime = {
+  active: Map<string, Promise<void>>;
+  live: Map<string, PipelineRun>;
+  aborts: Map<string, AbortController>;
+  /** Wakes an active loop that is waiting on in-flight steps (after a replan). */
+  wakers: Map<string, () => void>;
+  overrides: Map<string, Def>;
+  client?: Comfy;
+  resumed?: boolean;
+};
 
 const g = globalThis as typeof globalThis & { __ossRunner?: Runtime };
-const rt: Runtime = (g.__ossRunner ??= { active: new Map(), overrides: new Map() });
+const rt: Runtime = (g.__ossRunner ??= { active: new Map(), live: new Map(), aborts: new Map(), wakers: new Map(), overrides: new Map() });
+rt.live ??= new Map();
+rt.aborts ??= new Map();
+rt.wakers ??= new Map();
 const BAD = new Set(["failed", "timed_out", "needs_input", "canceled", "expired", "unknown"]);
 const UNCONFIRMED_MSG = "A job may have been created and billed; its id was lost. Not resubmitted. Use Regenerate.";
 
@@ -111,8 +128,12 @@ async function readBytes(run: PipelineRun, source: ByteSource | ImageRef): Promi
   }
   const asset = await client().assets.get(source.assetId);
   const { url } = await asset.getDownloadUrl();
+  // A self-hosted proxy may return a path-relative URL. The Comfy key goes to
+  // the configured API origin only, never to a signed object-storage URL.
+  const resolved = new URL(url, apiOrigin());
   const key = process.env.COMFY_API_KEY?.trim();
-  const res = await fetch(url, key ? { headers: { "X-API-Key": key, Authorization: `Bearer ${key}` } } : undefined);
+  const auth = key && resolved.origin === apiOrigin() ? { headers: { "X-API-Key": key, Authorization: `Bearer ${key}` } } : undefined;
+  const res = await fetch(resolved, auth);
   if (!res.ok) throw new Error(`Asset download failed with HTTP ${res.status}.`);
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -189,15 +210,38 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
 function schedule(def: Def, run: PipelineRun): Promise<void> {
   const existing = rt.active.get(run.id);
   if (existing) return existing;
+  const abort = new AbortController();
   const p = drive(def, run)
     .catch(async (e) => {
       run.status = "failed";
       run.error = errInfo("runner_error", e);
       await persist(run).catch(() => undefined);
     })
-    .finally(() => rt.active.delete(run.id));
+    .finally(() => {
+      rt.active.delete(run.id);
+      rt.live.delete(run.id);
+      rt.aborts.delete(run.id);
+      rt.wakers.delete(run.id);
+      // An action may have replanned steps after the loop's last pass.
+      if (!run.cancelRequested && run.steps.some((st) => st.status === "pending")) void schedule(def, run);
+    });
   rt.active.set(run.id, p);
+  rt.live.set(run.id, run);
+  rt.aborts.set(run.id, abort);
   return p;
+}
+
+const aborted = (signal: AbortSignal) =>
+  new Promise<void>((resolve) => (signal.aborted ? resolve() : signal.addEventListener("abort", () => resolve(), { once: true })));
+
+/** The run's cancel signal (aborted when a cancel reaches the live run). */
+function runSignal(run: PipelineRun): AbortSignal | undefined {
+  return rt.aborts.get(run.id)?.signal;
+}
+
+/** The in-memory run an active loop is driving, else the stored copy. */
+async function currentRun(id: string): Promise<PipelineRun | null> {
+  return rt.live.get(id) ?? (await loadRun(id));
 }
 
 /** Wait for a run's in-process loop (tests / shutdown). */
@@ -235,7 +279,9 @@ async function drive(def: Def, run: PipelineRun): Promise<void> {
       inflight.set(s.id, p);
     }
     if (inflight.size === 0) break;
-    await Promise.race(inflight.values());
+    const woken = new Promise<void>((resolve) => rt.wakers.set(run.id, resolve));
+    await Promise.race([...inflight.values(), woken, ...(runSignal(run) ? [aborted(runSignal(run)!)] : [])]);
+    rt.wakers.delete(run.id);
   }
   await Promise.allSettled(inflight.values());
   for (const s of run.steps) {
@@ -285,7 +331,8 @@ async function runCode(def: Def, run: PipelineRun, step: CodePipelineStep): Prom
   await persist(run);
   const handler = def.handlers[step.workflow] as ((ctx: unknown) => ReturnType<Def["handlers"][string]>) | undefined;
   if (!handler) return (finish(step, "failed", { code: "handler_missing", message: `No handler "${step.workflow}".` }), persist(run));
-  const signal = AbortSignal.timeout(remaining(step));
+  const cancel = runSignal(run);
+  const signal = cancel ? AbortSignal.any([AbortSignal.timeout(remaining(step)), cancel]) : AbortSignal.timeout(remaining(step));
   try {
     const result = await handler({ ...runIo(run, signal), run, step });
     const outputs: OutputRef[] = [];
@@ -298,7 +345,7 @@ async function runCode(def: Def, run: PipelineRun, step: CodePipelineStep): Prom
     if (result.data !== undefined) step.data = result.data;
     finish(step, result.status ?? "succeeded", result.error ?? null);
   } catch (e) {
-    finish(step, signal.aborted ? "timed_out" : "failed", errInfo("handler_error", e));
+    finish(step, run.cancelRequested ? "canceled" : signal.aborted ? "timed_out" : "failed", errInfo("handler_error", e));
   }
   await persist(run);
 }
@@ -343,6 +390,7 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
       return (finish(step, "failed", errInfo("input_missing", e)), persist(run));
     }
     const graph = applyBindings(prepareGraph(step.workflow, await loadGraph(step.workflow), values), binding, values);
+    if (run.cancelRequested) return (finish(step, "canceled"), persist(run));
     await startStep(run, step);
     step.submission = step.submission
       ? { ...step.submission, attempts: step.submission.attempts + 1 }
@@ -370,12 +418,27 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
       throw e;
     }
   }
-  const job = await pollJob(c, step.jobId!, {
-    timeoutMs: remaining(step),
-    onUpdate: (j) => {
-      if (j.status === "running" || j.status === "queued") step.status = j.status;
-    },
-  });
+  let job;
+  try {
+    job = await pollJob(c, step.jobId!, {
+      timeoutMs: remaining(step),
+      signal: runSignal(run),
+      onUpdate: (j) => {
+        if (j.status === "running" || j.status === "queued") step.status = j.status;
+      },
+    });
+  } catch (e) {
+    if (!run.cancelRequested) throw e;
+    // Ask Comfy to stop the job and record what it actually reports.
+    const cancel = await requestCancel(c, step.jobId!);
+    const message =
+      cancel.outcome === "canceled"
+        ? `Canceled; Comfy reports the job ${cancel.job?.status ?? "ended"}.`
+        : cancel.outcome === "cancel_requested"
+          ? `Cancel requested; Comfy still reports the job ${cancel.job?.status ?? "live"}, so it may finish and be billed.`
+          : `Cancel request failed (${cancel.error}); the job may still run and be billed.`;
+    return (finish(step, "canceled", { code: cancel.outcome, message }), persist(run));
+  }
   if (job.error?.code === "poll_timeout") return (finish(step, "timed_out", job.error), persist(run));
   if (job.status !== "succeeded") return (finish(step, job.status === "unknown" ? "failed" : job.status, job.error), persist(run));
   const outputs: OutputRef[] = [];
@@ -399,7 +462,7 @@ const RUN_DONE = new Set(["succeeded", "partial", "failed", "canceled"]);
 /** Load a run; a non-terminal run not driven by this process is resumed. */
 export async function getRun(id: string): Promise<PipelineRun | null> {
   void resumeRuns();
-  const run = await loadRun(id);
+  const run = await currentRun(id);
   if (run && !RUN_DONE.has(run.status) && !rt.active.has(id)) {
     const def = definitionFor(run.kind);
     if (def) void schedule(def, run);
@@ -434,29 +497,59 @@ export type ActionOutcome = Exclude<ActionResult, { type: "replan" }> | { type: 
 
 export async function runAction(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown): Promise<ActionOutcome> {
   const def = definitionFor(kind);
-  const run = await loadRun(runId);
+  const run = await currentRun(runId);
   if (!def || !run || run.kind !== kind) return { type: "error", status: 404, error: "Run not found." };
   if (method === "POST" && segments.join("/") === "cancel") {
+    if (RUN_DONE.has(run.status) && !rt.active.has(run.id)) return { type: "run", run };
+    // `run` is the live object when a loop drives it: the loop stops launching
+    // steps, and aborting wakes its in-flight waits, which cancel upstream.
     run.cancelRequested = true;
-    if (!rt.active.has(run.id)) schedule(def, run);
+    rt.aborts.get(run.id)?.abort(new Error("Run canceled."));
     await persist(run);
+    if (!rt.active.has(run.id)) void schedule(def, run);
     return { type: "run", run };
   }
   for (const action of Object.values(def.actions ?? {})) {
     const params = action.method === method ? matchPath(action.path, segments) : null;
     if (!params) continue;
-    if (rt.active.has(run.id)) await whenIdle(run.id).catch(() => undefined);
-    const fresh = (await loadRun(runId)) ?? run;
-    const ctx = { ...runIo(fresh, AbortSignal.timeout(300_000)), run: fresh, params, body, plan: planContext(fresh.id) };
+    // Validate against current state now (a running item gets its 409 at once);
+    // the handler sees a copy, and only its replan is merged into the live run.
+    const snapshot = structuredClone(run);
+    const ctx = { ...runIo(snapshot, AbortSignal.timeout(300_000)), run: snapshot, params, body, plan: planContext(run.id) };
     const result = await (action.run as (c: unknown) => Promise<ActionResult>)(ctx);
     if (result.type !== "replan") return result;
-    fresh.steps = result.steps;
-    fresh.status = "running";
-    fresh.result = null;
-    fresh.error = null;
-    await persist(fresh);
-    void schedule(def, fresh);
-    return { type: "run", run: fresh };
+    const target = (await currentRun(runId)) ?? run;
+    const conflict = mergeReplan(target, result.steps);
+    if (conflict) return { type: "error", status: 409, error: conflict };
+    target.status = "running";
+    target.cancelRequested = false;
+    target.result = null;
+    target.error = null;
+    await persist(target);
+    if (!rt.active.has(target.id)) void schedule(def, target);
+    else rt.wakers.get(target.id)?.();
+    return { type: "run", run: target };
   }
   return { type: "error", status: 404, error: "Unknown action." };
+}
+
+/**
+ * Merge a replanned step list into `run` by step id, synchronously (so no
+ * other write interleaves). Only steps reset to `pending` with no submission
+ * or job id are taken from the replan; every other step keeps its current
+ * state. Resetting a step that has started and is not terminal is refused.
+ */
+function mergeReplan(run: PipelineRun, steps: PipelineStep[]): string | null {
+  const current = new Map(run.steps.map((st) => [st.id, st]));
+  const merged: PipelineStep[] = [];
+  for (const next of steps) {
+    const cur = current.get(next.id);
+    const reset = next.status === "pending" && !next.jobId && !(next.kind === "comfy" && next.submission);
+    if (!cur) merged.push(next);
+    else if (!reset || cur.status === "pending") merged.push(cur);
+    else if (!isTerminal(cur)) return `Step "${next.id}" is still ${cur.status}.`;
+    else merged.push(next);
+  }
+  run.steps = merged;
+  return null;
 }
