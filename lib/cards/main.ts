@@ -4,9 +4,12 @@
  *
  * Port of spikes/cutout-upscale/marketplace_main.py.
  */
-import sharp from "sharp";
-
 import type { CropBox, MainImageCheck } from "../types.ts";
+
+/** sharp is imported lazily so loading the pipeline registry never pulls in libvips. */
+async function loadSharp() {
+  return (await import("sharp")).default;
+}
 
 export const MAIN_SIZE = 2000;
 export const MAIN_FILL = 0.85;
@@ -36,6 +39,7 @@ export type ComposeMainResult = {
 
 /** Measure an RGBA cutout: alpha bbox, real transparency, components, near-white share. */
 export async function analyzeCutout(cutoutPng: Uint8Array): Promise<CutoutStats> {
+  const sharp = await loadSharp();
   const { data, info } = await sharp(cutoutPng).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width, height, channels } = info;
   let minX = width;
@@ -106,6 +110,7 @@ function countComponents(data: Uint8Array, width: number, channels: number, bbox
 
 /** Trim to the alpha bbox, scale the longest side to 85% of 2000 px, centre on pure white. */
 export async function composeMain(cutoutPng: Uint8Array): Promise<ComposeMainResult> {
+  const sharp = await loadSharp();
   const cutout = await analyzeCutout(cutoutPng);
   const { bbox } = cutout;
   const scale = (MAIN_FILL * MAIN_SIZE) / Math.max(bbox.width, bbox.height);
@@ -137,6 +142,7 @@ const round = (v: number) => Math.round(v * 10_000) / 10_000;
 
 /** Run A1–A7 on the written main image (and the cutout it was composed from). */
 export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats): Promise<MainImageCheck[]> {
+  const sharp = await loadSharp();
   const meta = await sharp(mainPng).metadata();
   const { data, info } = await sharp(mainPng).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width, height, channels } = info;

@@ -16,11 +16,13 @@ import type {
   StepInputRef,
 } from "../types.ts";
 import { CARD_ASSETS, DEFAULT_STEP_TIMEOUT_MS } from "../types.ts";
+import { cutout as cutoutBinding } from "../bindings/cutout.ts";
 import { checkMain, composeMain, mainOk } from "./main.ts";
 
 const CUTOUT_STEP = "cutout";
 const COMPOSE_STEP = "compose_main";
-const CUTOUT_OUTPUT_NODE = "18";
+/** Logical output name (the runtime maps it to the graph node). */
+const CUTOUT_OUTPUT = "cutout";
 
 function isImageRef(v: unknown): v is ImageRef {
   if (!v || typeof v !== "object") return false;
@@ -40,6 +42,9 @@ function validate(raw: unknown): ValidateResult<CardsRequest> {
   if (r.productName !== undefined && typeof r.productName !== "string") {
     return { ok: false, error: "productName must be a string", field: "productName" };
   }
+  if (r.mainJobId !== undefined) {
+    return { ok: false, error: "mainJobId reuse is not supported yet", field: "mainJobId" };
+  }
   if (r.scope !== undefined && r.scope !== "main") {
     return { ok: false, error: "only scope \"main\" is available right now", field: "scope" };
   }
@@ -54,9 +59,14 @@ const composeMainHandler: CodeHandler<"cards"> = async (ctx) => {
   const bytes = await ctx.readBytes(source);
   const { png, cutout, placed } = await composeMain(bytes);
   const checks = await checkMain(png, cutout);
+  const ok = mainOk(checks);
+  const failed = checks.filter((c) => !c.ok && c.level === "error").map((c) => c.id);
+  // Compliance gates the run: a non-compliant main image fails this step (files and checks are kept for the UI).
   return {
+    status: ok ? "succeeded" : "failed",
+    error: ok ? null : { code: "main_not_compliant", message: `main image failed ${failed.join(", ")}` },
     files: [{ name: "main.png", contentType: "image/png", bytes: png }],
-    data: { checks, ok: mainOk(checks), cutoutBbox: cutout.bbox, placed } as unknown as JsonValue,
+    data: { checks, ok, cutoutBbox: cutout.bbox, placed } as unknown as JsonValue,
   };
 };
 
@@ -83,7 +93,7 @@ export const cardsPipeline: PipelineDefinition<"cards"> = {
         kind: "code",
         workflow: COMPOSE_STEP,
         dependsOn: [CUTOUT_STEP],
-        inputs: { cutout: { fromStep: CUTOUT_STEP, outputNode: CUTOUT_OUTPUT_NODE } },
+        inputs: { cutout: { fromStep: CUTOUT_STEP, outputNode: CUTOUT_OUTPUT } },
         timeoutMs: 60_000,
         status: "pending",
       },
@@ -97,10 +107,10 @@ export const cardsPipeline: PipelineDefinition<"cards"> = {
     const data = composeStep?.data as ComposeData | undefined;
     const compositeUrl = composeStep?.outputs?.[0]?.url ?? null;
     const cutoutOut =
-      cutoutStep?.outputs?.find((o) => o.nodeId === CUTOUT_OUTPUT_NODE) ?? cutoutStep?.outputs?.[0] ?? null;
+      cutoutStep?.outputs?.find((o) => o.nodeId === cutoutBinding.outputs.cutout) ?? cutoutStep?.outputs?.[0] ?? null;
 
     const main: MainImageResult | null =
-      composeStep?.status === "succeeded" && data && compositeUrl
+      data && compositeUrl
         ? {
             jobId: cutoutStep?.jobId ?? run.id,
             compositeUrl,

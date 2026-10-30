@@ -32,6 +32,8 @@ describe("cardsPipeline", () => {
     assert.ok(!bad.ok && bad.field === "productImages[0]");
     const good = cardsPipeline.validate({ productImages: [{ upload: "product" }], productName: " Serum " });
     assert.ok(good.ok && good.value.productName === "Serum" && good.value.scope === "main");
+    const reuse = cardsPipeline.validate({ productImages: [{ assetId: "a" }], mainJobId: "run_0" });
+    assert.ok(!reuse.ok && reuse.field === "mainJobId");
   });
 
   it("plans cutout -> compose_main and builds a main result", async () => {
@@ -66,13 +68,14 @@ describe("cardsPipeline", () => {
       run,
       step: compose,
       readBytes: async (src) => {
-        assert.deepEqual(src, { fromStep: "cutout", outputNode: "18" });
+        assert.deepEqual(src, { fromStep: "cutout", outputNode: "cutout" });
         return bytes;
       },
       uploadAsset: async () => "unused",
       signal: new AbortController().signal,
     });
     assert.equal(out.files?.[0].name, "main.png");
+    assert.equal(out.status, "succeeded");
 
     steps[0] = { ...steps[0], status: "succeeded", jobId: "job_1" } as typeof steps[0];
     steps[1] = {
