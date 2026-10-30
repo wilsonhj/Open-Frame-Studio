@@ -1,6 +1,6 @@
 import { AccessError, accessErrorResponse, readJobHandle } from "../../../../lib/access.ts";
 import { getBinding } from "../../../../lib/bindings/index.ts";
-import { ComfyNotConfiguredError, createClient, getJob, overdueJob } from "../../../../lib/comfy.ts";
+import { ComfyNotConfiguredError, createClient, deadlineCanceledJob, getJob, overdueJob } from "../../../../lib/comfy.ts";
 import {
   clearMissing,
   confirmMissing,
@@ -35,22 +35,27 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     void sweepJobs(); // opportunistic: also covers hosts where the interval can't run
     const options = { publicId: id, outputNodes: Object.values(binding.outputs) };
     let job = await getJob(client, handle.jobId, undefined, options);
+    // The deadline saved at submit wins, so a later JOB_DEADLINE_MS change
+    // doesn't move it; the handle's submit time is the fallback when no
+    // record could be saved (or the sweep already dropped it). One read,
+    // shared by the calls below.
+    const record = await readRecord(handle.jobId);
+    const saved = Number.isFinite(record?.deadlineAt) && Number.isFinite(record?.submittedAt) ? record : null;
+    const budget = saved ? saved.deadlineAt - saved.submittedAt : jobBudgetMs();
+    const deadlineAt = saved ? saved.deadlineAt : handle.submittedAt + budget;
     if (job.terminal) {
       // Also ends any run of 404s.
       await forgetJob(handle.jobId).catch(() => undefined);
     } else {
-      // The deadline saved at submit wins, so a later JOB_DEADLINE_MS change
-      // doesn't move it; the handle's submit time is the fallback when no
-      // record could be saved. One read, shared by the calls below.
-      const record = await readRecord(handle.jobId);
       await clearMissing(handle.jobId, record);
-      const saved = Number.isFinite(record?.deadlineAt) && Number.isFinite(record?.submittedAt) ? record : null;
-      const budget = saved ? saved.deadlineAt - saved.submittedAt : jobBudgetMs();
-      const deadlineAt = saved ? saved.deadlineAt : handle.submittedAt + budget;
       const outcome = await enforceDeadline(client, handle.jobId, deadlineAt, Date.now(), record);
       if (outcome === "canceled") job = await getJob(client, handle.jobId, undefined, options);
       else if (outcome !== null) job = overdueJob(job, outcome, budget);
     }
+    // Nothing in the app cancels an /api/jobs job but its deadline (here or in
+    // the sweep, which then drops the record), so a canceled job past its
+    // deadline was stopped by it.
+    if (job.status === "canceled" && Date.now() > deadlineAt) job = deadlineCanceledJob(job, budget);
     return Response.json(job, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof AccessError) return accessErrorResponse(error);
