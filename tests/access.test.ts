@@ -127,3 +127,51 @@ describe("submit gate", () => {
     expectAccess(() => assertMaySubmit(request(), null), 429, "rate_limited");
   });
 });
+
+describe("failed access codes", () => {
+  const from = (ip: string) => request({ "x-forwarded-for": ip });
+
+  beforeEach(() => {
+    env.STUDIO_ACCESS_CODE = "open-sesame";
+    env.TRUSTED_PROXY_HOPS = "1";
+  });
+
+  it("locks out a client after 10 wrong codes, even for the right code, with Retry-After", () => {
+    for (let i = 0; i < 10; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
+    for (let i = 0; i < 1_000; i += 1) {
+      expectAccess(() => assertMaySubmit(from("1.2.3.4"), `guess-${i}`), 429, "too_many_attempts");
+    }
+    assert.throws(
+      () => assertMaySubmit(from("1.2.3.4"), "open-sesame"),
+      (error: unknown) => error instanceof AccessError && error.status === 429 && error.retryAfterSeconds! > 0,
+    );
+    assertMaySubmit(from("5.6.7.8"), "open-sesame"); // other clients are unaffected
+  });
+
+  it("a right code clears that client's earlier failures; a missing code isn't counted", () => {
+    for (let i = 0; i < 9; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
+    for (let i = 0; i < 50; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), null), 401, "access_code_required");
+    assertMaySubmit(from("1.2.3.4"), "open-sesame");
+    for (let i = 0; i < 10; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
+    expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 429, "too_many_attempts");
+  });
+
+  it("caps guessing spread across addresses (and without trusted proxies) globally", () => {
+    delete env.TRUSTED_PROXY_HOPS;
+    for (let i = 0; i < 200; i += 1) expectAccess(() => assertMaySubmit(from(`10.0.${i >> 8}.${i & 255}`), "wrong"), 401, "access_code_required");
+    expectAccess(() => assertMaySubmit(from("10.9.9.9"), "wrong"), 429, "too_many_attempts");
+  });
+
+  it("concurrent wrong submits can't all slip past the check before failures are recorded", async () => {
+    const { POST } = await import("../app/api/jobs/route.ts");
+    const submit = () => {
+      const body = new FormData();
+      body.set("workflow", "image_resize_smoke");
+      body.set("access_code", "wrong");
+      return POST(new Request("http://localhost/api/jobs", { method: "POST", body, headers: { "x-forwarded-for": "1.2.3.4" } }));
+    };
+    const statuses = (await Promise.all(Array.from({ length: 50 }, submit))).map((response) => response.status);
+    assert.equal(statuses.filter((status) => status === 401).length, 10);
+    assert.equal(statuses.filter((status) => status === 429).length, 40);
+  });
+});
