@@ -4,7 +4,9 @@ Open Frame Studio is an open-weights creative studio built on the ComfyUI infere
 
 You upload 5–20 photos of a person once and get an **identity**: a curated reference set (the best 3–6 crops after photo checks) plus a style card, saved as a portable `identity.json` bundle you download and keep. You can then put that identity and your product into a **product shoot** (ten shoot modes, from clean packshots to on-model and ad sets), build **listing images** (a compliant white-background hero image plus gallery and story panels anchored on it), and turn the result into a short **motion** clip. Every model in the pipeline is open weights (FLUX.2 Klein 4B, BiRefNet, SeedVR2, and MiniMax H3, whose weights are released under a conditional [Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE): check its terms before self-hosting or redistributing), and every workflow is a plain ComfyUI graph you can open and change. Self-hosted execution is supported by the client but not yet demonstrated end to end. A complete model inventory (revisions, licences, hashes) is still to come.
 
-> Status: Wave 0 scaffold. The app shell, the Comfy client wrapper, the generic job API and an offline mock are in place. The tool pages are placeholders.
+> **Status: foundations done, tools not built yet.** In place and tested offline against a mock: the app shell, the Comfy client wrapper, six registered workflow graphs with bindings, the single-job API (`/api/jobs`) with access control and server-enforced deadlines, and the `/smoke` check. `/identity` has the intake form (name, likeness consent, 5–20 photos) but does not create an identity yet. `/photoshoot`, `/listing` and `/motion` are placeholders. The multi-step pipeline runtime and the Product Shoot and Listing Images flows are in the open [PR #7](https://github.com/wilsonhj/Open-Soul-Studio/pull/7), mock-verified only.
+>
+> No workflow has run on Comfy Cloud yet: the key used so far is on a free tier, which refuses job submission (403). See [docs/spikes/](docs/spikes/).
 
 ## Quickstart
 
@@ -35,7 +37,10 @@ COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev     # terminal 2, then open /smoke
 | `pnpm lint` | ESLint (`eslint-config-next`) |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` | `node --test` unit tests against `tests/mock-comfy` (no network, no credits) |
+| `pnpm test:e2e` | Playwright specs in `tests/e2e`: starts the mock Comfy server (port 8190) and the app (port 3210) itself and never touches Comfy Cloud. Needs a Chromium: Playwright's own, or set `E2E_CHROMIUM_PATH`. Not run in CI. |
 | `pnpm mock-comfy` | Standalone mock Comfy API v2 server |
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, `pnpm test` and build on every push to `main` and every pull request, with `COMFY_API_KEY` blank so nothing can reach the real API.
 
 ## What we built, and what inspired it
 
@@ -64,9 +69,15 @@ lib/job-status.ts                           one-line status copy from what the s
 lib/contracts/*.ts                          contracts by domain: job, pipeline, bindings, identity, photoshoot, listing, motion
 lib/types.ts                                barrel re-exporting lib/contracts/*
 lib/job-deadlines.ts                        persisted /api/jobs deadlines + reconciler (started by instrumentation.ts)
-workflows/*.api.json                        API-format graphs (subgraphs unpacked)
-tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / failed / unknown-forever / expired / 422 reuse)
+lib/job-recovery.ts                         browser-side resume of unfinished jobs across reloads and tabs
+lib/identity/consent.ts                     likeness-consent statement and the server-side check
+workflows/*.api.json                        API-format graphs (subgraphs unpacked): smoke, klein_edit_multiref, klein_t2i, cutout, upscale, h3_r2v
+tests/mock-comfy/server.ts                  mock Comfy API v2 with scripted scenarios (succeeded, failed, unknown_forever, expired, reject_idempotency, multi_output, slow_progress, queued_20s, asset_missing, drop_after_create)
+tests/e2e/                                  Playwright specs that drive the app against the mock
+spikes/                                     Wave 0 spike scripts and graphs: frozen records, not served by the app
 ```
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) walks through the request flow, the binding contract, error mapping, deadlines and the mock server.
 
 `lib/comfy.ts` handles the known SDK and API traps:
 
@@ -81,6 +92,18 @@ tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / faile
 - Job status shows only what the server reports: queue position, the running node and its sampler step, and the reported fraction. Nothing is estimated in the browser.
 - Generation seeds are random on every run unless the form sends one; `/api/jobs` returns the seed it used, so the page can lock it to reproduce a result.
 - Uploads must start with the format signature of their declared PNG, JPEG or WebP type before any asset is created on Comfy. This catches mislabelled files; it doesn't prove an image decodes.
+
+## Documentation
+
+| Doc | What it covers |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the code works today, plus what the open PR #7 changes |
+| [workflows/README.md](workflows/README.md) | The six registered graphs, their bound inputs and outputs, and how to add one |
+| [docs/spec/](docs/spec/) | Behavioural specs: [API](docs/spec/api.md), [identity](docs/spec/identity.md), [photoshoot](docs/spec/photoshoot.md), [listing](docs/spec/listing.md), [UX](docs/spec/ux.md) |
+| [docs/eval/identity.md](docs/eval/identity.md) | The identity-preservation acceptance gate |
+| [docs/PLAN.md](docs/PLAN.md) | Build plan; the updates at the top supersede the body where they differ |
+| [docs/spikes/](docs/spikes/) | Wave 0 feasibility results: LoRA training, Klein multi-reference, H3 reference-to-video, cutout and upscale |
+| [docs/RESEARCH.md](docs/RESEARCH.md), [docs/UX-PATTERNS.md](docs/UX-PATTERNS.md) | Research index and the UX pattern teardown |
 
 ## Licence and NOTICE
 
