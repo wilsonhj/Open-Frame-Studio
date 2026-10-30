@@ -8,6 +8,7 @@ Background research for [PLAN.md](PLAN.md), collected Oct 28–29, 2026.
 
 ## Supplemental research (shared Oct 28–29)
 
+- [Open-model product direction and Higgsfield UX research](research/open-model-product-direction-2026-10-29.md) — engineer-guidance alignment, model/component license audit, selected UX patterns, reproducibility evidence, and proposed release gates (October 29, 2026).
 - [Higgsfield and ComfyUI: Research Report](research/higgsfield-comfyui-research.md) — platform comparison, how each works, GitHub popularity snapshot.
 - [Higgsfield and ComfyUI: Repository Research and Reconstruction Guide](research/higgsfield-comfyui-repository-research.md) — 101-repo inventory (higgsfield-ai and Comfy-Org), Comfy reference apps, reconstruction method.
 
