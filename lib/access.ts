@@ -177,7 +177,7 @@ function expandIpv6(address: string): string[] | null {
  */
 export function takeSubmitSlots(request: Request, count: number): () => void {
   if (count <= 0) return () => {};
-  return takeRateLimit(clientIp(request), Date.now(), count);
+  return takeRateLimit(limitKey(clientIp(request)), Date.now(), count);
 }
 
 /**

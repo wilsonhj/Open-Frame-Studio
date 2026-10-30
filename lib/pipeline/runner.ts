@@ -763,7 +763,7 @@ function matchPath(pattern: string, segments: string[]): Record<string, string> 
 
 export type ActionOutcome =
   | Exclude<ActionResult, { type: "replan" }>
-  | { type: "run"; run: PipelineRun }
+  | { type: "run"; run: PipelineRun; releaseSlot?: boolean }
   | { type: "error"; status: 405; error: string }
   | { type: "error"; status: 429; error: string; code: string; retryAfterSeconds: number | null };
 
@@ -809,10 +809,12 @@ async function actionLocked(kind: PipelineKind | string, runId: string, method: 
     if (method === "GET") return { type: "error", status: 405, error: "A GET action cannot start new work." };
     const target = (await currentRun(runId)) ?? run;
     // One submit slot per Comfy job the replan resets, taken before the merge.
+    // Zero jobs: the route already took a slot for this POST. Give it back.
+    const jobs = billedJobs(result.steps, target.steps);
     let refundJobs = () => {};
     if (charge) {
       try {
-        refundJobs = charge(billedJobs(result.steps, target.steps));
+        refundJobs = charge(jobs);
       } catch (e) {
         const refused = chargeRefusal(e);
         if (!refused) throw e;
@@ -831,7 +833,7 @@ async function actionLocked(kind: PipelineKind | string, runId: string, method: 
     await persist(target);
     if (!rt.active.has(target.id)) void schedule(def, target);
     else rt.wakers.get(target.id)?.();
-    return { type: "run", run: target };
+    return { type: "run", run: target, releaseSlot: jobs === 0 };
   }
   return { type: "error", status: 404, error: "Unknown action." };
 }

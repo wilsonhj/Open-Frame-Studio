@@ -183,18 +183,25 @@ function writeJson(path, value) {
 
 /** The job runOne is waiting on, for the signal handler: { client, record, recordPath }. */
 let inFlight = null;
+/** Set synchronously on the first SIGINT/SIGTERM so the plan loop stops before the next billed job. */
+let stopPass = false;
+
+const SETTLED_JOB = new Set(["succeeded", "failed", "canceled", "expired"]);
 
 /**
  * SIGINT/SIGTERM handler for a live pass: cancel the in-flight job (if it has
- * an id), record that in run.json and exit non-zero. Dependencies are injected
- * so the logic is testable without a network or a real signal.
+ * an id), record that in run.json and exit non-zero. A second signal exits
+ * immediately; the first one also raises stopPass before awaiting cancel, so
+ * the plan loop does not submit the next workflow while cancel is in flight.
+ * Dependencies are injected so the logic is testable without a network or a real signal.
  */
 export function makeSignalHandler({ getInFlight, cancel, write = writeJson, exit = (code) => process.exit(code), log = console.error }) {
   let handling = false;
   return async (signal) => {
-    if (handling) return; // a second Ctrl-C while the cancel is in flight
-    handling = true;
     const code = signal === "SIGINT" ? 130 : 143;
+    if (handling) return exit(code);
+    handling = true;
+    stopPass = true;
     const current = getInFlight();
     if (!current) {
       log(`golden-run: ${signal}; no job in flight`);
@@ -285,7 +292,9 @@ async function submitAndCollect({ comfy, client, entry, binding, graph, record, 
   });
   const t1 = Date.now();
   record.status = job.status;
-  record.terminal = job.terminal;
+  // pollJob sets terminal on poll_timeout even when the job is still live
+  // (cancel requested or cancel failed). Only a settled status is finished.
+  record.terminal = SETTLED_JOB.has(job.status);
   record.error = job.error;
   record.timing = {
     wallMs: t1 - t0,
@@ -359,10 +368,17 @@ async function main() {
   const before = args.balance ? await readBalance() : null;
   const results = [];
   const comfy = await import("../lib/comfy.ts");
+  stopPass = false;
   const onSignal = makeSignalHandler({ getInFlight: () => inFlight, cancel: (jobId, { client }) => comfy.requestCancel(client, jobId) });
   for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, onSignal);
   try {
-    for (const entry of plan) results.push(await runOne(entry, { outDir }));
+    for (const entry of plan) {
+      if (stopPass) break;
+      const result = await runOne(entry, { outDir });
+      results.push(result);
+      // A timed-out job that is still live must not be followed by another billed submit.
+      if (stopPass || (result.error?.code === "poll_timeout" && result.terminal === false)) break;
+    }
   } finally {
     for (const signal of ["SIGINT", "SIGTERM"]) process.off(signal, onSignal);
     await mock?.close();
