@@ -194,10 +194,11 @@ describe("pipeline runner", () => {
     assert.equal(run.status, "succeeded");
   });
 
-  it("a Listing run whose only other tiles need copy ends partial: the hero is a deliverable", async () => {
-    // The mock echoes its input, so this transparent cross is the cutout.
+  // The mock echoes its input, so this cross is the cutout; `opaque` fills the rest of
+  // the canvas, which the main-image compliance check rejects as an un-cut photo.
+  async function runListing(opaque: boolean) {
     const w = 600;
-    const px = Buffer.alloc(w * w * 4);
+    const px = Buffer.alloc(w * w * 4, opaque ? 255 : 0);
     for (let y = 50; y < 550; y++) for (let x = 200; x < 400; x++) px.set([30, 90, 160, 255], (y * w + x) * 4);
     for (let y = 250; y < 350; y++) for (let x = 20; x < 580; x++) px.set([30, 90, 160, 255], (y * w + x) * 4);
     const png = new Uint8Array(await sharp(px, { raw: { width: w, height: w, channels: 4 } }).png().toBuffer());
@@ -205,7 +206,11 @@ describe("pipeline runner", () => {
     const created = await runner.createRun("listing", { assets: ["gallery_callouts", "gallery_contents"], productImages: [{ upload: "product" }] }, uploads);
     assert.ok(created.ok);
     await runner.whenIdle(created.run.id);
-    const run = (await store.loadRun(created.run.id))!;
+    return (await store.loadRun(created.run.id))!;
+  }
+
+  it("a Listing run whose only other tiles need copy ends partial: the hero is a deliverable", async () => {
+    const run = await runListing(false);
     assert.deepEqual(
       run.steps.map((s) => [s.id, s.status]),
       [
@@ -216,5 +221,20 @@ describe("pipeline runner", () => {
       ],
     );
     assert.equal(run.status, "partial");
+  });
+
+  it("a Listing run whose main image fails compliance still ends failed, copy gaps or not", async () => {
+    const run = await runListing(true);
+    assert.deepEqual(
+      run.steps.map((s) => [s.id, s.status]),
+      [
+        ["cutout", "succeeded"],
+        ["compose_main", "failed"],
+        ["gallery_callouts", "skipped"],
+        ["gallery_contents", "skipped"],
+      ],
+    );
+    assert.equal(run.steps[1].error?.code, "main_not_compliant");
+    assert.equal(run.status, "failed");
   });
 });
