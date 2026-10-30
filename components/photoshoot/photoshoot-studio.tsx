@@ -135,7 +135,7 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
           <span className="text-foreground">{run ? `Run ${run.id.slice(-4)}` : "Contact sheet"}</span>
           <span>{sheetMode.label}</span>
           <span>{aspect}</span>
-          <span>{sheet ? `${sheet.shots.length} frames` : "—"}</span>
+          <span>{sheet ? `${sheet.shots.length} ${sheet.shots.length === 1 ? "frame" : "frames"}` : "—"}</span>
           {sheetMode.sharedStyle ? <span title="one look across all slides">🔒 style lock</span> : null}
           {run ? <span className="ml-auto normal-case tracking-normal">{run.status}{polling ? " · live" : ""}</span> : null}
         </header>
@@ -277,7 +277,7 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
         </Field>
 
         <p className="font-mono text-[11px] text-muted">
-          {count + 1} jobs · cutout + {count} × {template.defaultAspect} frames
+          {count + 1} jobs · cutout + {count} × {template.defaultAspect} {count === 1 ? "frame" : "frames"}
         </p>
 
         {localError || error ? (
