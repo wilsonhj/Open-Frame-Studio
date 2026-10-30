@@ -3,8 +3,9 @@
  * definition's per-run actions (lib/pipeline/types.ts ActionHandler).
  */
 
+import { AccessError, accessErrorResponse } from "../../../../../../lib/access.ts";
 import { isPipelineKind } from "../../../../../../lib/pipeline/kinds.ts";
-import { gateSubmit, gateWrite } from "../../../../../../lib/pipeline/gate.ts";
+import { gateSubmit, gateWrite, jobCharge } from "../../../../../../lib/pipeline/gate.ts";
 import { runAction } from "../../../../../../lib/pipeline/runner.ts";
 
 export const runtime = "nodejs";
@@ -19,6 +20,7 @@ async function handle(method: "GET" | "POST", request: Request, { params }: Ctx)
   // Cancel needs the access code; every other POST action (retry, regenerate)
   // can bill a job, so it also takes a rate-limit slot. GETs (export) are reads.
   let refund = () => {};
+  let charge: ReturnType<typeof jobCharge> | undefined;
   if (method === "POST" && action.join("/") === "cancel") {
     const denied = gateWrite(request);
     if (denied) return denied;
@@ -26,6 +28,7 @@ async function handle(method: "GET" | "POST", request: Request, { params }: Ctx)
     const gate = gateSubmit(request);
     if (gate instanceof Response) return gate;
     refund = gate.refund;
+    charge = jobCharge(request); // one more slot per Comfy job past the first
   }
   let body: unknown = null;
   if (method === "POST") {
@@ -38,10 +41,13 @@ async function handle(method: "GET" | "POST", request: Request, { params }: Ctx)
     }
   }
   try {
-    const outcome = await runAction(kind, runId, method, action, body);
+    const outcome = await runAction(kind, runId, method, action, body, charge);
     if (outcome.type === "response") return outcome.response;
     if (outcome.type === "error") {
-      refund(); // refused (404, 409, ...): nothing was replanned
+      refund(); // refused (404, 409, 429, ...): nothing was replanned
+      if (outcome.status === 429 && "code" in outcome) {
+        return accessErrorResponse(new AccessError(429, outcome.code, outcome.error, outcome.retryAfterSeconds));
+      }
       return Response.json({ error: outcome.error }, { status: outcome.status });
     }
     return Response.json(outcome.run, { status: action.join("/") === "cancel" ? 200 : 202, headers: { "Cache-Control": "no-store" } });
