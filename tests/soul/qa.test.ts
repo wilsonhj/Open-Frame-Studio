@@ -53,6 +53,14 @@ describe("per-photo checks", () => {
     assert.equal((await checkPhoto(await noisePhoto(1200, 1500, { blur: 12 }), 0, { detect: oneFace })).reason, "blurry");
   });
 
+  it("measures a sharp face smaller than 512 px at its own size instead of upscaling it into a blur reject", async () => {
+    // A 1024 px head-and-shoulders photo: the face is about 330 px wide.
+    const face = fakeDetector((w, h) => [faceAt(w, h, 0.34, 0.2, 0.32)]);
+    const r = await checkPhoto(await noisePhoto(1024, 1024, { blur: 1.2 }), 0, { detect: face });
+    assert.ok(isCandidate(r), `expected a pass, got ${r.reason}`);
+    assert.equal((await checkPhoto(await noisePhoto(1024, 1024, { blur: 12 }), 0, { detect: face })).reason, "blurry");
+  });
+
   it("ignores small background faces but warns and keeps them out of the crop", async () => {
     const withBackground = fakeDetector((w, h) => [faceAt(w, h, 0.3, 0.25, 0.3), faceAt(w, h, 0.85, 0.1, 0.06, 0, 0.8)]);
     const r = await checkPhoto(await noisePhoto(), 0, { detect: withBackground });
