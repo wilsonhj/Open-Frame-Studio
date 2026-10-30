@@ -23,6 +23,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Every new commit must use a GitHub noreply email (CLAUDE.md).
+      - run: node scripts/check-commit-identity.mjs
       # Slice branches (w2/<slice>...) may only touch their own paths (docs/OWNERS.md).
       # Skipped (exit 0) when the branch names no slice.
       - run: pnpm check:owners
