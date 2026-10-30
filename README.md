@@ -133,4 +133,4 @@ MIT. See [LICENSE](./LICENSE).
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-This is an independent, clean-room project. It contains no code from `higgsfield-ai/app-templates`, does not bypass any Higgsfield authentication or billing, and does not use Higgsfield's product names, identifiers or assets in its UI. "Higgsfield" appears only to name the challenge and the products that inspired it. The repository slug `open-soul-studio` predates the rename.
+This is an independent, clean-room project.
