@@ -402,16 +402,29 @@ describe("outputs: filtering, safe headers, relative URLs", () => {
   });
 });
 
+const QUOTA_ENV = ["STUDIO_ACCESS_CODE", "TRUSTED_PROXY_HOPS", "SUBMITS_PER_HOUR_PER_IP", "SUBMITS_PER_HOUR"];
+
 describe("POST /api/jobs", () => {
-  async function post(fields: Record<string, string | File>) {
+  beforeEach(async () => {
+    for (const name of QUOTA_ENV) delete process.env[name];
+    (await import("../lib/access.ts")).resetRateLimits();
+  });
+  after(() => {
+    for (const name of QUOTA_ENV) delete process.env[name];
+  });
+
+  type Posted = { status: number; job: import("../lib/types.ts").SubmittedJob & { code?: string } };
+
+  async function post(fields: Record<string, string | File>, options: { dataDir?: string } = {}): Promise<Posted> {
     const dataDir = await mkdtemp(join(tmpdir(), "oss-jobs-"));
-    process.env.DATA_DIR = dataDir;
+    process.env.DATA_DIR = options.dataDir ?? dataDir;
     try {
       const { POST } = await import("../app/api/jobs/route.ts");
       const body = new FormData();
       for (const [name, value] of Object.entries(fields)) body.set(name, value);
-      const response = await POST(new Request("http://127.0.0.1/api/jobs", { method: "POST", body }));
-      return { status: response.status, job: (await response.json()) as import("../lib/types.ts").SubmittedJob };
+      const headers = { "x-forwarded-for": "203.0.113.7" };
+      const response = await POST(new Request("http://127.0.0.1/api/jobs", { method: "POST", body, headers }));
+      return { status: response.status, job: (await response.json()) as Posted["job"] };
     } finally {
       delete process.env.DATA_DIR;
       await rm(dataDir, { recursive: true, force: true });
@@ -445,6 +458,60 @@ describe("POST /api/jobs", () => {
     }
   });
 
+  const smoke = (extra: Record<string, string> = {}) => ({
+    workflow: "image_resize_smoke",
+    image: new File([new Uint8Array(PNG_1X1)], "in.png", { type: "image/png" }),
+    ...extra,
+  });
+
+  it("rejects a mislabelled upload (JPEG bytes sent as image/png) before any upload or job", async () => {
+    const jpeg = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0x10])], "in.png", { type: "image/png" });
+    const { status, job } = await post({ workflow: "image_resize_smoke", image: jpeg });
+    assert.equal(status, 400);
+    assert.match(String((job as unknown as { error: string }).error), /does not start like a PNG/);
+    assert.equal(mock.state.assetPosts, 0);
+    assert.equal(mock.state.jobPosts.length, 0);
+  });
+
+  it("wrong access codes don't consume the paid quota", async () => {
+    Object.assign(process.env, { STUDIO_ACCESS_CODE: "open-sesame", TRUSTED_PROXY_HOPS: "1", SUBMITS_PER_HOUR_PER_IP: "1" });
+    for (let i = 0; i < 5; i += 1) assert.equal((await post(smoke({ access_code: "wrong" }))).status, 401);
+    assert.equal((await post(smoke({ access_code: "open-sesame" }))).status, 202, "the one slot is still there");
+    const next = await post(smoke({ access_code: "open-sesame" }));
+    assert.equal(next.status, 429);
+    assert.equal(next.job.code, "rate_limited");
+    assert.equal(mock.state.jobPosts.length, 1);
+  });
+
+  it("a definitively rejected submit refunds its slot", async () => {
+    Object.assign(process.env, { TRUSTED_PROXY_HOPS: "1", SUBMITS_PER_HOUR_PER_IP: "1" });
+    mock.setScenario("reject_idempotency");
+    assert.equal((await post(smoke())).status, 422);
+    mock.setScenario("succeeded");
+    assert.equal((await post(smoke())).status, 202, "refunded slot");
+  });
+
+  it("an ambiguous submit keeps its slot and is never resubmitted", async () => {
+    Object.assign(process.env, { TRUSTED_PROXY_HOPS: "1", SUBMITS_PER_HOUR_PER_IP: "1" });
+    mock.setScenario("drop_after_create");
+    const first = await post(smoke());
+    assert.equal(first.status, 502);
+    assert.equal(first.job.code, "submit_ambiguous");
+    assert.equal(mock.state.jobPosts.length, 1, "no automatic re-send");
+    mock.setScenario("succeeded");
+    assert.equal((await post(smoke())).status, 429, "slot kept: a job may exist");
+    assert.equal(mock.state.jobPosts.length, 1);
+  });
+
+  it("a deadline record that can't be saved still returns the handle (the job is billed)", async () => {
+    const blocker = join(await mkdtemp(join(tmpdir(), "oss-blocked-")), "not-a-dir");
+    await import("node:fs/promises").then((fs) => fs.writeFile(blocker, "x"));
+    const { status, job } = await post(smoke(), { dataDir: blocker });
+    assert.equal(status, 202);
+    const { readJobHandle } = await import("../lib/access.ts");
+    assert.equal(readJobHandle(job.id).jobId, mock.state.jobPosts[0].jobId);
+  });
+
   it("polling never regenerates or re-reports seeds", async () => {
     const { job } = await post({ workflow: "klein_t2i", prompt: "a lamp" });
     const posts = mock.state.jobPosts.length;
@@ -455,6 +522,59 @@ describe("POST /api/jobs", () => {
       assert.equal("seeds" in (await response.json()), false);
     }
     assert.equal(mock.state.jobPosts.length, posts, "no resubmit");
+  });
+});
+
+describe("GET /api/jobs/:handle", () => {
+  async function poll(handle: string) {
+    const { GET } = await import("../app/api/jobs/[id]/route.ts");
+    const response = await GET(new Request(`http://127.0.0.1/api/jobs/${handle}`), { params: Promise.resolve({ id: handle }) });
+    return { status: response.status, job: (await response.json()) as import("../lib/types.ts").Job };
+  }
+
+  async function withDataDir<T>(fn: () => Promise<T>): Promise<T> {
+    const dataDir = await mkdtemp(join(tmpdir(), "oss-poll-"));
+    process.env.DATA_DIR = dataDir;
+    try {
+      return await fn();
+    } finally {
+      delete process.env.DATA_DIR;
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  }
+
+  it("a job that finishes after its cancel was requested still delivers its outputs", async () => {
+    await withDataDir(async () => {
+      mock.setScenario("slow_progress");
+      mock.state.cancelBehavior = "pending"; // Comfy says canceling, the job keeps running
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      const { createJobHandle } = await import("../lib/access.ts");
+      const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt: Date.now() - 16 * 60_000, jobId: submitted.id });
+
+      const first = await poll(handle);
+      assert.equal(first.job.terminal, false);
+      assert.equal(first.job.error?.code, "cancel_requested", "over budget: cancel requested, still shown as live");
+      assert.equal(mock.state.cancels.length, 1);
+
+      let last = first;
+      for (let i = 0; i < 30 && !last.job.terminal; i += 1) last = await poll(handle);
+      assert.equal(last.job.status, "succeeded");
+      assert.equal(last.job.error, null);
+      assert.equal(last.job.outputs.length, 1);
+      assert.equal(last.job.outputs[0].url, `/api/jobs/${handle}/outputs/${last.job.outputs[0].id}`, "capability URL kept");
+    });
+  });
+
+  it("a job Comfy no longer has is reported terminal, not as a retryable 502", async () => {
+    await withDataDir(async () => {
+      const { createJobHandle } = await import("../lib/access.ts");
+      const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt: Date.now(), jobId: "no-such-job" });
+      const { status, job } = await poll(handle);
+      assert.equal(status, 200);
+      assert.equal(job.terminal, true);
+      assert.equal(job.error?.code, "job_not_found");
+    });
   });
 });
 

@@ -54,11 +54,11 @@ To run once the account is upgraded (≤3 submissions):
 ```bash
 cd spikes/lora-training
 OUT=../../spike-out/lora-training  # spike-out/ is gitignored
-mkdir -p $OUT
-python3 run_job.py dataset_t2i.json --out $OUT --label dataset --timeout 600
+mkdir -p "$OUT"
+python3 run_job.py dataset_t2i.json --out "$OUT" --label dataset --timeout 600
 # split the 6 outputs if returned as one file each: soul_dataset_0000x_.png
-python3 run_job.py train_lora_50.json --out $OUT --label train50 --timeout 2400 \
-  --upload 1=$OUT/a.png --upload 2=$OUT/b.png ... --upload 6=$OUT/f.png
+python3 run_job.py train_lora_50.json --out "$OUT" --label train50 --timeout 2400 \
+  --upload 1="$OUT"/a.png --upload 2="$OUT"/b.png ... --upload 6="$OUT"/f.png
 python3 build_graphs.py --steps 300 && python3 run_job.py train_lora_300.json ... --label train300
 ```
 

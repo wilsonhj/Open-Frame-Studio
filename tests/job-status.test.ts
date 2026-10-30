@@ -19,8 +19,8 @@ const job = (patch: Partial<Job>): Job => ({
 describe("describeJob", () => {
   it("shows the queue position when the server reports one", () => {
     assert.equal(describeJob(job({})), "Waiting for a GPU…");
-    assert.equal(describeJob(job({ queuePosition: 3 })), "Waiting for a GPU (#3 in line)…");
-    assert.equal(describeJob(job({ queuePosition: 0 })), "Waiting for a GPU (next up)…");
+    assert.equal(describeJob(job({ queuePosition: 3 })), "Waiting for a GPU (queue position 3)…");
+    assert.equal(describeJob(job({ queuePosition: 0 })), "Waiting for a GPU (queue position 0)…", "base is undefined, so no 'next up'");
   });
 
   it("shows the node and sampler step while running, never an invented percentage", () => {

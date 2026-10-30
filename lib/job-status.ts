@@ -12,7 +12,8 @@ export function describeJob(job: Job): string {
   switch (job.status) {
     case "queued":
       if (job.queuePosition === null) return "Waiting for a GPU…";
-      return `Waiting for a GPU (${job.queuePosition <= 0 ? "next up" : `#${job.queuePosition} in line`})…`;
+      // The API doesn't say whether positions start at 0 or 1: show the raw value.
+      return `Waiting for a GPU (queue position ${job.queuePosition})…`;
     case "running": {
       const percent = job.progress !== null ? ` (${Math.round(job.progress * 100)}%)` : "";
       if (!job.step) return `Running${percent}…`;
