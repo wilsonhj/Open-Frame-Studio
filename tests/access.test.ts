@@ -7,6 +7,7 @@ import {
   clientIp,
   createJobHandle,
   readJobHandle,
+  resetCredentialFailures,
   resetRateLimits,
   trackedRateLimitKeys,
 } from "../lib/access.ts";
@@ -160,6 +161,17 @@ describe("failed access codes", () => {
     delete env.TRUSTED_PROXY_HOPS;
     for (let i = 0; i < 200; i += 1) expectAccess(() => assertMaySubmit(from(`10.0.${i >> 8}.${i & 255}`), "wrong"), 401, "access_code_required");
     expectAccess(() => assertMaySubmit(from("10.9.9.9"), "wrong"), 429, "too_many_attempts");
+  });
+
+  it("wrong codes and lockouts never consume paid-submit quota", () => {
+    env.SUBMITS_PER_HOUR_PER_IP = "3";
+    for (let i = 0; i < 10; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 401, "access_code_required");
+    for (let i = 0; i < 5; i += 1) expectAccess(() => assertMaySubmit(from("1.2.3.4"), "wrong"), 429, "too_many_attempts");
+    // A separate limiter: the same client's quota is untouched, so after its
+    // lockout window it still gets all 3 submits.
+    resetCredentialFailures();
+    for (let i = 0; i < 3; i += 1) assertMaySubmit(from("1.2.3.4"), "open-sesame");
+    expectAccess(() => assertMaySubmit(from("1.2.3.4"), "open-sesame"), 429, "rate_limited");
   });
 
   it("concurrent wrong submits can't all slip past the check before failures are recorded", async () => {

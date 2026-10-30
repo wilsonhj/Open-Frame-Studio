@@ -265,6 +265,11 @@ export function trackedRateLimitKeys(): number {
 export function resetRateLimits(): void {
   hits.clear();
   lastPruneAt = 0;
+  resetCredentialFailures();
+}
+
+/** Test hook: forget failed codes only (as when their window ends), leaving submit quota as is. */
+export function resetCredentialFailures(): void {
   failures.clear();
   failuresTotal = { count: 0, resetAt: 0 };
 }

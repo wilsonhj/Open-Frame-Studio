@@ -98,7 +98,7 @@ describe("upload byte check", () => {
 
   it("rejects a mislabelled upload before any asset is created", async () => {
     await assert.rejects(verifyImageBytes({ image: file(HTML, "image/png") }), InputError);
-    await assert.rejects(verifyImageBytes({ image: file(JPEG, "image/png") }), /not a valid PNG/);
+    await assert.rejects(verifyImageBytes({ image: file(JPEG, "image/png") }), /does not start like a PNG/);
     let assets = 0;
     const binding = BINDINGS.image_resize_smoke;
     await assert.rejects(
@@ -106,7 +106,7 @@ describe("upload byte check", () => {
         assets += 1;
         return ASSET;
       }),
-      /not a valid PNG/,
+      /does not start like a PNG/,
     );
     assert.equal(assets, 0);
   });

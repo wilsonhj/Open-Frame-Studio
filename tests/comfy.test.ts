@@ -427,14 +427,34 @@ describe("POST /api/jobs", () => {
     assert.deepEqual(job.seeds, {});
   });
 
-  it("returns the random seed it ran with, and submits a locked one unchanged", async () => {
+  const submittedSeed = () =>
+    (mock.state.jobPosts.at(-1)!.body.workflow as Record<string, { inputs: Record<string, unknown> }>).p70.inputs.noise_seed;
+
+  it("returns the random seed it ran with, matching the submitted graph", async () => {
     const random = await post({ workflow: "klein_t2i", prompt: "a lamp" });
     assert.equal(random.status, 202);
     assert.ok(Number.isSafeInteger(random.job.seeds.seed));
-    const locked = await post({ workflow: "klein_t2i", prompt: "a lamp", seed: "1234" });
-    assert.deepEqual(locked.job.seeds, { seed: 1234 });
-    const graph = mock.state.jobPosts.at(-1)!.body.workflow as Record<string, { inputs: Record<string, unknown> }>;
-    assert.equal(graph.p70.inputs.noise_seed, 1234);
+    assert.equal(submittedSeed(), random.job.seeds.seed, "echoed seed is the one in the graph");
+  });
+
+  it("submits a supplied seed unchanged, including 0", async () => {
+    for (const seed of [1234, 0]) {
+      const locked = await post({ workflow: "klein_t2i", prompt: "a lamp", seed: String(seed) });
+      assert.deepEqual(locked.job.seeds, { seed });
+      assert.equal(submittedSeed(), seed);
+    }
+  });
+
+  it("polling never regenerates or re-reports seeds", async () => {
+    const { job } = await post({ workflow: "klein_t2i", prompt: "a lamp" });
+    const posts = mock.state.jobPosts.length;
+    const { GET } = await import("../app/api/jobs/[id]/route.ts");
+    for (let i = 0; i < 3; i += 1) {
+      const response = await GET(new Request(`http://127.0.0.1/api/jobs/${job.id}`), { params: Promise.resolve({ id: job.id }) });
+      assert.equal(response.status, 200);
+      assert.equal("seeds" in (await response.json()), false);
+    }
+    assert.equal(mock.state.jobPosts.length, posts, "no resubmit");
   });
 });
 

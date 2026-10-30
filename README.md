@@ -80,7 +80,7 @@ tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / faile
 - UI-format workflows are rejected locally.
 - Job status shows only what the server reports: queue position, the running node and its sampler step, and the reported fraction. Nothing is estimated in the browser.
 - Generation seeds are random on every run unless the form sends one; `/api/jobs` returns the seed it used, so the page can lock it to reproduce a result.
-- Uploads must start with the bytes of their declared PNG, JPEG or WebP type before anything is sent to Comfy.
+- Uploads must start with the format signature of their declared PNG, JPEG or WebP type before any asset is created on Comfy. This catches mislabelled files; it doesn't prove an image decodes.
 
 ## Licence and NOTICE
 

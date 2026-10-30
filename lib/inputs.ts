@@ -77,7 +77,9 @@ function startsWith(bytes: Uint8Array, prefix: readonly number[]): boolean {
 
 /**
  * The declared type of an upload is whatever the browser (or caller) says.
- * Check each image's leading bytes match it before it is uploaded to Comfy.
+ * Check each image's leading bytes (its format signature) match it before
+ * any asset is created. This catches mislabelled files cheaply; it does not
+ * prove the image decodes, which only the worker's loader can tell.
  */
 export async function verifyImageBytes(values: Record<string, unknown>): Promise<void> {
   for (const [name, value] of Object.entries(values)) {
@@ -85,7 +87,7 @@ export async function verifyImageBytes(values: Record<string, unknown>): Promise
     const signature = SIGNATURES[value.type as keyof typeof SIGNATURES];
     const head = new Uint8Array(await value.slice(0, 12).arrayBuffer());
     if (!signature?.matches(head)) {
-      throw new InputError(name, `"${name}" is not a valid ${signature?.label ?? "image"} file.`);
+      throw new InputError(name, `"${name}" does not start like a ${signature?.label ?? "PNG, JPEG or WebP"} file.`);
     }
   }
 }
