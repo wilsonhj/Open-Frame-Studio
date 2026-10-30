@@ -64,3 +64,13 @@ test("/smoke runs image_resize_smoke end to end against the mock", async ({ page
   expect(seen.jobPosts).toHaveLength(1);
   expect(seen.assetPosts).toBeLessThanOrEqual(1);
 });
+
+test("below md the rail still links to /runs and shows the backend indicator", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  const rail = page.locator("aside");
+  await expect(rail.getByRole("link", { name: "Recent runs" })).toBeVisible();
+  await expect(rail.getByText(/Comfy backend|Demo · local mock/)).toBeVisible();
+  // The wrapped rail must not push the page wider than the phone.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+});
