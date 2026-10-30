@@ -116,7 +116,7 @@ export function assertMayControl(request: Request, accessCode: string | null): v
     if (!accessCode?.trim()) {
       throw new AccessError(401, "access_code_required", "Enter the studio access code to run jobs.");
     }
-    checkCredentialAttempt(clientIp(request), sameSecret(accessCode.trim(), required));
+    checkCredentialAttempt(limitKey(clientIp(request)), sameSecret(accessCode.trim(), required));
   } else if (process.env.NODE_ENV === "production" && process.env.ALLOW_PUBLIC_SUBMIT !== "true") {
     throw new AccessError(
       503,
@@ -134,7 +134,40 @@ export function assertMayControl(request: Request, accessCode: string | null): v
 export function assertMaySubmit(request: Request, accessCode: string | null): () => void {
   signingSecret(); // fail before billing a job we couldn't hand back
   assertMayControl(request, accessCode);
-  return takeRateLimit(clientIp(request));
+  return takeRateLimit(limitKey(clientIp(request)));
+}
+
+/**
+ * The key a client is limited under. IPv6 is grouped by its /64, the block
+ * one subscriber is given, so rotating addresses inside it can't reset a
+ * limit or fill the failure tracker; an IPv4-mapped IPv6 address counts as
+ * its IPv4 address. IPv4 stays per address. Anything unparseable is used as
+ * given (lowercased).
+ */
+export function limitKey(ip: string | null): string | null {
+  if (ip === null) return null;
+  let address = ip.trim().toLowerCase();
+  if (address.startsWith("[") && address.includes("]")) address = address.slice(1, address.indexOf("]"));
+  address = address.replace(/%.*$/, ""); // zone id
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(address);
+  if (mapped) return mapped[1];
+  if (!address.includes(":")) return address;
+  const groups = expandIpv6(address);
+  return groups ? `${groups.slice(0, 4).join(":")}::/64` : address;
+}
+
+/** The eight 16-bit groups of an IPv6 address (no embedded IPv4), or null. */
+function expandIpv6(address: string): string[] | null {
+  const halves = address.split("::");
+  if (halves.length > 2) return null;
+  const parse = (part: string) => (part ? part.split(":") : []);
+  const head = parse(halves[0]);
+  const tail = halves.length === 2 ? parse(halves[1]) : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill("0"), ...tail];
+  if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return null;
+  return groups.map((group) => group.replace(/^0+(?=.)/, ""));
 }
 
 /**
@@ -271,24 +304,48 @@ function checkCredentialAttempt(ip: string | null, correct: boolean, now: number
 }
 
 /**
- * Frees a slot in the failure tracker if it is full: expired windows first,
- * then the oldest address that is not locked out. A locked-out address is
- * never evicted, or a guesser with many addresses (an IPv6 block) could
- * flush its own lockout. Returns false when every tracked address is locked
- * out: the new address then goes untracked until a window ends.
+ * While every tracked address is locked out, nothing can be freed until the
+ * earliest of their windows ends (a locked entry stays locked until then),
+ * so the tracker isn't scanned again before that time.
+ */
+let trackerFullUntil = 0;
+let trackerScans = 0;
+
+/**
+ * Frees a slot in the failure tracker if it is full, in one pass: expired
+ * windows are dropped, else the oldest address that is not locked out. A
+ * locked-out address is never evicted, or a guesser with many addresses
+ * could flush its own lockout. Returns false when every tracked address is
+ * locked out: the new address then goes untracked until a window ends. With
+ * IPv6 grouped by /64 (limitKey), reaching that state takes about
+ * MAX_TRACKED_IPS distinct IPv4 addresses or /64 networks.
  */
 function makeRoomForFailure(now: number): boolean {
   if (failures.size < MAX_TRACKED_IPS) return true;
-  for (const [key, window] of failures) if (window.resetAt <= now) failures.delete(key);
-  if (failures.size < MAX_TRACKED_IPS) return true;
-  // Maps iterate in insertion order, so the first unlocked entry is the oldest.
+  if (now < trackerFullUntil) return false;
+  trackerScans += 1;
+  let oldestUnlocked: string | undefined;
+  let earliestReset = Number.POSITIVE_INFINITY;
   for (const [key, window] of failures) {
-    if (window.count < FAILURES_PER_IP) {
-      failures.delete(key);
-      return true;
+    if (window.resetAt <= now) failures.delete(key);
+    else {
+      // Maps iterate in insertion order, so the first unlocked entry is the oldest.
+      if (oldestUnlocked === undefined && window.count < FAILURES_PER_IP) oldestUnlocked = key;
+      earliestReset = Math.min(earliestReset, window.resetAt);
     }
   }
+  if (failures.size < MAX_TRACKED_IPS) return true;
+  if (oldestUnlocked !== undefined) {
+    failures.delete(oldestUnlocked);
+    return true;
+  }
+  trackerFullUntil = earliestReset;
   return false;
+}
+
+/** Test hook: how many times a full tracker has been scanned. */
+export function trackerScanCount(): number {
+  return trackerScans;
 }
 
 /** Test hook. */
@@ -306,6 +363,8 @@ export function resetRateLimits(): void {
 /** Test hook: forget failed codes only (as when their window ends), leaving submit quota as is. */
 export function resetCredentialFailures(): void {
   failures.clear();
+  trackerFullUntil = 0;
+  trackerScans = 0;
 }
 
 export function accessErrorResponse(error: AccessError): Response {
