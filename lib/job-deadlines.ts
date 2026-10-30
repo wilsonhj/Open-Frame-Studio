@@ -74,7 +74,8 @@ async function writeRecord(record: JobRecord): Promise<void> {
   await rename(tmp, path);
 }
 
-async function readRecord(jobId: string): Promise<JobRecord | null> {
+/** The job's persisted deadline record, or null if none was saved (or it is unreadable). */
+export async function readRecord(jobId: string): Promise<JobRecord | null> {
   try {
     return JSON.parse(await readFile(recordPath(jobId), "utf-8")) as JobRecord;
   } catch {
@@ -101,16 +102,18 @@ const lastCancel = new Map<string, { at: number; outcome: CancelOutcome }>();
 /**
  * Enforce one job's deadline: if it is overdue and still live, request a
  * cancel (throttled) and persist the outcome. Returns null when there is
- * nothing to do (not overdue, or a cancel was attempted recently).
+ * nothing to do (not overdue, or a cancel was attempted recently). Pass the
+ * already-read `record` (null: none saved) to skip reading it again.
  */
 export async function enforceDeadline(
   client: Comfy,
   jobId: string,
   deadlineAt: number,
   now = Date.now(),
+  preloaded?: JobRecord | null,
 ): Promise<CancelOutcome | null> {
   if (now <= deadlineAt) return null;
-  const record = await readRecord(jobId);
+  const record = preloaded === undefined ? await readRecord(jobId) : preloaded;
   const memory = lastCancel.get(jobId);
   const persisted = record?.cancel;
   // The newer of the two attempts decides the reported outcome.
@@ -165,11 +168,12 @@ export async function confirmMissing(jobId: string, now = Date.now()): Promise<b
 /**
  * Comfy found the job again: end any run of 404s. Free on the common path
  * (no 404 seen in this process); the sweep clears a persisted run after a
- * restart, since it reads the record anyway.
+ * restart, since it reads the record anyway. Pass the already-read `record`
+ * (null: none saved) to skip reading it again.
  */
 export async function clearMissing(jobId: string, record?: JobRecord | null): Promise<void> {
   if (!missingSince.delete(jobId) && record?.missingSince === undefined) return;
-  const current = record ?? (await readRecord(jobId));
+  const current = record === undefined ? await readRecord(jobId) : record;
   if (current?.missingSince === undefined) return;
   delete current.missingSince;
   await writeRecord(current).catch(() => undefined);
@@ -237,7 +241,7 @@ export async function reconcileJobs(
       summary.forgotten += 1;
       continue;
     }
-    const outcome = await enforceDeadline(client, record.jobId, record.deadlineAt, now);
+    const outcome = await enforceDeadline(client, record.jobId, record.deadlineAt, now, record);
     if (outcome !== null) summary.cancelRequests += 1;
   }
   return summary;

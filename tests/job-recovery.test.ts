@@ -7,7 +7,6 @@ import {
   LEGACY_MAP_KEY,
   RECOVERY_PREFIX,
   forgetJob,
-  recoverJob,
   recoverRun,
   rememberJob,
   tabId,
@@ -48,7 +47,7 @@ describe("unfinished-job recovery", () => {
     rememberJob(local, "tab-a", "image_resize_smoke", job("A"), 1_000);
     rememberJob(local, "tab-b", "image_resize_smoke", job("B"), 2_000);
     rememberJob(local, "tab-a", "image_resize_smoke", job("A", true), 3_000); // A finishes
-    assert.equal(recoverJob(local, "tab-b", "image_resize_smoke", 4_000)?.id, "B");
+    assert.equal(recoverRun(local, "tab-b", "image_resize_smoke", 4_000)?.job.id, "B");
   });
 
   it("interleaved tabs can't lose each other's run (review repro: B saves while A finishes)", () => {
@@ -58,7 +57,7 @@ describe("unfinished-job recovery", () => {
       bSaves: (s: StorageLike) => rememberJob(s, "tab-b", "w", job("B"), 2_000),
       aFinishes: (s: StorageLike) => rememberJob(s, "tab-a", "w", job("A", true), 2_000),
       aForgets: (s: StorageLike) => forgetJob(s, "A"),
-      cRecovers: (s: StorageLike) => void recoverJob(s, "tab-c", "w", 2_500),
+      cRecovers: (s: StorageLike) => void recoverRun(s, "tab-c", "w", 2_500),
     };
     const orders: (keyof typeof steps)[][] = [
       ["bSaves", "aFinishes"],
@@ -73,7 +72,7 @@ describe("unfinished-job recovery", () => {
       for (const step of order) steps[step](local);
       const recovered = [...local.data.keys()].filter((key) => key.startsWith(RECOVERY_PREFIX));
       assert.ok(recovered.includes(`${RECOVERY_PREFIX}B`), `B survives ${order.join(" → ")}`);
-      assert.equal(recoverJob(local, "tab-b", "w", 3_000)?.id, "B", order.join(" → "));
+      assert.equal(recoverRun(local, "tab-b", "w", 3_000)?.job.id, "B", order.join(" → "));
     }
   });
 
@@ -98,7 +97,7 @@ describe("unfinished-job recovery", () => {
     const tabAView = staleView(local); // 3. tab A has read A
     rememberJob(local, "tab-b", "w", job("B"), 2_000); // 2/4. tab B writes A+B
     rememberJob(tabAView, "tab-a", "w", job("A", true), 3_000); // 4. A finishes from its stale read
-    assert.equal(recoverJob(local, "tab-b", "w", 4_000)?.id, "B", "B's unfinished run is still recoverable");
+    assert.equal(recoverRun(local, "tab-b", "w", 4_000)?.job.id, "B", "B's unfinished run is still recoverable");
     assert.equal(local.getItem(`${RECOVERY_PREFIX}A`), null, "A's own entry is gone");
   });
 
@@ -106,17 +105,17 @@ describe("unfinished-job recovery", () => {
     const local = memoryStorage();
     rememberJob(local, "tab-a", "w", job("A"), 1_000);
     rememberJob(local, "tab-b", "w", job("B"), 2_000);
-    assert.equal(recoverJob(local, "tab-a", "w", 3_000)?.id, "A");
-    assert.equal(recoverJob(local, "tab-b", "w", 3_000)?.id, "B");
-    assert.equal(recoverJob(local, "tab-a", "other_workflow", 3_000), null);
+    assert.equal(recoverRun(local, "tab-a", "w", 3_000)?.job.id, "A");
+    assert.equal(recoverRun(local, "tab-b", "w", 3_000)?.job.id, "B");
+    assert.equal(recoverRun(local, "tab-a", "other_workflow", 3_000), null);
   });
 
   it("adopts an orphan (its tab is gone) but never a run another open tab is watching", () => {
     const local = memoryStorage();
     rememberJob(local, "open-tab", "w", job("A"), 1_000);
-    assert.equal(recoverJob(local, "new-tab", "w", 1_000 + 5_000), null, "fresh entry: its tab is still polling");
+    assert.equal(recoverRun(local, "new-tab", "w", 1_000 + 5_000), null, "fresh entry: its tab is still polling");
     assert.equal(JSON.parse(local.getItem(`${RECOVERY_PREFIX}A`)!).tab, "open-tab", "untouched");
-    assert.equal(recoverJob(local, "new-tab", "w", 1_000 + ADOPT_AFTER_MS)?.id, "A", "stale entry: orphan, adopted");
+    assert.equal(recoverRun(local, "new-tab", "w", 1_000 + ADOPT_AFTER_MS)?.job.id, "A", "stale entry: orphan, adopted");
     assert.equal(JSON.parse(local.getItem(`${RECOVERY_PREFIX}A`)!).tab, "new-tab");
   });
 
@@ -125,26 +124,26 @@ describe("unfinished-job recovery", () => {
     local.setItem("unrelated", "keep me");
     rememberJob(local, "tab-a", "w", job("A"), 1_000);
     local.setItem(`${RECOVERY_PREFIX}broken`, "not json");
-    assert.equal(recoverJob(local, "tab-a", "w", 1_000 + 25 * 60 * 60_000), null, "older than a day");
+    assert.equal(recoverRun(local, "tab-a", "w", 1_000 + 25 * 60 * 60_000), null, "older than a day");
     assert.deepEqual([...local.data.keys()], ["unrelated"]);
   });
 
   it("migrates the old single-slot format, adoptable only once it goes unrefreshed (an old tab may still watch it)", () => {
     const local = memoryStorage();
     local.setItem(LEGACY_ACTIVE_KEY, JSON.stringify({ workflow: "w", job: job("OLD") }));
-    assert.equal(recoverJob(local, "tab-a", "w", 5_000), null, "not taken at once");
+    assert.equal(recoverRun(local, "tab-a", "w", 5_000), null, "not taken at once");
     assert.equal(local.getItem(LEGACY_ACTIVE_KEY), null, "legacy key removed");
     assert.ok(local.getItem(`${RECOVERY_PREFIX}OLD`), "now on its own key");
-    assert.equal(recoverJob(local, "tab-a", "w", 5_000 + ADOPT_AFTER_MS)?.id, "OLD", "orphaned after the usual wait");
+    assert.equal(recoverRun(local, "tab-a", "w", 5_000 + ADOPT_AFTER_MS)?.job.id, "OLD", "orphaned after the usual wait");
   });
 
   it("when a job is in both legacy formats, the map's owned, timed entry wins over the slot", () => {
     const local = memoryStorage();
     local.setItem(LEGACY_ACTIVE_KEY, JSON.stringify({ workflow: "w", job: job("J") }));
     local.setItem(LEGACY_MAP_KEY, JSON.stringify({ J: { workflow: "w", tab: "tab-a", savedAt: 9_000, job: job("J") } }));
-    assert.equal(recoverJob(local, "tab-b", "w", 10_000), null, "tab-b can't take tab-a's live run");
+    assert.equal(recoverRun(local, "tab-b", "w", 10_000), null, "tab-b can't take tab-a's live run");
     assert.equal(JSON.parse(local.getItem(`${RECOVERY_PREFIX}J`)!).tab, "tab-a");
-    assert.equal(recoverJob(local, "tab-a", "w", 10_000)?.id, "J", "its owner resumes it");
+    assert.equal(recoverRun(local, "tab-a", "w", 10_000)?.job.id, "J", "its owner resumes it");
   });
 
   it("migrates the old shared map, keeping each entry's tab, without overwriting newer per-job records", () => {
@@ -159,8 +158,8 @@ describe("unfinished-job recovery", () => {
         bad: null,
       }),
     );
-    assert.equal(recoverJob(local, "tab-a", "w", 3_000)?.id, "A");
-    assert.equal(recoverJob(local, "tab-b", "w", 3_000)?.progress, 0.9, "per-job record kept, not the map's copy");
+    assert.equal(recoverRun(local, "tab-a", "w", 3_000)?.job.id, "A");
+    assert.equal(recoverRun(local, "tab-b", "w", 3_000)?.job.progress, 0.9, "per-job record kept, not the map's copy");
     assert.equal(local.getItem(`${RECOVERY_PREFIX}D`), null, "finished jobs are not migrated");
     assert.equal(local.getItem(LEGACY_MAP_KEY), null);
   });
@@ -172,8 +171,8 @@ describe("unfinished-job recovery", () => {
       local.setItem("unrelated", "keep me");
       local.setItem(LEGACY_MAP_KEY, legacy);
       local.setItem(LEGACY_ACTIVE_KEY, legacy);
-      assert.doesNotThrow(() => recoverJob(local, "tab-a", "w", 2_000));
-      assert.equal(recoverJob(local, "tab-b", "w", 2_000)?.id, "LIVE", legacy);
+      assert.doesNotThrow(() => recoverRun(local, "tab-a", "w", 2_000));
+      assert.equal(recoverRun(local, "tab-b", "w", 2_000)?.job.id, "LIVE", legacy);
       assert.equal(local.getItem("unrelated"), "keep me");
       assert.equal(local.getItem(LEGACY_MAP_KEY), null);
       assert.equal(local.getItem(LEGACY_ACTIVE_KEY), null);
@@ -193,7 +192,7 @@ describe("unfinished-job recovery", () => {
     const local = memoryStorage();
     rememberJob(local, "tab-a", "w", job("A"), 0);
     for (let at = 30_000; at <= 10 * ADOPT_AFTER_MS; at += 30_000) touchJob(local, "tab-a", "A", at); // heartbeat only
-    assert.equal(recoverJob(local, "tab-b", "w", 10 * ADOPT_AFTER_MS + 1_000), null, "not adopted");
+    assert.equal(recoverRun(local, "tab-b", "w", 10 * ADOPT_AFTER_MS + 1_000), null, "not adopted");
     assert.ok(ADOPT_AFTER_MS >= 2 * 60_000, "well above hidden-tab timer throttling");
     touchJob(local, "tab-b", "A", 10 * ADOPT_AFTER_MS + 2_000); // another tab can't refresh it on A's behalf
     assert.equal(JSON.parse(local.getItem(`${RECOVERY_PREFIX}A`)!).tab, "tab-a");
