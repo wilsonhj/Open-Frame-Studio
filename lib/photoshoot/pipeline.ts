@@ -9,6 +9,7 @@ import { buildPrompts } from "../enhancer/variation.ts";
 import { DEMO_MODES, KLEIN_SIZES, MODE_TEMPLATES, isDemoMode } from "../enhancer/modes.ts";
 import type { ActionHandler, PipelineDefinition, ValidateResult } from "../pipeline/types.ts";
 import type { ComfyPipelineStep, PipelineRun, PipelineStep } from "../contracts/pipeline.ts";
+import { TERMINAL_STEP_STATUSES } from "../contracts/pipeline.ts";
 import type { ImageRef } from "../contracts/job.ts";
 import type { AspectRatio, PhotoshootItem, PhotoshootRequest, VariationPick } from "../contracts/photoshoot.ts";
 import { ASPECT_RATIOS } from "../contracts/photoshoot.ts";
@@ -108,7 +109,7 @@ function kleinStep(
     workflow: "klein_edit_multiref",
     dependsOn: [CUTOUT_STEP],
     inputs: {
-      image_1: { fromStep: CUTOUT_STEP, outputNode: "18" },
+      image_1: { fromStep: CUTOUT_STEP, outputNode: "cutout" },
       prompt,
       seed,
       width,
@@ -163,7 +164,7 @@ const retryItem: ActionHandler<"photoshoot"> = {
     if (!Number.isInteger(index) || !target || target.kind !== "comfy") {
       return { type: "error", status: 404, error: `no item ${ctx.params.index}` };
     }
-    if (target.status === "pending" || target.status === "running" || target.status === "queued") {
+    if (!TERMINAL_STEP_STATUSES.includes(target.status)) {
       return { type: "error", status: 409, error: "item is still in progress" };
     }
     const cutout = ctx.run.steps.find((s) => s.id === CUTOUT_STEP);

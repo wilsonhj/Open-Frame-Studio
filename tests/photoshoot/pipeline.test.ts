@@ -55,7 +55,7 @@ describe("photoshoot plan and result", () => {
     shots.forEach((s, i) => {
       assert.equal(s.kind === "comfy" && s.workflow, "klein_edit_multiref");
       assert.deepEqual(s.dependsOn, ["cutout"]);
-      assert.deepEqual(s.inputs.image_1, { fromStep: "cutout", outputNode: "18" });
+      assert.deepEqual(s.inputs.image_1, { fromStep: "cutout", outputNode: "cutout" });
       assert.equal(s.inputs.seed, 1000 + i);
       assert.equal(s.inputs.width, 1280);
       assert.equal(s.inputs.height, 720);
@@ -102,5 +102,15 @@ describe("photoshoot plan and result", () => {
     assert.equal(res.steps[2].status, "pending");
     assert.equal(res.steps[2].inputs.seed, 777);
     assert.equal(res.steps[1], steps[1]);
+    assert.equal(res.steps[2].kind === "comfy" && res.steps[2].jobId, undefined);
+  });
+
+  it("retry answers 409 while the item is still running", async () => {
+    const request = { mode: "product_shot" as const, prompt: "", images: [{ assetId: "a" }], count: 1 };
+    const steps = await photoshootPipeline.plan(request, ctx);
+    steps[1].status = "running";
+    const run = { kind: "photoshoot", request, steps } as unknown as PipelineRun<"photoshoot">;
+    const res = await photoshootPipeline.actions!.retry.run({ run, params: { index: "0" }, body: null, plan: ctx } as never);
+    assert.equal(res.type === "error" && res.status, 409);
   });
 });
