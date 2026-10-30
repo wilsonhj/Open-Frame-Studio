@@ -14,7 +14,6 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 - Wait for `[demo] mock Comfy API v2 on http://127.0.0.1:8199` and Next's `Ready`.
 - Open http://127.0.0.1:3000 and visit `/photoshoot`, `/listing`, `/identity` and `/motion` once. The dev compiler builds each route the first time you open it, which takes a few seconds and would otherwise happen on stage.
 - `pnpm demo` never reads or prints `COMFY_API_KEY`, and nothing leaves the machine.
-- The landing description below assumes PR #21 is merged. Before it is, the rail and the landing cards still tag Identity and Motion *soon*.
 - Have these files ready:
   - **Product Shoot:** `fixtures/products/product-mug-tiles.png` (any product photo works).
   - **Listing Images:** `fixtures/products/product-bottle-transparent.png`. The mock cannot remove a background, so a photo with a busy background correctly fails check A4.
@@ -71,7 +70,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 - Say what has run on Cloud:
   - **Product Shoot:** a two-frame shoot. **Listing hero:** compliant. (README; outputs in `docs/images/comfy-cloud-outputs.png`.)
   - **MiniMax H3 graph:** a 5 s clip with audio in about 40 s, run by `scripts/golden-run.mjs` with two product stills; the `/motion` page itself has not run on Cloud. (Record in `fixtures/golden/h3_r2v/run.json`.)
-  - **Listing gallery:** 6 of 6 images in about 62 s. **Story:** 8 of 8 in about 42 s. ZIP export works. (Manual run on Oct 30, not recorded in the repo.)
+  - **Listing gallery:** 6 of 6 images in about 62 s. **Story:** 8 of 8 in about 40 s. ZIP export works. (Manual run on Oct 30, not recorded in the repo.)
   - **Identity:** a fictional AI-generated person, 4 references chosen, preview sheet in 17.6 s, exported bundle valid. (Manual run on Oct 30, not recorded in the repo.)
 - The known limit again: generated Listing panels can drift in colour and material.
 - Go back to the landing and scroll to **Open weights**. Every row comes from `models/manifest.json`, the same file CI checks against the workflow graphs: FLUX.2 Klein 4B and its Qwen3-4B encoder (**Apache-2.0**), BiRefNet (**MIT**), SeedVR2 (**Apache-2.0**), and MiniMax H3 (**conditional**, shown in amber, not green).
