@@ -78,14 +78,14 @@ describe("golden-run: SIGINT/SIGTERM during a pass (no network)", () => {
     assert.deepEqual(calls.exit, [130]);
   });
 
-  it("records a failed cancel, ignores a second signal, exits 143 on SIGTERM", async () => {
+  it("a second signal exits immediately while cancel is in flight", async () => {
     const current = { client: "c", recordPath: "/x/run.json", record: { workflow: "cutout", jobId: "job-2", status: "running" } };
     const { calls, handler } = harness(current, { outcome: "cancel_failed", job: null, error: "boom" } as never);
     await Promise.all([handler("SIGTERM"), handler("SIGTERM")]);
     assert.equal(calls.cancel.length, 1);
     assert.deepEqual((calls.write[0][1].interrupted as { cancel: unknown }).cancel, { outcome: "cancel_failed", error: "boom" });
     assert.equal(calls.write[0][1].status, "running");
-    assert.deepEqual(calls.exit, [143]);
+    assert.deepEqual(calls.exit, [143, 143]);
   });
 
   it("before a job id exists: writes run.json (key kept) without cancelling; with nothing in flight: just exits", async () => {
