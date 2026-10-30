@@ -282,7 +282,7 @@ These are all modes except `carousel_set` and `ad_variants`.
 - `gpt_image_2` takes repeated `--image-references` (`MD:58`).
 - Higgsfield's photoshoot "does not chain"; it owns its pipeline (`HFC:155`). To keep a face consistent, the cookbook suggests switching to Higgsfield's Soul models instead of `gpt_image_2` (`CB:64`).
 
-**Ours: deliberate extension.** An identity can feed straight into Photoshoot. This is the headline feature (`docs/PLAN.md:31`). An identity is a curated set of 3–6 reference crops plus a style card, stored as `identity.json` (`docs/PLAN.md:7`).
+**Ours: deliberate extension (not built yet: `lib/photoshoot/pipeline.ts` ignores `identityId` for now).** An identity can feed straight into Photoshoot. This is the headline feature (`docs/PLAN.md:31`). An identity is a curated set of 3–6 reference crops plus a style card, stored as `identity.json` (`docs/PLAN.md:7`).
 
 The Klein multi-ref graph has slots for 3 face refs and 1 product ref, and more can be added (`docs/spikes/klein-multiref.md:47`, `docs/spikes/klein-multiref.md:64-73`). FLUX.2 prompts refer to references as "image 1…4" in plain words (`docs/spikes/klein-multiref.md:83`).
 

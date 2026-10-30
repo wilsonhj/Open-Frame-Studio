@@ -252,7 +252,7 @@ Inside a bundle each ref has a `path` relative to `identity.json`. In the server
 
 ### 6.6 S-R1: Identity reuse across separate jobs
 
-An identity counts as reusable only after this test passes (`docs/PLAN.md`, Update after Wave 0). The mock version runs in CI (`tests/e2e/identity.spec.ts`, mock scenario `asset_missing`); the Cloud version is a Wave 3 sign-off.
+An identity counts as reusable only after this test passes (`docs/PLAN.md`, Update after Wave 0). The mock version is `tests/e2e/identity.spec.ts` (mock scenario `asset_missing`), run locally with `pnpm test:e2e`; E2E is not in CI yet; the Cloud version is a Wave 3 sign-off.
 
 | Step | Action | Check |
 |---|---|---|
