@@ -74,7 +74,7 @@ describe("cardsPipeline", () => {
       uploadAsset: async () => "unused",
       signal: new AbortController().signal,
     });
-    assert.equal(out.files?.[0].name, "main.png");
+    assert.equal(out.files?.[0].name, "01_hero.png");
     assert.equal(out.status, "succeeded");
 
     steps[0] = { ...steps[0], status: "succeeded", jobId: "job_1" } as typeof steps[0];
@@ -84,20 +84,20 @@ describe("cardsPipeline", () => {
       data: out.data,
       outputs: [
         {
-          id: "main.png",
+          id: "01_hero.png",
           jobId: "",
           nodeId: "",
-          name: "main.png",
+          name: "01_hero.png",
           type: "image",
           contentType: "image/png",
           sizeBytes: 1,
-          url: "/api/pipelines/listing/run_1/files/main.png",
+          url: "/api/pipelines/listing/run_1/files/01_hero.png",
         },
       ],
     };
     const result = await cardsPipeline.buildResult({ ...run, status: "succeeded" });
     assert.ok(result.main?.ok, JSON.stringify(result.main?.checks));
-    assert.equal(result.main?.compositeUrl, "/api/pipelines/listing/run_1/files/main.png");
+    assert.equal(result.main?.compositeUrl, "/api/pipelines/listing/run_1/files/01_hero.png");
     assert.equal(result.tiles.length, CARD_ASSETS.length);
     assert.equal(result.tiles[0].state, "succeeded");
     assert.ok(result.tiles.slice(1).every((t) => t.state === "skipped"));

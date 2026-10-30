@@ -1,7 +1,17 @@
 import { CardsBoard } from "../../components/cards/cards-board";
 import { SURFACES } from "../../lib/brand";
 
-export default function ListingPage() {
+/** Run ids are server-minted UUIDs; anything else in `?run=` is ignored. */
+const RUN_ID = /^[A-Za-z0-9-]{1,64}$/;
+
+export default async function ListingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  // `/runs` links here as `?run=<id>` to reopen an earlier run.
+  const run = (await searchParams).run;
+  const runId = typeof run === "string" && RUN_ID.test(run) ? run : undefined;
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -11,7 +21,7 @@ export default function ListingPage() {
           marketplace hero-image checks. Gallery and story panels come next, conditioned on this hero image.
         </p>
       </div>
-      <CardsBoard />
+      <CardsBoard runId={runId} />
     </div>
   );
 }
