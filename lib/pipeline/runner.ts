@@ -444,8 +444,12 @@ async function finishRun(def: Def, run: PipelineRun): Promise<boolean> {
   // A retry can fix the failed dependency and leave its other dependents
   // skipped: the run is then not `succeeded`.
   const bad = run.steps.some((s) => BAD.has(s.status) || (s.kind === "comfy" && s.status === "skipped"));
-  // A deliverable is a succeeded leaf step (one no other step depends on).
-  const good = run.steps.some((s) => s.status === "succeeded" && !run.steps.some((x) => x.dependsOn.includes(s.id)));
+  // A deliverable is a succeeded step that no other step went on to use: a leaf,
+  // or one whose dependents all wait on user input (a Listing hero whose other
+  // tiles lack copy).
+  const good = run.steps.some(
+    (s) => s.status === "succeeded" && run.steps.every((x) => !x.dependsOn.includes(s.id) || x.status === "needs_input"),
+  );
   run.status = run.cancelRequested ? "canceled" : !bad ? "succeeded" : good ? "partial" : "failed";
   try {
     run.result = await (def.buildResult as (r: PipelineRun) => Promise<PipelineRun["result"]>)(run);
