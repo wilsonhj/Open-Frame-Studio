@@ -193,9 +193,10 @@ export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions =
 
   const start = useCallback(
     async (body: FormData | PipelineRunRequestBody) => {
-      generation.current += 1;
+      // The current run (if any) stays watched until the new one exists: if
+      // this POST fails, its poll loop must keep running, so the generation
+      // bump that retires it happens only on success, in `adopt` below.
       setError(null);
-      setRun(null);
       try {
         const init: RequestInit =
           body instanceof FormData
@@ -207,6 +208,7 @@ export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions =
           return null;
         }
         const created = (await response.json()) as PipelineRun<K>;
+        generation.current += 1; // drop late responses for the previous run
         adopt(created);
         return created;
       } catch (err) {
