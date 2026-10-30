@@ -37,6 +37,13 @@ const CANCEL_RETRY_MS = 30_000;
 /** Stop tracking a job that is still live this long after its deadline (logged). */
 const GIVE_UP_AFTER_MS = 24 * 60 * 60_000;
 const SWEEP_INTERVAL_MS = 60_000;
+/**
+ * How long Comfy must keep answering 404 before a job counts as gone. A
+ * single 404 can be transient (just after submit) or a misconfigured proxy,
+ * and treating it as final would drop the job's deadline while it may still
+ * be running and billing.
+ */
+export const MISSING_GRACE_MS = 10 * 60_000;
 
 export type JobRecord = {
   schema: typeof JOB_RECORD_SCHEMA;
@@ -46,6 +53,8 @@ export type JobRecord = {
   submittedAt: number;
   deadlineAt: number;
   cancel?: { outcome: CancelOutcome; attempts: number; lastAttemptAt: number; error?: string };
+  /** Epoch ms of the first 404 in an unbroken run of them (see MISSING_GRACE_MS). */
+  missingSince?: number;
 };
 
 function jobsDir(): string {
@@ -130,7 +139,40 @@ export async function enforceDeadline(
 
 export async function forgetJob(jobId: string): Promise<void> {
   lastCancel.delete(jobId);
+  missingSince.delete(jobId);
   await rm(recordPath(jobId), { force: true });
+}
+
+// In-memory copy of `missingSince`, for jobs whose record couldn't be persisted.
+const missingSince = new Map<string, number>();
+
+/**
+ * Comfy answered 404 for this job. Returns true once that has lasted
+ * MISSING_GRACE_MS (the job is gone and can be forgotten); until then the
+ * caller should keep the deadline and treat the 404 as retryable.
+ */
+export async function confirmMissing(jobId: string, now = Date.now()): Promise<boolean> {
+  const record = await readRecord(jobId);
+  const since = Math.min(record?.missingSince ?? now, missingSince.get(jobId) ?? now);
+  missingSince.set(jobId, since);
+  if (record && record.missingSince === undefined) {
+    record.missingSince = since;
+    await writeRecord(record).catch(() => undefined);
+  }
+  return now - since >= MISSING_GRACE_MS;
+}
+
+/**
+ * Comfy found the job again: end any run of 404s. Free on the common path
+ * (no 404 seen in this process); the sweep clears a persisted run after a
+ * restart, since it reads the record anyway.
+ */
+export async function clearMissing(jobId: string, record?: JobRecord | null): Promise<void> {
+  if (!missingSince.delete(jobId) && record?.missingSince === undefined) return;
+  const current = record ?? (await readRecord(jobId));
+  if (current?.missingSince === undefined) return;
+  delete current.missingSince;
+  await writeRecord(current).catch(() => undefined);
 }
 
 /**
@@ -149,13 +191,21 @@ export async function reconcileJobs(
     return summary;
   }
   for (const name of names) {
+    let text: string;
+    try {
+      text = await readFile(join(jobsDir(), name), "utf-8");
+    } catch {
+      // An I/O error (EMFILE, EIO, EACCES, or removed meanwhile) may be
+      // temporary: keep the record and retry next sweep.
+      continue;
+    }
     let record: JobRecord;
     try {
-      record = JSON.parse(await readFile(join(jobsDir(), name), "utf-8")) as JobRecord;
+      record = JSON.parse(text) as JobRecord;
       if (typeof record?.jobId !== "string" || !Number.isFinite(record.deadlineAt)) throw new Error("bad record");
     } catch {
-      // Unreadable or malformed: it can never be enforced, so don't skip it forever.
-      console.error(`[job-deadlines] removing unreadable deadline record ${name}`);
+      // Read fine but malformed: it can never be enforced, so don't skip it forever.
+      console.error(`[job-deadlines] removing malformed deadline record ${name}`);
       await rm(join(jobsDir(), name), { force: true }).catch(() => undefined);
       summary.forgotten += 1;
       continue;
@@ -163,15 +213,17 @@ export async function reconcileJobs(
     summary.checked += 1;
     try {
       const job = await getJob(client, record.jobId);
+      await clearMissing(record.jobId, record);
       if (job.terminal) {
         await forgetJob(record.jobId);
         summary.forgotten += 1;
         continue;
       }
     } catch (error) {
-      // A job Comfy no longer knows can't be billing. Anything else, retry next
-      // sweep, but not forever: past GIVE_UP_AFTER_MS it is dropped (logged).
-      const gone = (error as { httpStatus?: number }).httpStatus === 404;
+      // A job Comfy has stopped knowing about for MISSING_GRACE_MS can't be
+      // billing. Anything else, retry next sweep, but not forever: past
+      // GIVE_UP_AFTER_MS it is dropped (logged).
+      const gone = (error as { httpStatus?: number }).httpStatus === 404 && (await confirmMissing(record.jobId, now));
       if (gone || now - record.deadlineAt > GIVE_UP_AFTER_MS) {
         if (!gone) console.error(`[job-deadlines] job ${record.jobId} unreachable a day past its deadline; giving up.`);
         await forgetJob(record.jobId);

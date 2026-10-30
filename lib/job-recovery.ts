@@ -54,13 +54,18 @@ function isLiveJob(job: unknown): job is Job {
  * per-job key that already exists is newer and is never overwritten, and
  * nothing outside the legacy keys is touched, so a corrupt or old-format
  * record can't erase a live one. Idempotent, so tabs migrating at the same
- * time write the same values. A legacy slot had no owning tab: it becomes
- * an orphan any tab may adopt.
+ * time write the same values.
+ *
+ * The map goes first: its entries carry their owning tab and savedAt, so
+ * they are the better copy of any job that is in both. A legacy slot had
+ * no owning tab or time; it is stamped `now`, so like any other entry it
+ * only becomes adoptable after ADOPT_AFTER_MS without a refresh, never at
+ * once (an old-version tab may still be watching it).
  */
 function migrateLegacy(storage: StorageLike, now: number): void {
   const adopt = (workflow: unknown, job: unknown, tab: unknown, savedAt: unknown) => {
     if (typeof workflow !== "string" || !isLiveJob(job) || storage.getItem(keyFor(job.id)) !== null) return;
-    const at = typeof savedAt === "number" && Number.isFinite(savedAt) ? savedAt : now - ADOPT_AFTER_MS;
+    const at = typeof savedAt === "number" && Number.isFinite(savedAt) ? savedAt : now;
     if (now - at >= MAX_AGE_MS) return;
     const entry: Entry = { workflow, tab: typeof tab === "string" ? tab : "", savedAt: at, job };
     storage.setItem(keyFor(job.id), JSON.stringify(entry));
@@ -72,11 +77,6 @@ function migrateLegacy(storage: StorageLike, now: number): void {
       return null;
     }
   };
-  if (storage.getItem(LEGACY_ACTIVE_KEY) !== null) {
-    const slot = parse(LEGACY_ACTIVE_KEY) as { workflow?: unknown; job?: unknown } | null;
-    if (slot && typeof slot === "object") adopt(slot.workflow, slot.job, undefined, undefined);
-    storage.removeItem(LEGACY_ACTIVE_KEY);
-  }
   if (storage.getItem(LEGACY_MAP_KEY) !== null) {
     const map = parse(LEGACY_MAP_KEY);
     if (map && typeof map === "object" && !Array.isArray(map)) {
@@ -85,6 +85,11 @@ function migrateLegacy(storage: StorageLike, now: number): void {
       }
     }
     storage.removeItem(LEGACY_MAP_KEY);
+  }
+  if (storage.getItem(LEGACY_ACTIVE_KEY) !== null) {
+    const slot = parse(LEGACY_ACTIVE_KEY) as { workflow?: unknown; job?: unknown } | null;
+    if (slot && typeof slot === "object") adopt(slot.workflow, slot.job, undefined, undefined);
+    storage.removeItem(LEGACY_ACTIVE_KEY);
   }
 }
 

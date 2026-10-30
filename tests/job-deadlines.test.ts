@@ -134,3 +134,30 @@ describe("server-owned job deadlines", () => {
     }
   });
 });
+
+describe("deadline records survive transient failures", () => {
+  it("a record that can't be read right now is kept for the next sweep; only a malformed one is removed", async () => {
+    const client = comfy.createClient();
+    const dir = join(dataDir, "jobs");
+    await mkdir(join(dir, "io-error.json"), { recursive: true }); // reading a directory fails (EISDIR)
+    await writeFile(join(dir, "malformed.json"), "{not json");
+    const summary = await deadlines.reconcileJobs(client);
+    const left = await readdir(dir);
+    assert.ok(left.includes("io-error.json"), "I/O error: kept");
+    assert.ok(!left.includes("malformed.json"), "malformed: removed");
+    assert.equal(summary.forgotten, 1);
+    await rm(join(dir, "io-error.json"), { recursive: true, force: true });
+  });
+
+  it("the sweep drops a job Comfy 404s only once the 404 has lasted MISSING_GRACE_MS", async () => {
+    const client = comfy.createClient();
+    const now = Date.now();
+    await deadlines.recordJob("vanished-job", "image_resize_smoke", now - 120_000);
+    await deadlines.reconcileJobs(client, now);
+    assert.equal((await records()).length, 1, "first 404: kept, may be transient");
+    await deadlines.reconcileJobs(client, now + deadlines.MISSING_GRACE_MS - 1);
+    assert.equal((await records()).length, 1, "still inside the grace period");
+    await deadlines.reconcileJobs(client, now + deadlines.MISSING_GRACE_MS);
+    assert.equal((await records()).length, 0, "404 for the whole grace period: gone");
+  });
+});

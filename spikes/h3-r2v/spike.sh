@@ -23,7 +23,8 @@ probe() {  # frames, fps, size, audio streams. Reports only: never aborts the ru
     found=1
     ffprobe -v error -show_entries stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,channels \
       -show_entries format=duration,size -of compact "$f" || echo "ffprobe failed for $f" >&2
-    sz=$(wc -c < "$f" | tr -d " ")  # portable (GNU and BSD/macOS)
+    sz=$(wc -c < "$f" 2>/dev/null | tr -d " ") || sz=0  # portable (GNU and BSD/macOS); unreadable: 0
+    [ -n "$sz" ] || sz=0
     if [ "$sz" -lt 5000000 ]; then
       cp "$f" "$HERE/" && echo "copied $(basename "$f") to $HERE"
     else

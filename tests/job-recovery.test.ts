@@ -129,12 +129,22 @@ describe("unfinished-job recovery", () => {
     assert.deepEqual([...local.data.keys()], ["unrelated"]);
   });
 
-  it("migrates the old single-slot format to a per-job key any tab may adopt", () => {
+  it("migrates the old single-slot format, adoptable only once it goes unrefreshed (an old tab may still watch it)", () => {
     const local = memoryStorage();
     local.setItem(LEGACY_ACTIVE_KEY, JSON.stringify({ workflow: "w", job: job("OLD") }));
-    assert.equal(recoverJob(local, "tab-a", "w", 5_000)?.id, "OLD");
+    assert.equal(recoverJob(local, "tab-a", "w", 5_000), null, "not taken at once");
     assert.equal(local.getItem(LEGACY_ACTIVE_KEY), null, "legacy key removed");
     assert.ok(local.getItem(`${RECOVERY_PREFIX}OLD`), "now on its own key");
+    assert.equal(recoverJob(local, "tab-a", "w", 5_000 + ADOPT_AFTER_MS)?.id, "OLD", "orphaned after the usual wait");
+  });
+
+  it("when a job is in both legacy formats, the map's owned, timed entry wins over the slot", () => {
+    const local = memoryStorage();
+    local.setItem(LEGACY_ACTIVE_KEY, JSON.stringify({ workflow: "w", job: job("J") }));
+    local.setItem(LEGACY_MAP_KEY, JSON.stringify({ J: { workflow: "w", tab: "tab-a", savedAt: 9_000, job: job("J") } }));
+    assert.equal(recoverJob(local, "tab-b", "w", 10_000), null, "tab-b can't take tab-a's live run");
+    assert.equal(JSON.parse(local.getItem(`${RECOVERY_PREFIX}J`)!).tab, "tab-a");
+    assert.equal(recoverJob(local, "tab-a", "w", 10_000)?.id, "J", "its owner resumes it");
   });
 
   it("migrates the old shared map, keeping each entry's tab, without overwriting newer per-job records", () => {

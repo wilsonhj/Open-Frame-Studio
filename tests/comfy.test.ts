@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -566,14 +566,44 @@ describe("GET /api/jobs/:handle", () => {
     });
   });
 
-  it("a job Comfy no longer has is reported terminal, not as a retryable 502", async () => {
+  it("a 404 from Comfy is retryable until it has lasted MISSING_GRACE_MS, then the job is reported gone", async () => {
     await withDataDir(async () => {
       const { createJobHandle } = await import("../lib/access.ts");
+      const deadlines = await import("../lib/job-deadlines.ts");
       const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt: Date.now(), jobId: "no-such-job" });
-      const { status, job } = await poll(handle);
-      assert.equal(status, 200);
-      assert.equal(job.terminal, true);
-      assert.equal(job.error?.code, "job_not_found");
+      await deadlines.recordJob("no-such-job", "image_resize_smoke", Date.now());
+
+      // A first (possibly transient) 404: keep watching, keep the deadline.
+      const first = await poll(handle);
+      assert.equal(first.status, 503);
+      assert.equal((first.job as unknown as { code: string }).code, "job_missing");
+      const records = async () => (await readdir(join(process.env.DATA_DIR!, "jobs"))).filter((name) => name.endsWith(".json"));
+      assert.equal((await records()).length, 1, "deadline record kept");
+
+      // Another job whose 404s began a whole grace period ago: now it is final.
+      const goneHandle = createJobHandle({ binding: "image_resize_smoke", submittedAt: Date.now(), jobId: "long-gone-job" });
+      await deadlines.recordJob("long-gone-job", "image_resize_smoke", Date.now());
+      await deadlines.confirmMissing("long-gone-job", Date.now() - deadlines.MISSING_GRACE_MS);
+      const later = await poll(goneHandle);
+      assert.equal(later.status, 200);
+      assert.equal(later.job.terminal, true);
+      assert.equal(later.job.error?.code, "job_not_found");
+      assert.equal((await records()).length, 1, "only the gone job's record dropped");
+    });
+  });
+
+  it("a valid handle for a workflow that is no longer registered is refused, not served unfiltered", async () => {
+    await withDataDir(async () => {
+      const { createJobHandle } = await import("../lib/access.ts");
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      const handle = createJobHandle({ binding: "removed_workflow", submittedAt: Date.now(), jobId: submitted.id });
+      assert.equal((await poll(handle)).status, 404);
+      const { GET } = await import("../app/api/jobs/[id]/outputs/[outputId]/route.ts");
+      const response = await GET(new Request(`http://127.0.0.1/api/jobs/${handle}/outputs/x`), {
+        params: Promise.resolve({ id: handle, outputId: `out-${submitted.id}` }),
+      });
+      assert.equal(response.status, 404);
     });
   });
 });

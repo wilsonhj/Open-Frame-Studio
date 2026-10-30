@@ -19,9 +19,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   try {
     const { id, outputId } = await params;
     const handle = readJobHandle(id);
+    // An unregistered workflow can't be filtered to its declared outputs: refuse.
     const binding = getBinding(handle.binding);
+    if (!binding) throw new AccessError(404, "job_not_found", "Job not found.");
     const output = await fetchOutput(createClient(), handle.jobId, outputId, {
-      outputNodes: binding ? Object.values(binding.outputs) : undefined,
+      outputNodes: Object.values(binding.outputs),
     });
     return new Response(output.body, { headers: output.headers });
   } catch (error) {

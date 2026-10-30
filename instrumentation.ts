@@ -5,11 +5,14 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
-  if (process.env.NODE_ENV === "production" && !Number(process.env.TRUSTED_PROXY_HOPS)) {
-    // Without it no per-IP limit applies: everyone shares the global submit quota.
+  const { trustedProxyHops } = await import("./lib/access.ts");
+  if (process.env.NODE_ENV === "production" && trustedProxyHops() === null) {
+    // Same parser as clientIp: without a valid value no per-IP limit applies.
+    const raw = process.env.TRUSTED_PROXY_HOPS?.trim();
     console.warn(
-      "[access] TRUSTED_PROXY_HOPS is unset: per-IP limits are off. Wrong access codes are not limited " +
-        "per client (only the code's length stops guessing), and one client can use the whole submit quota.",
+      `[access] TRUSTED_PROXY_HOPS is ${raw ? `invalid (${JSON.stringify(raw)}; use a positive integer)` : "unset"}: ` +
+        "per-IP limits are off. Wrong access codes are not limited per client (only the code's length stops " +
+        "guessing), and one client can use the whole submit quota.",
     );
   }
   const { startJobReconciler } = await import("./lib/job-deadlines.ts");

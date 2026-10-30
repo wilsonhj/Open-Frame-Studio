@@ -128,6 +128,18 @@ export function assertMaySubmit(request: Request, accessCode: string | null): ()
 }
 
 /**
+ * TRUSTED_PROXY_HOPS as a positive integer, or null when it is unset or
+ * invalid (per-IP limits are then off). The one parser for this setting, so
+ * the startup warning and clientIp can't disagree.
+ */
+export function trustedProxyHops(): number | null {
+  const raw = process.env.TRUSTED_PROXY_HOPS?.trim();
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const hops = Number(raw);
+  return Number.isSafeInteger(hops) && hops > 0 ? hops : null;
+}
+
+/**
  * The client address for per-IP limits. `X-Forwarded-For` is client-writable
  * except for the entries our own proxies append, so with N trusted proxies
  * (TRUSTED_PROXY_HOPS, e.g. 1 on Vercel or behind one nginx) the client is
@@ -136,8 +148,8 @@ export function assertMaySubmit(request: Request, accessCode: string | null): ()
  * access code still apply.
  */
 export function clientIp(request: Request): string | null {
-  const hops = Number(process.env.TRUSTED_PROXY_HOPS ?? 0);
-  if (!Number.isInteger(hops) || hops <= 0) return null;
+  const hops = trustedProxyHops();
+  if (hops === null) return null;
   const chain = (request.headers.get("x-forwarded-for") ?? "")
     .split(",")
     .map((entry) => entry.trim())

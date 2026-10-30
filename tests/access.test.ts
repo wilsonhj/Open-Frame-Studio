@@ -5,6 +5,7 @@ import {
   AccessError,
   assertMaySubmit,
   clientIp,
+  trustedProxyHops,
   createJobHandle,
   readJobHandle,
   resetCredentialFailures,
@@ -74,6 +75,16 @@ describe("submit gate", () => {
     expectAccess(() => assertMaySubmit(request(), null), 503, "not_configured");
     env.ALLOW_PUBLIC_SUBMIT = "true";
     assertMaySubmit(request(), null);
+  });
+
+  it("TRUSTED_PROXY_HOPS must be a positive integer; anything else turns per-IP limits off (one parser)", () => {
+    for (const bad of ["-1", "1.5", "0", "abc", " ", "1e1", "0x1"]) {
+      env.TRUSTED_PROXY_HOPS = bad;
+      assert.equal(trustedProxyHops(), null, bad);
+      assert.equal(clientIp(request({ "x-forwarded-for": "1.2.3.4" })), null, bad);
+    }
+    env.TRUSTED_PROXY_HOPS = " 2 ";
+    assert.equal(trustedProxyHops(), 2);
   });
 
   it("trusts X-Forwarded-For only for the configured proxy hops", () => {
