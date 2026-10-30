@@ -1,9 +1,10 @@
-import { ComingSoon } from "../../components/coming-soon";
+import type { Metadata } from "next";
+
+import { PhotoshootStudio } from "../../components/photoshoot/photoshoot-studio";
+import "./photoshoot.css";
+
+export const metadata: Metadata = { title: "Photoshoot · Open Soul Studio" };
 
 export default function PhotoshootPage() {
-  return (
-    <ComingSoon title="Product Photoshoot">
-      Upload a product photo, pick a mode and get 1–10 varied shots. Optionally put your Soul in the frame.
-    </ComingSoon>
-  );
+  return <PhotoshootStudio />;
 }
