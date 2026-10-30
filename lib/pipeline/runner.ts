@@ -440,7 +440,10 @@ async function finishRun(def: Def, run: PipelineRun): Promise<boolean> {
       s.finishedAt = now();
     }
   }
-  const bad = run.steps.some((s) => BAD.has(s.status));
+  // A Comfy step is skipped only when it could not run, so it delivered nothing.
+  // A retry can fix the failed dependency and leave its other dependents
+  // skipped: the run is then not `succeeded`.
+  const bad = run.steps.some((s) => BAD.has(s.status) || (s.kind === "comfy" && s.status === "skipped"));
   // A deliverable is a succeeded leaf step (one no other step depends on).
   const good = run.steps.some((s) => s.status === "succeeded" && !run.steps.some((x) => x.dependsOn.includes(s.id)));
   run.status = run.cancelRequested ? "canceled" : !bad ? "succeeded" : good ? "partial" : "failed";
