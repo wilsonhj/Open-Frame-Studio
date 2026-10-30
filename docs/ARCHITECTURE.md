@@ -1,6 +1,6 @@
 # Architecture
 
-How the code on `main` works today. The multi-step pipeline runtime and the Product Shoot and Listing Images flows are not on `main`; they are in the open [PR #7](https://github.com/wilsonhj/Open-Soul-Studio/pull/7) and are summarised in [Pending: PR #7](#pending-pr-7) at the end.
+How the code on `main` works today. The multi-step pipeline runtime and the Product Shoot and Listing Images flows landed with Wave 2; they are summarised in [Wave 2](#pending-pr-7) at the end.
 
 For the HTTP contract, including the planned pipeline routes, see [spec/api.md](spec/api.md). The TypeScript types in `lib/contracts/` are the source of truth.
 
@@ -105,7 +105,7 @@ CI runs install with a frozen lockfile, lint, typecheck, `pnpm test` with a blan
 
 ## Pending: PR #7
 
-[PR #7](https://github.com/wilsonhj/Open-Soul-Studio/pull/7), "Wave 2: pipeline runtime, studio shell, Product Shoot and Listing hero image (mock-verified)", is open and mergeable at the time of writing. By its description it adds the following. Treat this list as provisional: the PR is still changing, and this document should be revised against `main` once it lands.
+Wave 2 ("pipeline runtime, studio shell, Product Shoot and Listing hero image") is on `main`. It adds the following; this section was written before it merged and may lag the code.
 
 | Area | What the PR adds |
 |---|---|

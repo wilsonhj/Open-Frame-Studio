@@ -154,7 +154,7 @@ All external sources below were retrieved October 29, 2026 (Pacific). Most exter
 
 ## Repository evidence
 
-- **R1:** [PR #2](https://github.com/wilsonhj/Open-Soul-Studio/pull/2); [pinned Wave 1 tree](https://github.com/wilsonhj/Open-Soul-Studio/tree/fbef2e71e25b7d9e63b2fdf5e616201cccff839c); [pinned main tree](https://github.com/wilsonhj/Open-Soul-Studio/tree/e43ac9c182d4e95ee9afd5f98cb967d786e9cc57).
-- **R2:** [Identity acceptance protocol](https://github.com/wilsonhj/Open-Soul-Studio/blob/fbef2e71e25b7d9e63b2fdf5e616201cccff839c/docs/eval/identity.md): selected auxiliary models, unimplemented evaluation script and pending results.
-- **R3:** [Reverse-engineering provenance](https://github.com/wilsonhj/Open-Soul-Studio/blob/fbef2e71e25b7d9e63b2fdf5e616201cccff839c/docs/research/re-findings.md): static evidence boundaries.
-- **R4:** [UX specification](https://github.com/wilsonhj/Open-Soul-Studio/blob/fbef2e71e25b7d9e63b2fdf5e616201cccff839c/docs/spec/ux.md): sections 1, 3, 7 and 10; [implementation plan](https://github.com/wilsonhj/Open-Soul-Studio/blob/fbef2e71e25b7d9e63b2fdf5e616201cccff839c/docs/PLAN.md).
+- **R1:** PR #2 (original private repo); the Wave 1 tree; the then-current main tree.
+- **R2:** [Identity acceptance protocol](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/eval/identity.md): selected auxiliary models, unimplemented evaluation script and pending results.
+- **R3:** [Reverse-engineering provenance](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/research/re-findings.md): static evidence boundaries.
+- **R4:** [UX specification](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/spec/ux.md): sections 1, 3, 7 and 10; [implementation plan](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/PLAN.md).
