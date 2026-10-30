@@ -1,5 +1,5 @@
 /**
- * Shared contract types for Open Soul Studio.
+ * Shared contract types for the studio.
  *
  * These are the Wave-0 drafts of the contracts that freeze at the end of
  * Wave 1 (see docs/PLAN.md). Keep this file free of runtime dependencies so
@@ -95,10 +95,10 @@ export type WorkflowBinding = {
 };
 
 // ---------------------------------------------------------------------------
-// Pipelines (multi-step DAGs: soul, photoshoot, cards, motion)
+// Pipelines (multi-step DAGs: identity, photoshoot, listing, motion)
 // ---------------------------------------------------------------------------
 
-export type PipelineKind = "soul" | "photoshoot" | "cards" | "motion";
+export type PipelineKind = "identity" | "photoshoot" | "listing" | "motion";
 
 /** A reference to an earlier step's output, used to wire steps together. */
 export type StepInputRef = { fromStep: string; outputNode?: string; index?: number };
@@ -117,77 +117,104 @@ export type PipelineStep = {
 
 // ---------------------------------------------------------------------------
 // Product Photoshoot
+//
+// Our own model, not a fixed list of named modes: a shoot is a SHOT STYLE
+// (what the picture is) times an OUTPUT FORMAT (how many, what shape, how
+// consistent). Styles and formats compose, so "with_person" x "series" is a
+// consistent set of on-person shots without a dedicated mode for it.
 // ---------------------------------------------------------------------------
 
-export const PHOTOSHOOT_MODES = [
-  "product_shot",
-  "lifestyle_scene",
-  "closeup_product_with_person",
-  "moodboard_pin",
-  "hero_banner",
-  "social_carousel",
-  "ad_creative_pack",
-  "virtual_model_tryout",
-  "conceptual_product",
-  "restyle",
+export const SHOT_STYLES = [
+  /** Product alone on a clean, seamless backdrop. */
+  "packshot",
+  /** Product placed in a believable real-world setting. */
+  "in_context",
+  /** Product held, worn or used by a person (an identity or uploaded photos). */
+  "with_person",
+  /** Top-down arrangement with props. */
+  "flat_lay",
+  /** Stylised or surreal art-directed scene. */
+  "concept",
+  /** Keep the composition of an existing photo; change light, palette or setting. */
+  "restage",
 ] as const;
 
-export type PhotoshootMode = (typeof PHOTOSHOOT_MODES)[number];
+export type ShotStyle = (typeof SHOT_STYLES)[number];
+
+export const OUTPUT_FORMATS = [
+  /** 1-4 independent variations. */
+  "single",
+  /** 3-10 frames that share one locked style (for carousels and lookbooks). */
+  "series",
+  /** One wide image with clear space for a headline. */
+  "banner",
+  /** The same shot cropped and recomposed for several placements. */
+  "ad_set",
+] as const;
+
+export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
 export const ASPECT_RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"] as const;
 
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
-export type VariationAxis = "preset" | "lighting" | "angle" | "palette";
+export type VariationAxis = "setting" | "lighting" | "angle" | "palette";
 
-export type ModeTemplate = {
-  mode: PhotoshootMode;
+export type ShotTemplate = {
+  style: ShotStyle;
   label: string;
-  defaultAspect: AspectRatio;
-  /** Subset of ASPECT_RATIOS the mode accepts. */
-  aspects: readonly AspectRatio[];
-  minOutputs: number;
-  maxOutputs: number;
-  /** Prompt template with `{product}`, `{style}`, `{lighting}`, `{angle}`, `{palette}` slots. */
+  /** Prompt template with `{product}`, `{setting}`, `{lighting}`, `{angle}`, `{palette}` slots. */
   promptTemplate: string;
   variationAxes: readonly VariationAxis[];
-  /** Carousel-style modes share one style lock across all outputs. */
-  sharedStyle: boolean;
-  /** Needs a person reference (Soul ID or photos). */
+  /** Needs a person reference (a saved identity or uploaded photos). */
   needsPerson: boolean;
 };
 
+export type FormatTemplate = {
+  format: OutputFormat;
+  label: string;
+  defaultAspect: AspectRatio;
+  /** Subset of ASPECT_RATIOS the format accepts. */
+  aspects: readonly AspectRatio[];
+  minOutputs: number;
+  maxOutputs: number;
+  /** All outputs share one style lock (seed, palette, lighting). */
+  sharedStyle: boolean;
+};
+
 // ---------------------------------------------------------------------------
-// Marketplace Cards
+// Listing images (marketplace product pages)
+//
+// A HERO image on pure white anchors everything; GALLERY slots show the
+// product itself; STORY slots are the long-form brand panels further down a
+// product page. Text is always rendered in code, never by diffusion.
 // ---------------------------------------------------------------------------
 
-export const CARD_ASSETS = [
-  "main_image",
-  "infographic",
-  "multi_angle",
-  "detail_shot",
-  "lifestyle",
-  "whats_in_box",
-  "aplus_hero_banner",
-  "aplus_pain_points",
-  "aplus_features",
-  "aplus_ingredients",
-  "aplus_efficacy",
-  "aplus_how_to_use",
-  "aplus_endorsement",
+export const LISTING_SLOTS = [
+  "hero",
+  "gallery_callouts",
+  "gallery_angles",
+  "gallery_detail",
+  "gallery_in_use",
+  "gallery_contents",
+  "story_banner",
+  "story_problem_solution",
+  "story_feature_grid",
+  "story_how_to",
+  "story_specs",
 ] as const;
 
-export type CardAssetId = (typeof CARD_ASSETS)[number];
+export type ListingSlotId = (typeof LISTING_SLOTS)[number];
 
-export type CardScope = "main" | "product-images" | "aplus" | "full-set";
+export type ListingScope = "hero" | "gallery" | "story" | "complete";
 
-export type CardAsset = {
-  id: CardAssetId;
+export type ListingSlot = {
+  id: ListingSlotId;
   label: string;
-  /** Every non-main asset is conditioned on the main image. */
-  anchoredOnMain: boolean;
+  /** Every non-hero slot is conditioned on the hero image. */
+  anchoredOnHero: boolean;
   aspect: AspectRatio;
-  /** Copy rendered in code (never by diffusion). Empty for main_image. */
+  /** Copy rendered in code (never by diffusion). Empty for the hero. */
   textSlots: readonly string[];
-  scopes: readonly CardScope[];
+  scopes: readonly ListingScope[];
 };

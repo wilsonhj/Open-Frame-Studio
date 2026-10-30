@@ -1,3 +1,9 @@
+# Update after code review (Oct 30)
+
+- **Naming:** the product is now **Open Frame Studio** (`lib/brand.ts`). Higgsfield's product names (Soul, Soul ID) and its photoshoot-mode and marketplace-card ids are no longer used in the UI or in the contracts. A "Soul" is now an **identity** (`/identity`); Marketplace Cards are **Listing Images** (`/listing`). Photoshoot modes are our own model: `SHOT_STYLES` × `OUTPUT_FORMATS` (`lib/types.ts`). Listing images use our own `LISTING_SLOTS` and scopes (`hero`, `gallery`, `story`, `complete`). Sections below that use the old names are historical.
+- **Copy:** user-facing copy no longer promises a trained LoRA or names FLUX.3 Klein, which matches the Wave 0 update below.
+- **Security:** job submission needs `STUDIO_ACCESS_CODE` in production and is rate-limited; jobs are tied to the submitting browser by a signed handle; outputs are served with safe headers; overdue jobs are canceled server-side. See README.
+
 # Update after Wave 0 (Oct 29, 19:40 UTC)
 
 Wave 0 findings are in `docs/spikes/`. They change the plan below as follows:

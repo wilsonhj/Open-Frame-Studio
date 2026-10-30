@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 import { BINDINGS, getBinding } from "../lib/bindings/index.ts";
 import { InputError, applyInputs, resolveInputs } from "../lib/inputs.ts";
-import { CARD_ASSETS, PHOTOSHOOT_MODES } from "../lib/types.ts";
+import { LISTING_SLOTS, OUTPUT_FORMATS, SHOT_STYLES } from "../lib/types.ts";
 
 const binding = BINDINGS.image_resize_smoke;
 const png = () => new File([new Uint8Array([137, 80, 78, 71])], "in.png", { type: "image/png" });
@@ -15,9 +15,10 @@ function form(entries: Record<string, string | File>) {
 }
 
 describe("contracts", () => {
-  it("has 13 card assets and 10 photoshoot modes", () => {
-    assert.equal(CARD_ASSETS.length, 13);
-    assert.equal(PHOTOSHOOT_MODES.length, 10);
+  it("has our own shot styles, output formats and listing slots", () => {
+    assert.equal(SHOT_STYLES.length, 6);
+    assert.equal(OUTPUT_FORMATS.length, 4);
+    assert.equal(LISTING_SLOTS.length, 11);
   });
 
   it("only exposes registered workflows", () => {

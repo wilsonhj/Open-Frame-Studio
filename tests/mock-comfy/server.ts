@@ -41,6 +41,7 @@ type MockJob = {
   id: string;
   scenario: Scenario;
   polls: number;
+  canceled?: boolean;
   workflow: Record<string, unknown>;
   body: Record<string, unknown>;
   createdAt: string;
@@ -49,7 +50,8 @@ type MockJob = {
 export type MockState = {
   scenario: Scenario;
   /** "proxy": content served inline; "cloud": content 302-redirects to a signed URL. */
-  contentMode: "proxy" | "cloud";
+  /** "relative": a proxy that 302s to a path-relative Location on its own origin. */
+  contentMode: "proxy" | "cloud" | "relative";
   assets: Map<string, StoredAsset>;
   jobs: Map<string, MockJob>;
   idempotencyKeys: Set<string>;
@@ -59,6 +61,8 @@ export type MockState = {
   authHeaders: Array<string | null>;
   /** Requests to the fake storage host; a bearer token must never appear here. */
   signedFetches: Array<{ authorization: string | null }>;
+  /** Job ids that received POST /api/v2/jobs/{id}/cancel. */
+  cancels: string[];
 };
 
 export type MockComfy = {
@@ -126,13 +130,14 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     assetPosts: 0,
     authHeaders: [],
     signedFetches: [],
+    cancels: [],
   };
   let base = "";
 
   function jobJson(job: MockJob, advance: boolean) {
     if (advance) job.polls += 1;
     const seq = PROGRESSIONS[job.scenario as keyof typeof PROGRESSIONS] ?? ["unknown"];
-    const status = seq[Math.min(job.polls, seq.length - 1)];
+    const status = job.canceled ? "canceled" : seq[Math.min(job.polls, seq.length - 1)];
     let outputs: unknown[] = [];
     if (status === "succeeded") {
       const outId = `out-${job.id}`;
@@ -193,7 +198,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     if (path.startsWith("/api/v2/")) state.authHeaders.push(req.headers.authorization ?? null);
 
     if (method === "POST" && path === "/__mock/scenario") {
-      const body = JSON.parse((await readBody(req)).toString() || "{}") as { scenario?: Scenario; contentMode?: "proxy" | "cloud" };
+      const body = JSON.parse((await readBody(req)).toString() || "{}") as { scenario?: Scenario; contentMode?: MockState["contentMode"] };
       if (body.scenario && SCENARIOS.includes(body.scenario)) state.scenario = body.scenario;
       if (body.contentMode) state.contentMode = body.contentMode;
       return send(res, 200, { scenario: state.scenario, contentMode: state.contentMode });
@@ -233,6 +238,9 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     if (method === "GET" && (m = path.match(/^\/api\/v2\/assets\/([^/]+)\/content$/))) {
       const asset = state.assets.get(decodeURIComponent(m[1]));
       if (!asset) return send(res, 404, envelope("asset_not_found", "No such asset."));
+      if (state.contentMode === "relative" && !url.searchParams.has("raw")) {
+        return send(res, 302, undefined, { Location: `/api/v2/assets/${asset.id}/content?raw=1` });
+      }
       if (state.contentMode === "cloud") {
         // A different origin (localhost vs 127.0.0.1) stands in for the storage host.
         const signedBase = base.replace("127.0.0.1", "localhost");
@@ -283,6 +291,15 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       const job = state.jobs.get(decodeURIComponent(m[1]));
       if (!job) return send(res, 404, envelope("job_not_found", "No such job."));
       return send(res, 200, jobJson(job, true));
+    }
+    if (method === "POST" && (m = path.match(/^\/api\/v2\/jobs\/([^/]+)\/cancel$/))) {
+      const job = state.jobs.get(decodeURIComponent(m[1]));
+      if (!job) return send(res, 404, envelope("job_not_found", "No such job."));
+      state.cancels.push(job.id);
+      // Like the real API: a job that already finished stays finished.
+      const current = jobJson(job, false).status;
+      if (!["succeeded", "failed", "canceled", "expired"].includes(current)) job.canceled = true;
+      return send(res, 200, jobJson(job, false));
     }
     if (method === "GET" && path === "/api/v2/jobs") {
       return send(res, 501, envelope("not_implemented", "Job listing is not implemented."));

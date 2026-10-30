@@ -1,6 +1,8 @@
-# Open Soul Studio
+# Open Frame Studio
 
-Open Soul Studio is an open-weights rebuild of three Higgsfield tools: Soul ID, Product Photoshoot and Marketplace Cards. It runs on ComfyUI through the Comfy API, either on Comfy Cloud or on your own GPU. You upload photos of a person once and get a "Soul": a reusable identity, and in trained mode a LoRA `.safetensors` file you download and own. You then use it to shoot your products in ten photoshoot modes, build a marketplace image set (a compliant white-background main image plus secondary and A+ images anchored on it), and animate the result. Every model in the pipeline is open weights and every workflow is a plain ComfyUI graph you can inspect.
+Open Frame Studio is an open-weights creative studio built on the ComfyUI inference engine, made for Comfy's Open Source Higgsfield challenge. It takes the best ideas from hosted AI photo studios and rebuilds them as open, inspectable ComfyUI graphs, with its own names, flows and design. It runs through the Comfy API, either on Comfy Cloud or on your own GPU.
+
+You upload 5–20 photos of a person once and get an **identity**: a checked reference set of the best 3–6 crops, saved as a portable file you keep. You can then put that identity and your product into a **product shoot** (pick a shot style and an output format), build **listing images** (a compliant white-background hero image plus gallery and story panels anchored on it), and turn the result into a short **motion** clip. Every model in the pipeline is open weights (FLUX.2 Klein 4B, MiniMax H3, BiRefNet, SeedVR2), and every workflow is a plain ComfyUI graph you can open and change.
 
 > Status: Wave 0 scaffold. The app shell, the Comfy client wrapper, the generic job API and an offline mock are in place. The tool pages are placeholders.
 
@@ -15,6 +17,8 @@ pnpm dev                         # http://127.0.0.1:3000
 ```
 
 - `COMFY_API_KEY` is your key from [platform.comfy.org](https://platform.comfy.org/profile/api-keys). It is read only on the server and is never exposed to the browser.
+- `SESSION_SECRET` signs the per-browser job handles. Set a long random value in production; in development a per-process secret is generated.
+- `STUDIO_ACCESS_CODE` gates job submission, because every job is billed to your key. In production the app refuses to submit jobs unless this is set or you explicitly opt in with `ALLOW_PUBLIC_SUBMIT=true`. `SUBMITS_PER_HOUR_PER_IP` (default 20) and `SUBMITS_PER_HOUR` (default 200) add in-memory rate limits per server instance.
 - `COMFY_BASE_URL` is optional. Leave it unset to use Comfy Cloud. Set it (for example `http://127.0.0.1:8189`) to use a self-hosted ComfyUI behind `comfy-api-proxy`; the code is the same.
 
 To work offline, run against the bundled mock Comfy API v2 server:
@@ -32,36 +36,41 @@ COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev     # terminal 2, then open /smoke
 | `pnpm test` | `node --test` unit tests against `tests/mock-comfy` (no network, no credits) |
 | `pnpm mock-comfy` | Standalone mock Comfy API v2 server |
 
-## How it maps to Higgsfield
+## What we built, and what inspired it
 
-| Higgsfield | Open Soul Studio | Built on (open weights, ComfyUI) |
+We studied what makes hosted AI studios pleasant to use (one reusable identity, guided choices instead of blank prompts, sets that stay visually consistent) and built our own version of each idea on ComfyUI. The names, taxonomy, flows and visuals are ours. See [docs/UX-PATTERNS.md](./docs/UX-PATTERNS.md) for the pattern teardown.
+
+| Surface | What it does | Built on (open weights, ComfyUI) |
 |---|---|---|
-| **Soul ID**: 5–20 photos → `custom_reference_id` | `/soul`. **Instant** mode picks the best reference crops; **Trained** mode trains a LoRA in one Comfy job and returns a downloadable `.safetensors` | FLUX.3 Klein edit with multi-reference latents; `TrainLoraNode` + `SaveLoRA`; BiRefNet crops |
-| **Product Photoshoot**: 10 modes, 1–10 varied outputs | `/photoshoot`. The same 10 mode ids, with our own prompt templates and variation engine (preset, lighting, angle, palette), optionally with your Soul in frame | FLUX.3 Klein edit with product and Soul references; optional SeedVR2 upscale |
-| **Marketplace Cards**: main, product-images, A+, full set (13 assets) | `/cards`. The main image is a deterministic cutout composited on #FFFFFF at ~85% fill and compliance-checked. Secondary and A+ images are conditioned on it, and their text is rendered in code | BiRefNet; FLUX.3 Klein edit |
-| **Motion** | `/motion`. A Soul still and a product still become one reference-to-video clip | MiniMax H3 reference-to-video template |
+| **Identity** (`/identity`) | Photo checks on upload, then the best 3–6 crops become a reusable reference set with a style card, saved as a portable file. Reference-based, so it is ready in about a minute with no training step | FLUX.2 Klein 4B edit with multi-reference latents; BiRefNet crops |
+| **Product Shoot** (`/photoshoot`) | Our own model: a shot style (`packshot`, `in_context`, `with_person`, `flat_lay`, `concept`, `restage`) times an output format (`single`, `series`, `banner`, `ad_set`), with a variation engine over setting, lighting, angle and palette | FLUX.2 Klein 4B edit with product and identity references; optional SeedVR2 upscale |
+| **Listing Images** (`/listing`) | A deterministic cutout hero composited on #FFFFFF at ~85% fill and compliance-checked, then gallery and story panels conditioned on it. All text is rendered in code | BiRefNet; FLUX.2 Klein 4B edit |
+| **Motion** (`/motion`) | An identity still and a product still become one reference-to-video clip | MiniMax H3 reference-to-video template |
 
 ## Architecture
 
 ```
-app/api/jobs/route.ts                       POST multipart → workflows/<name>.api.json → bind inputs → submit once → 202
-app/api/jobs/[id]/route.ts                  GET  normalized job {status, terminal, progress, outputs, error}
-app/api/jobs/[id]/outputs/[outputId]        GET  re-hosts the output bytes (signed URLs expire; key stays server-side)
+app/api/jobs/route.ts                       POST multipart → access code + rate limit → workflows/<name>.api.json → bind inputs → submit once → 202 {id: signed handle}
+app/api/jobs/[id]/route.ts                  GET  normalized job {status, terminal, progress, outputs, error}; cancels jobs past their deadline
+app/api/jobs/[id]/outputs/[outputId]        GET  re-hosts the output bytes with safe headers (signed URLs expire; key stays server-side)
+lib/access.ts                               access code, rate limits, per-browser signed job handles
+lib/brand.ts                                product name and surface labels
 lib/comfy.ts                                server-only @comfyorg/sdk 0.5.0 wrapper (traps below)
 lib/bindings/index.ts                       registry: workflow name → {input → node id + field}
 lib/inputs.ts                               multipart validation + binding application
-lib/types.ts                                contracts: Job, OutputRef, PipelineStep, ModeTemplate, CardAsset, PhotoshootMode
+lib/types.ts                                contracts: Job, OutputRef, PipelineStep, ShotStyle × OutputFormat, ListingSlot
 workflows/*.api.json                        API-format graphs (subgraphs unpacked)
 tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / failed / unknown-forever / expired / 422 reuse)
 ```
 
 `lib/comfy.ts` handles the known SDK and API traps:
 
-- Every poll needs a timeout. A job stuck in `unknown` becomes terminal with a `poll_timeout` error.
+- Every poll needs a timeout. A job stuck in `unknown`, or running past its 15-minute budget, is canceled on Comfy and becomes terminal with a `poll_timeout` error.
 - `submit()` is never retried. A 422 `idempotency_key_reuse` is surfaced, not resubmitted, because a fresh key would bill a second job.
 - No `metadata` is sent.
 - Status comes from polling, not SSE.
-- Outputs are re-hosted through our own route.
+- Outputs are re-hosted through our own route, only from the workflow's declared output nodes. Media types are served inline; anything else (HTML, SVG, scripts) is a sandboxed download.
+- The browser can only address a job through a handle signed for its own session cookie, so one visitor can't read another visitor's jobs (or any other job on the account) even if they learn its id.
 - UI-format workflows are rejected locally.
 
 ## Licence and NOTICE
@@ -72,4 +81,4 @@ MIT. See [LICENSE](./LICENSE).
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-This is a clean-room behavioural reimplementation. It contains no code from `higgsfield-ai/app-templates`, and it does not bypass any Higgsfield authentication or billing. "Higgsfield" and "Soul ID" are referenced only to describe compatible behaviour.
+This is an independent, clean-room project. It contains no code from `higgsfield-ai/app-templates`, does not bypass any Higgsfield authentication or billing, and does not use Higgsfield's product names, identifiers or assets in its UI. "Higgsfield" appears only to name the challenge and the products that inspired it. The repository slug `open-soul-studio` predates the rename.

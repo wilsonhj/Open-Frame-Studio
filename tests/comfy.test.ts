@@ -28,6 +28,7 @@ beforeEach(() => {
   mock.state.jobPosts.length = 0;
   mock.state.assetPosts = 0;
   mock.state.signedFetches.length = 0;
+  mock.state.cancels.length = 0;
 });
 
 async function smokeWorkflow() {
@@ -169,6 +170,25 @@ describe("submit + poll against the mock", () => {
     assert.equal(done.error?.code, "poll_timeout");
     assert.ok(elapsed >= 280 && elapsed < 2_000, `deadline respected (took ${elapsed} ms)`);
     assert.equal(mock.state.jobPosts.length, 1, "never resubmitted while waiting");
+    assert.deepEqual(mock.state.cancels, [submitted.id], "the abandoned job is canceled so it stops billing");
+  });
+
+  it("getJobWithDeadline: cancels an overdue job server-side, leaves a fresh one alone", async () => {
+    mock.setScenario("unknown_forever");
+    const { client, wf } = await smokeWorkflow();
+    const submitted = await comfy.submitOnce(client, wf);
+    const fresh = await comfy.getJobWithDeadline(client, submitted.id, { submittedAt: Date.now(), deadlineMs: 60_000 });
+    assert.equal(fresh.terminal, false);
+    assert.equal(mock.state.cancels.length, 0);
+    const overdue = await comfy.getJobWithDeadline(client, submitted.id, {
+      publicId: "handle-123",
+      submittedAt: Date.now() - 61_000,
+      deadlineMs: 60_000,
+    });
+    assert.equal(overdue.terminal, true);
+    assert.equal(overdue.id, "handle-123");
+    assert.equal(overdue.error?.code, "poll_timeout");
+    assert.deepEqual(mock.state.cancels, [submitted.id]);
   });
 
   it("refuses to poll without a timeout", async () => {
@@ -199,5 +219,66 @@ describe("submit + poll against the mock", () => {
     const submitted = await comfy.submitOnce(client, wf);
     await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
     await assert.rejects(comfy.fetchOutput(client, submitted.id, "nope"), comfy.OutputNotFoundError);
+  });
+});
+
+describe("outputs: filtering, safe headers, relative URLs", () => {
+  it("only exposes outputs from the binding's outputNodes, under the public id", async () => {
+    const { client, wf } = await smokeWorkflow();
+    const submitted = await comfy.submitOnce(client, wf);
+    const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+    const shown = comfy.withPublicId(done, "h.1.x.sig", ["3"]);
+    assert.equal(shown.outputs.length, 1);
+    assert.equal(shown.id, "h.1.x.sig");
+    assert.match(shown.outputs[0].url, /^\/api\/jobs\/h\.1\.x\.sig\/outputs\//);
+    assert.equal(comfy.withPublicId(done, "h", ["99"]).outputs.length, 0, "intermediate nodes are hidden");
+    await assert.rejects(
+      comfy.fetchOutput(client, submitted.id, done.outputs[0].id, { outputNodes: ["99"] }),
+      comfy.OutputNotFoundError,
+    );
+  });
+
+  it("serves media inline and everything else as a sandboxed attachment", () => {
+    const png = comfy.outputResponseHeaders("image/png", "a.png");
+    assert.equal(png.get("Content-Type"), "image/png");
+    assert.match(png.get("Content-Disposition") ?? "", /^inline/);
+    assert.equal(png.get("X-Content-Type-Options"), "nosniff");
+    for (const risky of ["text/html", "image/svg+xml", "application/javascript", null]) {
+      const headers = comfy.outputResponseHeaders(risky, "x<script>.html");
+      assert.equal(headers.get("Content-Type"), "application/octet-stream", String(risky));
+      assert.match(headers.get("Content-Disposition") ?? "", /^attachment; filename="x_script_.html"$/);
+      assert.match(headers.get("Content-Security-Policy") ?? "", /sandbox/);
+    }
+  });
+
+  it("self-hosted proxy with a path-relative download URL still re-hosts", async () => {
+    mock.state.contentMode = "relative";
+    const { client, wf } = await smokeWorkflow();
+    const submitted = await comfy.submitOnce(client, wf);
+    const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+    const response = await comfy.fetchOutput(client, submitted.id, done.outputs[0].id);
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), new Uint8Array(PNG_1X1));
+  });
+
+  it("rehosts outputs with safe headers", async () => {
+    const { client, wf } = await smokeWorkflow();
+    const submitted = await comfy.submitOnce(client, wf);
+    const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+    const response = await comfy.fetchOutput(client, submitted.id, done.outputs[0].id);
+    assert.equal(response.headers.get("Content-Type"), "image/png");
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  });
+});
+
+describe("rejected submit mapping", () => {
+  it("maps account problems to 503, keeps 402/429, else 422", () => {
+    assert.equal(comfy.rejectedSubmitStatus(401), 503);
+    assert.equal(comfy.rejectedSubmitStatus(403), 503);
+    assert.equal(comfy.rejectedSubmitStatus(402), 402);
+    assert.equal(comfy.rejectedSubmitStatus(429), 429);
+    assert.equal(comfy.rejectedSubmitStatus(422), 422);
+    assert.equal(comfy.rejectedSubmitStatus(400), 422);
+    const forbidden = new comfy.SubmitRejectedError("free tier", "forbidden", 403, null);
+    assert.match(comfy.rejectedSubmitMessage(forbidden), /plan/);
   });
 });

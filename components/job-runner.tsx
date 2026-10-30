@@ -10,26 +10,26 @@ import type { Job } from "../lib/types";
 
 const POLL_MS = 2_000;
 const RETRY_MS = 5_000;
-/** Give up client-side after this long without a terminal status. */
-const CLIENT_DEADLINE_MS = 15 * 60_000;
+/**
+ * Stop after this many failed polls in a row. The job deadline itself is
+ * enforced server-side (the status route cancels overdue jobs), so the
+ * client just keeps polling until the server says the job is terminal.
+ */
+const MAX_POLL_FAILURES = 60;
 
 export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: string }) {
   const [file, setFile] = useState<File | null>(null);
   const [scale, setScale] = useState(0.5);
   const [job, setJob] = useState<Job | null>(null);
-  const [startedAt, setStartedAt] = useState(0);
   const [pollRetry, setPollRetry] = useState(0);
+  const [accessCode, setAccessCode] = useState("");
+  const [needsAccessCode, setNeedsAccessCode] = useState(false);
   const [message, setMessage] = useState("Choose a PNG, JPEG or WebP image.");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!job || job.terminal) return;
+    if (!job || job.terminal || pollRetry >= MAX_POLL_FAILURES) return;
     const timer = window.setTimeout(async () => {
-      if (Date.now() - startedAt > CLIENT_DEADLINE_MS) {
-        setJob({ ...job, terminal: true, error: { code: "poll_timeout", message: "Gave up waiting for the job." } });
-        setMessage("Gave up waiting for the job.");
-        return;
-      }
       try {
         const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}`, { cache: "no-store" });
         const next = (await response.json()) as Job & { error?: unknown };
@@ -46,12 +46,13 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
                 : next.error?.message ?? `Job ${next.status}.`,
         );
       } catch (cause) {
-        setMessage(cause instanceof Error ? cause.message : "Could not check job status.");
+        const detail = cause instanceof Error ? cause.message : "Could not check job status.";
+        setMessage(pollRetry + 1 >= MAX_POLL_FAILURES ? `${detail} Stopped checking; reload to try again.` : detail);
         setPollRetry((retry) => retry + 1);
       }
     }, pollRetry ? RETRY_MS : POLL_MS);
     return () => window.clearTimeout(timer);
-  }, [job, pollRetry, startedAt]);
+  }, [job, pollRetry]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -64,11 +65,13 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
       body.set("workflow", workflow);
       body.set("image", file);
       body.set("scale", String(scale));
+      if (accessCode) body.set("access_code", accessCode);
       // Submitted exactly once: a retry would be a second, separately billed job.
       const response = await fetch("/api/jobs", { method: "POST", body });
-      const next = (await response.json()) as Job & { error?: unknown };
+      const next = (await response.json()) as Job & { error?: unknown; code?: unknown };
+      if (next.code === "access_code_required") setNeedsAccessCode(true);
       if (!response.ok) throw new Error(typeof next.error === "string" ? next.error : "Unable to submit job.");
-      setStartedAt(Date.now());
+      setPollRetry(0);
       setJob(next);
       setMessage("Submitted.");
     } catch (cause) {
@@ -78,7 +81,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
     }
   }
 
-  const running = Boolean(job && !job.terminal);
+  const running = Boolean(job && !job.terminal && pollRetry < MAX_POLL_FAILURES);
 
   return (
     <form onSubmit={submit} className="space-y-4 rounded-xl border border-border bg-card p-5">
@@ -103,6 +106,18 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
           className="block w-full"
         />
       </label>
+      {needsAccessCode && (
+        <label className="block space-y-1 text-sm">
+          <span>Access code</span>
+          <input
+            type="password"
+            autoComplete="off"
+            value={accessCode}
+            onChange={(event) => setAccessCode(event.target.value)}
+            className="block w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
+          />
+        </label>
+      )}
       <button
         type="submit"
         disabled={!file || busy || running}
