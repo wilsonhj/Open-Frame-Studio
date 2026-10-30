@@ -13,8 +13,8 @@ export const h3R2v = {
   inputs: {
     /** `<Picture 1>`: person / identity ref. */
     image_1: { node: "137", field: "image", kind: "image", required: true },
-    /** `<Picture 2>`: product. */
-    image_2: { node: "139", field: "image", kind: "image" },
+    /** `<Picture 2>`: product. Required: an unset LoadImage keeps the graph's placeholder file, which Comfy rejects. */
+    image_2: { node: "139", field: "image", kind: "image", required: true },
     /** Must use the `<Picture N>` tags and give each reference a role. */
     prompt: { node: "138", field: "value", kind: "text" },
     seed: { node: "129", field: "noise_seed", kind: "int", min: 0, randomize: true },
