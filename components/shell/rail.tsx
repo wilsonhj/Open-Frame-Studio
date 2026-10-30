@@ -43,7 +43,7 @@ export function Rail({ demo }: { demo: boolean }) {
           );
         })}
       </nav>
-      <div className="mt-auto flex flex-col gap-2 max-md:hidden">
+      <div className="mt-auto mb-12 flex flex-col gap-2 max-md:hidden">
         <Link href="/runs" className="text-sm text-ink-2 hover:text-ink">
           Recent runs
         </Link>
