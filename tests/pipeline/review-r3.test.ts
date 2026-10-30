@@ -183,12 +183,18 @@ describe("runner review fixes, round 3", () => {
     runner.registerDefinition(passthrough("photoshoot"));
     const id = await storeLiveRun("photoshoot", 300);
     const deadline = Date.parse((await store.loadRun(id))!.steps[0].deadlineAt!);
-    let pastDeadline = 0;
     useClient({
       jobs: {
-        // Polling fails until (and once past) the deadline; the job finished meanwhile.
+        // Every poll that starts before the deadline fails, and the one in flight
+        // at the deadline fails only after it has passed (as on a slow network),
+        // so the step's last look happens past the deadline whatever the timing.
+        // The job finished meanwhile: that look finds it.
         get: async (jobId: string) => {
-          if (Date.now() < deadline || pastDeadline++ === 0) throw new Error("fetch failed");
+          const wait = deadline - Date.now();
+          if (wait >= 0) {
+            await new Promise((r) => setTimeout(r, wait + 20));
+            throw new Error("fetch failed");
+          }
           return job(jobId, "succeeded", out);
         },
       },
