@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 
+import { forgetJob, recoverJob, rememberJob, tabId } from "../lib/job-recovery";
 import type { Job } from "../lib/types";
 
 const POLL_MS = 2_000;
@@ -16,24 +17,29 @@ const RETRY_MS = 5_000;
  * pausing here never leaves a job unguarded.
  */
 const MAX_POLL_FAILURES = 30;
-/** The unfinished job's handle survives reloads, so it is never lost. */
-const STORAGE_KEY = "studio:active-job";
-
-function loadSaved(workflow: string): Job | null {
+/**
+ * Unfinished jobs survive reloads (lib/job-recovery.ts): one entry per job,
+ * so one tab's finished job never erases another tab's unfinished one.
+ * Storage may be blocked; the job still runs and is still deadline-enforced
+ * server-side, so failures here are ignored.
+ */
+function remember(workflow: string, job: Job): void {
   try {
-    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null") as { workflow?: string; job?: Job } | null;
-    return saved?.workflow === workflow && saved.job && !saved.job.terminal ? saved.job : null;
-  } catch {
-    return null;
-  }
+    rememberJob(window.localStorage, tabId(window.sessionStorage), workflow, job);
+  } catch {}
 }
 
-function save(workflow: string, job: Job | null): void {
+function forget(job: Job | null): void {
   try {
-    if (job && !job.terminal) window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ workflow, job }));
-    else window.localStorage.removeItem(STORAGE_KEY);
+    if (job) forgetJob(window.localStorage, job.id);
+  } catch {}
+}
+
+function recover(workflow: string): Job | null {
+  try {
+    return recoverJob(window.localStorage, tabId(window.sessionStorage), workflow);
   } catch {
-    // Storage blocked: the job still runs and is still deadline-enforced server-side.
+    return null;
   }
 }
 
@@ -65,7 +71,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
   // Deferred to after hydration: storage isn't available during prerender.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const saved = loadSaved(workflow);
+      const saved = recover(workflow);
       if (saved) {
         setJob(saved);
         setMessage("Resuming the unfinished job…");
@@ -74,11 +80,6 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
     return () => window.clearTimeout(timer);
   }, [workflow]);
 
-  /** Set the job and keep the stored copy in step (saved while unfinished, cleared otherwise). */
-  function track(next: Job | null) {
-    save(workflow, next);
-    setJob(next);
-  }
 
   useEffect(() => {
     if (!job || job.terminal || pollRetry >= MAX_POLL_FAILURES) return;
@@ -89,7 +90,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
         if (!response.ok) {
           const detail = typeof next.error === "string" ? next.error : "Could not check job status.";
           if (isPermanent(response.status)) {
-            save(workflow, null);
+            forget(job);
             setJob(null);
             setPollRetry(0);
             setMessage(`${detail} This job can no longer be checked; start a new run.`);
@@ -97,7 +98,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
           }
           throw new Error(detail);
         }
-        save(workflow, next);
+        remember(workflow, next);
         setJob(next);
         setPollRetry(0);
         setMessage(describe(next));
@@ -120,7 +121,7 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
     // run is the separate, explicit "Start a new run" action.
     if (!file || busy || unresolved) return;
     setBusy(true);
-    track(null);
+    setJob(null);
     setMessage("Uploading and submitting…");
     try {
       const body = new FormData();
@@ -134,7 +135,8 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
       if (next.code === "access_code_required") setNeedsAccessCode(true);
       if (!response.ok) throw new Error(typeof next.error === "string" ? next.error : "Unable to submit job.");
       setPollRetry(0);
-      track(next);
+      remember(workflow, next);
+      setJob(next);
       setMessage("Submitted.");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Unable to submit job.");
@@ -205,7 +207,8 @@ export function JobRunner({ workflow = "image_resize_smoke" }: { workflow?: stri
           <button
             type="button"
             onClick={() => {
-              track(null);
+              forget(job);
+              setJob(null);
               setPollRetry(0);
               setMessage("Stopped watching the previous job (the server still enforces its time limit).");
             }}
