@@ -1,8 +1,12 @@
+"use client";
 /**
  * One contact-sheet frame: status, image, caption strip with the variation
  * axes (docs/spec/ux.md §5.3, §7). No fake percentages.
  */
+import { useState } from "react";
+
 import { StatusPill } from "../ui";
+import { Upscale } from "./upscale";
 import { errorDetail, humanReason } from "../../lib/photoshoot/copy";
 import type { JobErrorInfo, OutputRef, PipelineStepStatus, VariationPick } from "../../lib/types";
 
@@ -21,6 +25,8 @@ export type FrameProps = {
   retryJobs?: number;
   /** A retry request for this frame is in flight. */
   retrying?: boolean;
+  /** Offer "Upscale 2×" on a finished frame. */
+  upscalable?: boolean;
 };
 
 const STATUS_COPY: Partial<Record<PipelineStepStatus, string>> = {
@@ -31,8 +37,27 @@ const STATUS_COPY: Partial<Record<PipelineStepStatus, string>> = {
   timed_out: "timed out",
 };
 
-export function Frame({ index, label, aspect, status, waitingNote, output, error, variation, onRetry, retryJobs = 1, retrying = false }: FrameProps) {
+/** The caption pill is narrow on 4-up sheets: short words (the frame body keeps the long copy). */
+const PILL_COPY: Partial<Record<PipelineStepStatus, string>> = { ...STATUS_COPY, queued: "queued" };
+
+export function Frame({
+  index,
+  label,
+  aspect,
+  status,
+  waitingNote,
+  output,
+  error,
+  variation,
+  onRetry,
+  retryJobs = 1,
+  retrying = false,
+  upscalable = false,
+}: FrameProps) {
   const [w, h] = aspect.split(":").map(Number);
+  // The upscale of THIS output (a retried frame has a new output, so an older upscale is ignored).
+  const [upscaled, setUpscaled] = useState<{ from: string; ref: OutputRef } | null>(null);
+  const shown = output && upscaled?.from === output.id ? upscaled.ref : output;
   const live = status === "queued" || status === "running";
   // A skipped frame (its cutout failed) is retryable too: the retry action
   // re-runs the failed cutout along with the frame.
@@ -44,9 +69,9 @@ export function Frame({ index, label, aspect, status, waitingNote, output, error
         className={`ps-frame relative overflow-hidden rounded-md border border-border bg-[var(--ps-film)] ${live ? "ps-live" : ""}`}
         style={{ aspectRatio: `${w || 1} / ${h || 1}` }}
       >
-        {output ? (
+        {shown ? (
           // eslint-disable-next-line @next/next/no-img-element -- re-hosted run output, sizes unknown
-          <img src={output.url} alt={`${label} ${index + 1}`} className="absolute inset-0 size-full object-cover" />
+          <img src={shown.url} alt={`${label} ${index + 1}`} className="absolute inset-0 size-full object-cover" />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-3 text-center font-mono text-[11px] text-[var(--ps-film-ink)]">
             <span className="text-2xl opacity-40">{String(index + 1).padStart(2, "0")}</span>
@@ -56,11 +81,16 @@ export function Frame({ index, label, aspect, status, waitingNote, output, error
         )}
       </div>
       <figcaption className="flex flex-col gap-1 font-mono text-[11px] leading-snug text-muted">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-foreground">
+        {/* One line on narrow 4-up frames: the label never wraps; a long pill truncates. */}
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <span className="shrink-0 whitespace-nowrap text-foreground">
             {label} {String(index + 1).padStart(2, "0")}
           </span>
-          <StatusPill status={status} label={STATUS_COPY[status]} />
+          <StatusPill
+            status={status}
+            label={PILL_COPY[status]}
+            className="min-w-0 truncate whitespace-nowrap"
+          />
         </div>
         {variation ? (
           <span className="line-clamp-2" title={Object.values(variation).join(" · ")}>
@@ -72,11 +102,18 @@ export function Frame({ index, label, aspect, status, waitingNote, output, error
             {humanReason(error)}
           </span>
         ) : null}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
           {output ? (
             <a className="underline decoration-dotted underline-offset-2 hover:text-foreground" href={output.url} download={output.name}>
               Download
             </a>
+          ) : null}
+          {output && upscalable && status === "succeeded" ? (
+            <Upscale
+              key={output.id}
+              output={output}
+              onResult={(ref) => setUpscaled(ref ? { from: output.id, ref } : null)}
+            />
           ) : null}
           {failed && onRetry ? (
             <button

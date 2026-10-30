@@ -92,7 +92,7 @@ export function buildPrompts(template: ModeTemplate, notes: string, n: number, s
         angle: variation.angle,
         palette: lock.palette,
       });
-      const prompt = [styleBlock, role ? `Slide ${i + 1} role: ${role}.` : "", body, extra ? `Notes: ${extra}.` : ""]
+      const prompt = [styleBlock, role ? `Composition: ${role}.` : "", body, extra ? `Notes: ${extra}.` : ""]
         .filter(Boolean)
         .join(" ");
       out.push({ index: i, prompt, seed: base, variation, role });
