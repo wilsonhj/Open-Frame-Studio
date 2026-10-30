@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, describe, it } from "node:test";
@@ -91,5 +92,45 @@ describe("server-owned job deadlines", () => {
     mock.state.cancelBehavior = "ok";
     assert.equal(await deadlines.enforceDeadline(client, job.id, old + 60_000, Date.now() + 62_000), "canceled");
     assert.equal((await records()).length, 0);
+  });
+
+  it("without a saved record, a repeat poll reports the real last cancel outcome", async () => {
+    const { client, job } = await submitLive();
+    const deadline = Date.now() - 1_000; // overdue, and recordJob never ran (persist failed)
+    mock.state.cancelBehavior = "error";
+    assert.equal(await deadlines.enforceDeadline(client, job.id, deadline), "cancel_failed");
+    assert.equal(await deadlines.enforceDeadline(client, job.id, deadline), "cancel_failed", "not 'cancel_requested'");
+    assert.equal(mock.state.cancels.length, 1, "throttled");
+    await deadlines.forgetJob(job.id);
+  });
+
+  it("the sweep removes corrupt or malformed records instead of skipping them forever", async () => {
+    const { client } = await submitLive();
+    await mkdir(join(dataDir, "jobs"), { recursive: true });
+    await writeFile(join(dataDir, "jobs", "corrupt.json"), "{not json");
+    await writeFile(join(dataDir, "jobs", "shapeless.json"), JSON.stringify({ hello: "world" }));
+    const summary = await deadlines.reconcileJobs(client);
+    assert.equal(summary.forgotten, 2);
+    assert.deepEqual(await records(), []);
+  });
+
+  it("after a restart, register() alone cancels an overdue job nobody polls", async () => {
+    const { job } = await submitLive();
+    await deadlines.recordJob(job.id, "image_resize_smoke", Date.now() - 61_000); // saved before the "crash"
+    const script = 'const { register } = await import("./instrumentation.ts"); await register(); setInterval(() => {}, 1000);';
+    const child = spawn(process.execPath, ["--conditions=react-server", "--experimental-strip-types", "--input-type=module", "-e", script], {
+      cwd: process.cwd(),
+      env: { ...process.env, NEXT_RUNTIME: "nodejs", NODE_ENV: "test" },
+      stdio: "ignore",
+    });
+    try {
+      const until = Date.now() + 10_000;
+      while (!mock.state.cancels.includes(job.id) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      assert.deepEqual(mock.state.cancels, [job.id], "the fresh process's first sweep canceled it");
+      while ((await records()).length && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+      assert.deepEqual(await records(), [], "and dropped the record once Comfy confirmed");
+    } finally {
+      child.kill();
+    }
   });
 });

@@ -85,8 +85,9 @@ export async function recordJob(jobId: string, workflow: string, submittedAt: nu
   }
 }
 
-// In-memory throttle, so polls without a persisted record still don't spam cancels.
-const lastCancelAt = new Map<string, number>();
+// In-memory throttle (and last outcome), so polls without a persisted record
+// still don't spam cancels and still report what actually happened.
+const lastCancel = new Map<string, { at: number; outcome: CancelOutcome }>();
 
 /**
  * Enforce one job's deadline: if it is overdue and still live, request a
@@ -101,10 +102,19 @@ export async function enforceDeadline(
 ): Promise<CancelOutcome | null> {
   if (now <= deadlineAt) return null;
   const record = await readRecord(jobId);
-  const last = Math.max(lastCancelAt.get(jobId) ?? 0, record?.cancel?.lastAttemptAt ?? 0);
-  if (now - last < CANCEL_RETRY_MS) return record?.cancel?.outcome ?? "cancel_requested";
-  lastCancelAt.set(jobId, now);
+  const memory = lastCancel.get(jobId);
+  const persisted = record?.cancel;
+  // The newer of the two attempts decides the reported outcome.
+  const latest =
+    persisted && (!memory || persisted.lastAttemptAt >= memory.at)
+      ? { at: persisted.lastAttemptAt, outcome: persisted.outcome }
+      : memory;
+  if (latest && now - latest.at < CANCEL_RETRY_MS) return latest.outcome;
+  // Claimed before the await, so concurrent polls don't send a second cancel;
+  // while it is in flight they report it as requested.
+  lastCancel.set(jobId, { at: now, outcome: "cancel_requested" });
   const result = await requestCancel(client, jobId);
+  lastCancel.set(jobId, { at: now, outcome: result.outcome });
   if (record) {
     record.cancel = {
       outcome: result.outcome,
@@ -119,7 +129,7 @@ export async function enforceDeadline(
 }
 
 export async function forgetJob(jobId: string): Promise<void> {
-  lastCancelAt.delete(jobId);
+  lastCancel.delete(jobId);
   await rm(recordPath(jobId), { force: true });
 }
 
@@ -142,7 +152,12 @@ export async function reconcileJobs(
     let record: JobRecord;
     try {
       record = JSON.parse(await readFile(join(jobsDir(), name), "utf-8")) as JobRecord;
+      if (typeof record?.jobId !== "string" || !Number.isFinite(record.deadlineAt)) throw new Error("bad record");
     } catch {
+      // Unreadable or malformed: it can never be enforced, so don't skip it forever.
+      console.error(`[job-deadlines] removing unreadable deadline record ${name}`);
+      await rm(join(jobsDir(), name), { force: true }).catch(() => undefined);
+      summary.forgotten += 1;
       continue;
     }
     summary.checked += 1;
@@ -154,8 +169,11 @@ export async function reconcileJobs(
         continue;
       }
     } catch (error) {
-      // A job Comfy no longer knows can't be billing; anything else, retry next sweep.
-      if ((error as { httpStatus?: number }).httpStatus === 404) {
+      // A job Comfy no longer knows can't be billing. Anything else, retry next
+      // sweep, but not forever: past GIVE_UP_AFTER_MS it is dropped (logged).
+      const gone = (error as { httpStatus?: number }).httpStatus === 404;
+      if (gone || now - record.deadlineAt > GIVE_UP_AFTER_MS) {
+        if (!gone) console.error(`[job-deadlines] job ${record.jobId} unreachable a day past its deadline; giving up.`);
         await forgetJob(record.jobId);
         summary.forgotten += 1;
       }

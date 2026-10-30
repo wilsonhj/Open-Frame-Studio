@@ -2,6 +2,7 @@ import { AccessError, accessErrorResponse, readJobHandle } from "../../../../lib
 import { getBinding } from "../../../../lib/bindings/index.ts";
 import { ComfyNotConfiguredError, createClient, getJob, overdueJob } from "../../../../lib/comfy.ts";
 import { enforceDeadline, forgetJob, jobBudgetMs, sweepJobs } from "../../../../lib/job-deadlines.ts";
+import type { Job } from "../../../../lib/types.ts";
 
 export const runtime = "nodejs";
 
@@ -12,9 +13,12 @@ export const runtime = "nodejs";
  * so the browser keeps watching it instead of starting another paid run.
  */
 export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+  let id = "";
+  let jobId = "";
   try {
-    const { id } = await params;
+    id = (await params).id;
     const handle = readJobHandle(id);
+    jobId = handle.jobId;
     const binding = getBinding(handle.binding);
     const client = createClient();
     void sweepJobs(); // opportunistic: also covers hosts where the interval can't run
@@ -31,10 +35,28 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     return Response.json(job, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof AccessError) return accessErrorResponse(error);
+    if (jobId && (error as { httpStatus?: number }).httpStatus === 404) {
+      // Comfy no longer has the job: final, so the browser stops polling.
+      await forgetJob(jobId).catch(() => undefined);
+      return Response.json(goneJob(id), { headers: { "Cache-Control": "no-store" } });
+    }
     const status = error instanceof ComfyNotConfiguredError ? 503 : 502;
     return Response.json(
       { error: error instanceof Error ? error.message : "Unable to check job." },
       { status },
     );
   }
+}
+
+function goneJob(id: string): Job {
+  return {
+    id,
+    status: "expired",
+    terminal: true,
+    progress: null,
+    step: null,
+    queuePosition: null,
+    outputs: [],
+    error: { code: "job_not_found", message: "Comfy no longer has this job; start a new run." },
+  };
 }
