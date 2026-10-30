@@ -143,6 +143,23 @@ This table is `CARD_SPECS` (`lib/cards/assets.ts`). The planner derives steps fr
 
 ---
 
+### 4.3 v1 implementation notes [OURS]
+
+Where the first implementation (`lib/cards/{assets,layouts,canvas,pipeline,tiles,zip}.ts`) narrows §4.2:
+
+- **Steps per asset:** optional Comfy steps (`<asset>_gen[_k]`, `<asset>_up`, `<asset>_cut_k`) feed one `render_card` code step whose id is the asset id. All of them wait for `compose_main` (R-A4: the anchor must exist).
+- **Copy-required assets plan no diffusion** when their copy is missing, so a `needs_input` tile never bills a job (G7).
+- **SeedVR2 ×2 (G4)** runs only on full-bleed square diffusion: `gallery_detail`, `gallery_in_use` and `gallery_contents`. The `gallery_angles` views fill ~1000 px grid cells, and every story image (`story_banner` included) is drawn at or below 1464×600, smaller than its 1472×608 generation, so they skip it.
+- **`gallery_angles`** cuts out up to three extra uploaded photos and generates the remaining views, so the 2×2 grid is always full.
+- **Regenerate** is offered only where a new seed can change the card: not after `text_too_long` (the copy is fixed for the run), and not on a card with no seeded diffusion step unless one of its steps failed (a retry). Succeeded cutouts of uploaded photos are kept.
+- **Rate limit:** a run takes one submit slot per planned Comfy job (a regenerate, one per job it resets), not one per request.
+- **Story panels** are drawn directly at the 1464×600 export size, with G8's 22 px minimum. The 2928×1200 master is not written yet.
+- **`story_how_to`** ships the diffusion-off variant (numbered steps).
+- **`gallery_contents`** always uses a Klein flat-lay. The per-item-photo path (BiRefNet each item, pasted grid) is not built yet.
+- **Icons** are numbered badges and dots; there is no bundled keyword icon set yet.
+- **Story aspect:** `AspectRatio` has no 2.44:1 value, so story specs carry `"16:9"`; `exportPx` is authoritative.
+- **Export** is a STORED ZIP (`lib/cards/zip.ts`, no dependency); the cards are already PNG/JPEG.
+
 ## 5. Main-image compliance rules [OURS]
 
 Higgsfield calls the main image "compliant" ([HF] `SKILL.md:6`) but publishes no rules (H4). We enforce these:

@@ -193,7 +193,3 @@ export function recoverRun(storage: StorageLike, tab: string, workflow: string, 
   if (pick.tab !== tab) rememberJob(storage, tab, workflow, pick.job, now, seeds);
   return { job: pick.job, seeds };
 }
-
-export function recoverJob(storage: StorageLike, tab: string, workflow: string, now = Date.now()): Job | null {
-  return recoverRun(storage, tab, workflow, now)?.job ?? null;
-}

@@ -2,10 +2,32 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { CARD_SPECS, expandAssets } from "../../lib/cards/assets";
+import { regenerateBlocker, tileFor } from "../../lib/cards/tiles";
 import { useRun } from "../../lib/client/use-run";
-import type { CardAssetId, CardsResult, MainImageCheck, PipelineRun } from "../../lib/types";
-import { CARD_ASSETS } from "../../lib/types";
-import { Button, Card, StatusPill } from "../ui";
+import type { CardAssetId, CardScope, CardsResult, CardTile, MainImageCheck, PipelineRun } from "../../lib/types";
+import { Button, Card, Chip, StatusPill } from "../ui";
+import { CopyFields, EMPTY_COPY, copyToRequest, type CopyDraft } from "./copy-fields";
+
+const SCOPES: { id: CardScope; label: string }[] = [
+  { id: "hero", label: "Hero only" },
+  { id: "gallery", label: "Gallery · 6" },
+  { id: "story", label: "Story · 8" },
+  { id: "complete", label: "Complete set · 13" },
+];
+
+/** What each panel needs, in plain words, when its copy is missing. */
+const FIELD_NAMES: Record<string, string> = {
+  productName: "a product name",
+  bullets: "3–5 benefits",
+  boxContents: "what's in the box",
+  painPoints: "problems it solves",
+  "ingredients|specs": "ingredients or specs",
+  efficacyClaims: "results",
+  efficacySource: "the source of the results",
+  howToUse: "how-to steps",
+  endorsement: "an endorsement you have the rights to",
+};
 
 const LABELS: Record<CardAssetId, string> = {
   hero: "Hero image",
@@ -61,7 +83,10 @@ function mainView(run: PipelineRun<"listing"> | null): { url: string | null; che
 
 /** `runId`: resume this run (the `?run=` deep link from /runs), else this tab's last run. */
 export function CardsBoard({ runId }: { runId?: string } = {}) {
-  const { run, error, polling, start, reset } = useRun("listing", { runId });
+  const { run, error, polling, start, action, reset } = useRun("listing", { runId });
+  const [scope, setScope] = useState<CardScope>("hero");
+  const [copy, setCopy] = useState<CopyDraft>(EMPTY_COPY);
+  const [regenerating, setRegenerating] = useState<CardAssetId | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -84,8 +109,8 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
     setSubmitError(null);
     setBusy(true);
     const body = new FormData();
-    // The hero never shows text (spec C6), so no product name is asked for here.
-    const request = { scope: "hero", productImages: [{ upload: "product" }] };
+    // The hero never shows text (spec C6): copy is sent only for the panels.
+    const request = { scope, productImages: [{ upload: "product" }], ...(scope === "hero" ? {} : copyToRequest(copy)) };
     body.append("request", JSON.stringify(request));
     body.append("product", file);
     try {
@@ -94,6 +119,18 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
       setSubmitError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function regenerate(asset: CardAssetId) {
+    setRegenerating(asset);
+    setSubmitError(null);
+    try {
+      await action(`tiles/${asset}/regenerate`);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRegenerating(null);
     }
   }
 
@@ -117,9 +154,31 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
         : [stateReason ?? STATE_REASON.failed, ...(detail ? [`Details: ${detail}`] : [])]
       : [];
 
+  const planned = run ? expandAssets(run.request) : expandAssets({ scope });
+  const panels: CardTile[] = planned.filter((a) => a !== "hero").map((a) => (run ? tileFor(run, a) : emptyTile(a)));
+  const finished = run && ["succeeded", "partial", "failed"].includes(run.status);
+  const exportable = finished && (main.ok || panels.some((t) => t.state === "succeeded"));
+
   return (
     <div className="space-y-6">
       <Card title="Product">
+        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="What to make">
+          {SCOPES.map((s) => (
+            <Chip key={s.id} selected={scope === s.id} onClick={() => setScope(s.id)} disabled={!!run}>
+              {s.label}
+            </Chip>
+          ))}
+        </div>
+        {scope !== "hero" && !run ? (
+          <details className="mb-4 rounded-lg border border-border p-3" open>
+            <summary className="cursor-pointer text-sm font-semibold">Copy for the panels</summary>
+            <p className="my-2 text-xs text-muted">
+              Text is drawn exactly as you type it. Panels whose copy is left empty are skipped and say what to add; nothing is
+              made up.
+            </p>
+            <CopyFields value={copy} onChange={setCopy} />
+          </details>
+        ) : null}
         <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1 text-sm">
             <span>Product photo (one product, PNG/JPEG/WebP)</span>
@@ -129,9 +188,18 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
               onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
             />
           </label>
-          <Button type="submit" disabled={!file} busy={busy || polling}>
-            Generate main image
+          <Button type="submit" disabled={!file || !!run} busy={busy || polling}>
+            {scope === "hero" ? "Generate main image" : `Generate ${planned.length} images`}
           </Button>
+          {exportable ? (
+            <a
+              href={`/api/pipelines/listing/${run!.id}/export`}
+              download
+              className="inline-flex rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-muted/10"
+            >
+              Download ZIP
+            </a>
+          ) : null}
           {run ? (
             <Button variant="ghost" onClick={reset}>
               Reset
@@ -216,16 +284,70 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
           </div>
         </Card>
 
-        {CARD_ASSETS.filter((a) => a !== "hero").map((asset) => (
-          <Card key={asset} data-asset={asset} className="opacity-50">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">{LABELS[asset]}</h2>
-              <StatusPill status="skipped" label="coming next" />
-            </div>
-            <div className="mt-3 aspect-square rounded-lg border border-dashed border-border" />
-          </Card>
+        {panels.map((tile) => (
+          <PanelTile
+            key={tile.asset}
+            tile={tile}
+            busy={regenerating === tile.asset}
+            canRegenerate={!!finished && main.ok === true && tile.state !== "needs_input" && regenerateBlocker(run, tile.asset) === null}
+            onRegenerate={() => void regenerate(tile.asset)}
+          />
         ))}
       </div>
     </div>
+  );
+}
+
+function emptyTile(asset: CardAssetId): CardTile {
+  return { asset, state: "pending", seed: null, url: null, missing: [], error: null };
+}
+
+function PanelTile({
+  tile,
+  busy,
+  canRegenerate,
+  onRegenerate,
+}: {
+  tile: CardTile;
+  busy: boolean;
+  canRegenerate: boolean;
+  onRegenerate: () => void;
+}) {
+  const spec = CARD_SPECS[tile.asset];
+  const [w, h] = spec.exportPx ?? [1, 1];
+  const wide = w > h;
+  return (
+    <Card data-asset={tile.asset} className={wide ? "sm:col-span-2" : undefined}>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{LABELS[tile.asset]}</h2>
+        <StatusPill status={tile.state} label={tile.state === "needs_input" ? "needs input" : undefined} />
+      </div>
+      <div
+        className="mt-3 flex items-center justify-center overflow-hidden rounded-lg border border-border bg-white"
+        style={{ aspectRatio: `${w} / ${h}` }}
+      >
+        {tile.url ? (
+          // eslint-disable-next-line @next/next/no-img-element -- run file served by the pipeline route
+          <img src={tile.url} alt={LABELS[tile.asset]} className="h-full w-full object-contain" />
+        ) : (
+          <span className="px-4 text-center text-xs text-muted">
+            {tile.state === "needs_input"
+              ? `Add ${tile.missing.map((m) => FIELD_NAMES[m] ?? m).join(" and ")} to make this panel.`
+              : tile.error?.message ?? (tile.state === "pending" ? "Waits for the hero image" : "Working…")}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted">
+        <span>
+          {w}×{h}
+          {tile.seed !== null ? ` · seed ${tile.seed}` : ""}
+        </span>
+        {canRegenerate ? (
+          <Button variant="ghost" onClick={onRegenerate} busy={busy} aria-label={`Regenerate ${LABELS[tile.asset]}`}>
+            Regenerate
+          </Button>
+        ) : null}
+      </div>
+    </Card>
   );
 }

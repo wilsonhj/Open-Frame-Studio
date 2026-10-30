@@ -7,9 +7,10 @@
  * any of the body is read.
  */
 
+import { AccessError, accessErrorResponse } from "../../../../lib/access.ts";
 import { ComfyNotConfiguredError } from "../../../../lib/comfy.ts";
 import { isPipelineKind } from "../../../../lib/pipeline/kinds.ts";
-import { gateSubmit } from "../../../../lib/pipeline/gate.ts";
+import { gateSubmit, jobCharge } from "../../../../lib/pipeline/gate.ts";
 import { MAX_UPLOAD_PARTS, createRun, uploadNames, type UploadPart } from "../../../../lib/pipeline/runner.ts";
 
 /** Largest body accepted: MAX_UPLOAD_PARTS images of 20 MB plus 1 MB for the request JSON and multipart framing. */
@@ -28,7 +29,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
     return Response.json({ error: "Request body is too large.", field: "" }, { status: 413 });
   }
   // A run submits billed Comfy jobs: same access policy as /api/jobs, checked
-  // from the header before the body is read or buffered.
+  // from the header before the body is read or buffered. This takes the
+  // first slot; createRun charges one more per planned Comfy job after it.
   const gate = gateSubmit(request);
   if (gate instanceof Response) return gate;
   let raw: unknown;
@@ -63,11 +65,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
     return Response.json({ error: "Send JSON, or multipart with a `request` JSON part.", field: "" }, { status: 400 });
   }
   try {
-    const created = await createRun(kind, raw, uploads);
+    const created = await createRun(kind, raw, uploads, jobCharge(request));
     if (!created.ok) {
       // Refused before any job was submitted. A refusal that already uploaded
       // assets keeps its slot, so failed requests can't be free uploads.
       if (!created.assetsCreated) gate.refund();
+      if (created.status === 429) {
+        return accessErrorResponse(new AccessError(429, created.code, created.error, created.retryAfterSeconds));
+      }
       return Response.json({ error: created.error, field: created.field ?? "" }, { status: created.status });
     }
     return Response.json(created.run, { status: 202, headers: { "Cache-Control": "no-store" } });

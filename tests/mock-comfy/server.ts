@@ -21,7 +21,8 @@
  *   expired            queued -> expired
  *   reject_idempotency every POST /api/v2/jobs is refused with idempotency_key_reuse
  *   multi_output       like succeeded, but outputs 2 PNGs (node "9") + 1 MP4 (node "12")
- *                      (Motion / photoshoot batches that mix images and a clip)
+ *                      (Motion / photoshoot batches that mix images and a clip). Set
+ *                      state.videoOutputType = "image" to label the MP4 the way Comfy Cloud does.
  *   slow_progress      queued, then SLOW_PROGRESS_POLLS running polls with rising
  *                      progress.value and nodes_done, then succeeded (progress-bar UI)
  *   queued_20s         wall-clock: "queued" (queue_position counting down) until
@@ -132,6 +133,8 @@ export type MockState = {
   cancels: string[];
   /** "ok": cancel takes effect; "pending": reports `canceling`, job keeps running; "error": 503. */
   cancelBehavior: "ok" | "pending" | "error";
+  /** Label of video outputs. Comfy Cloud reports them as "image" (with content type video/mp4); set that to reproduce it. */
+  videoOutputType: "video" | "image";
 };
 
 export type JobPost = {
@@ -226,6 +229,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     signedFetches: [],
     cancels: [],
     cancelBehavior: "ok",
+    videoOutputType: "video",
   };
   let base = "";
 
@@ -328,7 +332,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       return [
         outputJson(job, storeOutput(job, "-img-1", PNG_1X1, "image/png", "open-frame-studio/multi_00001_.png"), "9", "image"),
         outputJson(job, storeOutput(job, "-img-2", PNG_1X1, "image/png", "open-frame-studio/multi_00002_.png"), "9", "image"),
-        outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-frame-studio/multi_00001_.mp4"), "12", "video"),
+        outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-frame-studio/multi_00001_.mp4"), "12", state.videoOutputType),
       ];
     }
     // Like Comfy, emit one output per Save* node of the submitted graph. Image
@@ -342,7 +346,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
     return saves.map(([nodeId, node], i) => {
       const suffix = i === 0 ? "" : `-${nodeId}`;
       if ((node as { class_type: string }).class_type === "SaveVideo") {
-        return outputJson(job, storeOutput(job, suffix, MP4_STUB, "video/mp4", `open-frame-studio/mock_${nodeId}_00001_.mp4`), nodeId, "video");
+        return outputJson(job, storeOutput(job, suffix, MP4_STUB, "video/mp4", `open-frame-studio/mock_${nodeId}_00001_.mp4`), nodeId, state.videoOutputType);
       }
       const bytes = input?.bytes ?? PNG_1X1;
       // A scenario that forces an output type (e.g. text/html) wins over the echo.
@@ -432,6 +436,7 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
       state.signedFetches.length = 0;
       state.cancels.length = 0;
       state.cancelBehavior = "ok";
+      state.videoOutputType = "video";
       return send(res, 200, { scenario: state.scenario, contentMode: state.contentMode, queuedMs: state.queuedMs });
     }
 

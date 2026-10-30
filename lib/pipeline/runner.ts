@@ -6,6 +6,7 @@
  */
 import type { Comfy } from "@comfyorg/sdk";
 
+import { AccessError } from "../access.ts";
 import { applyBindings } from "../bindings/apply.ts";
 import { getBinding } from "../bindings/index.ts";
 import { prepareGraph } from "../bindings/prepare.ts";
@@ -192,7 +193,29 @@ async function rewriteUploads(value: unknown, upload: (name: string) => Promise<
  */
 export type CreateResult =
   | { ok: true; run: PipelineRun }
-  | { ok: false; status: 400 | 404 | 500 | 502 | 503; error: string; field?: string; assetsCreated?: boolean };
+  | { ok: false; status: 400 | 404 | 500 | 502 | 503; error: string; field?: string; assetsCreated?: boolean }
+  | { ok: false; status: 429; error: string; code: string; retryAfterSeconds: number | null; assetsCreated?: boolean };
+
+/**
+ * Bills the Comfy jobs a run is about to submit (lib/pipeline/gate.ts
+ * jobCharge): returns their refund, or throws AccessError when over quota.
+ */
+export type JobCharge = (jobs: number) => () => void;
+
+/** Comfy steps in `next` that will be (re)submitted: new, or reset from a finished step. */
+function billedJobs(next: PipelineStep[], current: PipelineStep[] = []): number {
+  const byId = new Map(current.map((st) => [st.id, st]));
+  return next.filter((st) => {
+    if (st.kind !== "comfy" || st.status !== "pending" || st.jobId || st.submission) return false;
+    const cur = byId.get(st.id);
+    return !cur || cur.status !== "pending";
+  }).length;
+}
+
+/** A charge refused as an AccessError, else null (rethrow). */
+function chargeRefusal(e: unknown): { status: 429; error: string; code: string; retryAfterSeconds: number | null } | null {
+  return e instanceof AccessError ? { status: 429, error: e.message, code: e.code, retryAfterSeconds: e.retryAfterSeconds } : null;
+}
 
 /** plan() errors: SoulNotFoundError → 404 identityId; `{ status: 400|404, field }` → that; else 500. */
 function planError(e: unknown): CreateResult {
@@ -203,7 +226,7 @@ function planError(e: unknown): CreateResult {
   return { ok: false, status: 500, error };
 }
 
-export async function createRun(kind: string, raw: unknown, uploads: Map<string, UploadPart> = new Map()): Promise<CreateResult> {
+export async function createRun(kind: string, raw: unknown, uploads: Map<string, UploadPart> = new Map(), charge?: JobCharge): Promise<CreateResult> {
   const def = definitionFor(kind);
   if (!def) return { ok: false, status: 404, error: `Unknown pipeline kind "${kind}".` };
   const checked = def.validate(raw);
@@ -231,7 +254,9 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
   // Each distinct part is uploaded once, however many times it is referenced.
   const assetIds = new Map<string, Promise<string>>();
   let committed = 0;
+  let refundJobs = () => {};
   const refuse = async (result: Extract<CreateResult, { ok: false }>): Promise<CreateResult> => {
+    refundJobs(); // nothing was submitted
     // Let every started upload settle first, so the refund decision sees all
     // commits and no late write lands after the cleanup.
     await Promise.allSettled(assetIds.values());
@@ -254,6 +279,16 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
       run.steps = await (def.plan as (r: unknown, c: PlanContext) => Promise<PipelineStep[]>)(request, planContext(runId));
     } catch (e) {
       return refuse(planError(e) as Extract<CreateResult, { ok: false }>);
+    }
+    // One submit slot per planned Comfy job, taken before any is submitted.
+    if (charge) {
+      try {
+        refundJobs = charge(billedJobs(run.steps));
+      } catch (e) {
+        const refused = chargeRefusal(e);
+        if (!refused) throw e;
+        return refuse({ ok: false, ...refused });
+      }
     }
     run.timeoutMs = run.steps.reduce((sum, s) => sum + s.timeoutMs, 0);
     run.status = "running";
@@ -729,13 +764,14 @@ function matchPath(pattern: string, segments: string[]): Record<string, string> 
 export type ActionOutcome =
   | Exclude<ActionResult, { type: "replan" }>
   | { type: "run"; run: PipelineRun }
-  | { type: "error"; status: 405; error: string };
+  | { type: "error"; status: 405; error: string }
+  | { type: "error"; status: 429; error: string; code: string; retryAfterSeconds: number | null };
 
-export async function runAction(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown): Promise<ActionOutcome> {
-  return withRunLock(runId, () => actionLocked(kind, runId, method, segments, body));
+export async function runAction(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown, charge?: JobCharge): Promise<ActionOutcome> {
+  return withRunLock(runId, () => actionLocked(kind, runId, method, segments, body, charge));
 }
 
-async function actionLocked(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown): Promise<ActionOutcome> {
+async function actionLocked(kind: PipelineKind | string, runId: string, method: "GET" | "POST", segments: string[], body: unknown, charge?: JobCharge): Promise<ActionOutcome> {
   const def = definitionFor(kind);
   const run = await currentRun(runId);
   if (!def || !run || run.kind !== kind) return { type: "error", status: 404, error: "Run not found." };
@@ -772,8 +808,22 @@ async function actionLocked(kind: PipelineKind | string, runId: string, method: 
     // GET actions are reads (served without the submit gate): they never bill.
     if (method === "GET") return { type: "error", status: 405, error: "A GET action cannot start new work." };
     const target = (await currentRun(runId)) ?? run;
+    // One submit slot per Comfy job the replan resets, taken before the merge.
+    let refundJobs = () => {};
+    if (charge) {
+      try {
+        refundJobs = charge(billedJobs(result.steps, target.steps));
+      } catch (e) {
+        const refused = chargeRefusal(e);
+        if (!refused) throw e;
+        return { type: "error", ...refused };
+      }
+    }
     const conflict = mergeReplan(target, result.steps);
-    if (conflict) return { type: "error", status: 409, error: conflict };
+    if (conflict) {
+      refundJobs();
+      return { type: "error", status: 409, error: conflict };
+    }
     target.status = "running";
     target.cancelRequested = false;
     target.result = null;

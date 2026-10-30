@@ -285,6 +285,24 @@ export function isExposedOutput(nodeId: string, outputNodes: readonly string[] |
   return outputNodes.includes(nodeId);
 }
 
+const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "mov", "mkv", "m4v", "avi"]);
+const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac"]);
+
+/**
+ * The output's real media kind. Comfy Cloud labels every saved file
+ * `type: "image"`, video and audio included (e.g. an H3 MP4 from node "92"
+ * with content type video/mp4), so an "image" whose filename or content type
+ * says video/audio is relabelled. Other labels are kept as reported.
+ */
+export function outputType(type: OutputRef["type"], name: string, contentType: string): OutputRef["type"] {
+  if (type !== "image") return type;
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+  const ct = contentType.toLowerCase();
+  if (VIDEO_EXTENSIONS.has(ext) || ct.startsWith("video/")) return "video";
+  if (AUDIO_EXTENSIONS.has(ext) || ct.startsWith("audio/")) return "audio";
+  return type;
+}
+
 export function normalizeJob(job: SdkJob, options: NormalizeOptions = {}): Job {
   const status = normalizeStatus(job.status);
   const publicId = options.publicId ?? job.id;
@@ -295,7 +313,7 @@ export function normalizeJob(job: SdkJob, options: NormalizeOptions = {}): Job {
       jobId: publicId,
       nodeId: output.nodeId,
       name: output.name,
-      type: output.type,
+      type: outputType(output.type, output.name, output.contentType),
       contentType: output.contentType,
       sizeBytes: output.sizeBytes,
       url: outputUrl(publicId, output.id),
