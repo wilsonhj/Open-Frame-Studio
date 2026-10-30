@@ -6,7 +6,6 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/jobs": ["./workflows/**/*.api.json"],
     "/api/pipelines/**": ["./workflows/**/*.api.json", "./assets/fonts/**/*"],
-    "/api/souls/**": ["./workflows/**/*.api.json"],
   },
 };
 

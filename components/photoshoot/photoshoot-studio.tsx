@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Chip } from "../ui";
 import { Frame } from "./frame";
 import { DEMO_MODES, MODE_TEMPLATES, type DemoMode } from "../../lib/enhancer/modes";
+import { SURFACES } from "../../lib/brand";
 import { useRun } from "../../lib/client/use-run";
 import type { PhotoshootRequest, PipelineStep, VariationPick } from "../../lib/types";
 
@@ -71,7 +72,7 @@ export function PhotoshootStudio() {
     }
   }
 
-  const sheet = run ? buildSheet(run.steps, run.request.count) : null;
+  const sheet = run ? buildSheet(run.steps) : null;
   const sheetMode = run && (run.request.mode as DemoMode) in MODE_TEMPLATES ? MODE_TEMPLATES[run.request.mode as DemoMode] : template;
   const aspect = run?.result?.aspectRatio ?? run?.request.aspectRatio ?? sheetMode.defaultAspect;
   const shotLabel = sheetMode.sharedStyle ? "S" : "Frame";
@@ -80,11 +81,12 @@ export function PhotoshootStudio() {
   return (
     <div className="ps-root grid min-h-full gap-6 p-4 lg:grid-cols-[1fr_340px] lg:p-6">
       <section aria-label="Contact sheet" className="flex min-w-0 flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">{SURFACES.photoshoot.label}</h1>
         <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border pb-3 font-mono text-xs uppercase tracking-widest text-muted">
           <span className="text-foreground">{run ? `Run ${run.id.slice(-4)}` : "Contact sheet"}</span>
           <span>{sheetMode.label}</span>
           <span>{aspect}</span>
-          <span>{run ? `${run.request.count} frames` : "—"}</span>
+          <span>{sheet ? `${sheet.shots.length} frames` : "—"}</span>
           {sheetMode.sharedStyle ? <span title="one look across all slides">🔒 style lock</span> : null}
           {run ? <span className="ml-auto normal-case tracking-normal">{run.status}{polling ? " · live" : ""}</span> : null}
         </header>
@@ -115,7 +117,16 @@ export function PhotoshootStudio() {
                   status={item?.status ?? step?.status ?? "pending"}
                   waitingNote={sheet.cutout && sheet.cutout.status !== "succeeded" ? "after cutout" : undefined}
                   output={item?.output ?? step?.outputs?.find((o) => o.type === "image") ?? null}
-                  error={item?.error ?? step?.error ?? null}
+                  error={
+                    item?.error ??
+                    step?.error ??
+                    ((item?.status ?? step?.status) === "skipped" && sheet.cutout && sheet.cutout.status !== "succeeded"
+                      ? {
+                          code: "cutout_failed",
+                          message: `The cutout failed${sheet.cutout.error ? ` (${sheet.cutout.error.message})` : ""}. Retry runs it again.`,
+                        }
+                      : null)
+                  }
                   variation={item?.variation ?? variationOf(step)}
                   onRetry={live ? undefined : () => void action(`items/${i}/retry`)}
                 />
@@ -223,7 +234,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function buildSheet(steps: PipelineStep[], count: number) {
+/** The planned shots (the count may have been clamped to the mode's range). */
+function buildSheet(steps: PipelineStep[]) {
+  const count = steps.filter((s) => s.id.startsWith("shot-")).length;
   const cutout = steps.find((s) => s.id === "cutout");
   const shots = Array.from({ length: count }, (_, i) => steps.find((s) => s.id === `shot-${i}`));
   return { cutout, shots };

@@ -102,4 +102,30 @@ describe("cardsPipeline", () => {
     assert.equal(result.tiles[0].state, "succeeded");
     assert.ok(result.tiles.slice(1).every((t) => t.state === "skipped"));
   });
+
+  it("a failed cutout shows on the hero tile with its reason, not as a bare skip", async () => {
+    const request = { scope: "hero" as const, productImages: [{ assetId: "asset_hero" }] };
+    const [cut, compose] = await cardsPipeline.plan(request, planCtx);
+    const reason = { code: "node_execution_error", message: "background removal failed" };
+    const run: PipelineRun<"listing"> = {
+      schema: RUN_SCHEMA,
+      id: "run_2",
+      kind: "listing",
+      status: "failed",
+      createdAt: planCtx.now,
+      updatedAt: planCtx.now,
+      timeoutMs: 1,
+      progress: 1,
+      steps: [
+        { ...cut, status: "failed", error: reason } as typeof cut,
+        { ...compose, status: "skipped" } as typeof compose,
+      ],
+      request,
+      result: null,
+      error: null,
+    };
+    const result = await cardsPipeline.buildResult(run);
+    assert.equal(result.tiles[0].state, "failed");
+    assert.deepEqual(result.tiles[0].error, reason);
+  });
 });
