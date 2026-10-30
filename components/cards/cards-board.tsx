@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CARD_SPECS, expandAssets } from "../../lib/cards/assets";
 import { regenerateBlocker, tileFor } from "../../lib/cards/tiles";
-import { useRun } from "../../lib/client/use-run";
+import { isTerminalRun, useRun } from "../../lib/client/use-run";
 import type { CardAssetId, CardScope, CardsResult, CardTile, MainImageCheck, PipelineRun } from "../../lib/types";
 import { Button, Card, Chip, StatusPill } from "../ui";
 import { CopyFields, EMPTY_COPY, copyToRequest, type CopyDraft } from "./copy-fields";
@@ -156,8 +156,8 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
 
   const planned = run ? expandAssets(run.request) : expandAssets({ scope });
   const panels: CardTile[] = planned.filter((a) => a !== "hero").map((a) => (run ? tileFor(run, a) : emptyTile(a)));
-  // Every terminal run status: a canceled run keeps the tiles it finished.
-  const finished = run && ["succeeded", "partial", "failed", "canceled"].includes(run.status);
+  // A canceled run is finished too: it keeps the tiles it made.
+  const finished = run && isTerminalRun(run);
   const exportable = finished && (main.ok || panels.some((t) => t.state === "succeeded"));
 
   return (
