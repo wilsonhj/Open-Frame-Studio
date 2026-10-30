@@ -98,6 +98,14 @@ test.describe("Identity wizard", () => {
     test.skip(faces.length < 5, `needs >=5 consented/AI face images in ${FACES_DIR}`);
     // Covered at unit level on the mock (tests/soul/registry.test.ts "S-R1"); this browser
     // version still needs a consented face set and the Photoshoot/Motion identity slots (D, F).
+    // Still blocked (checked 2026-10-30):
+    // - Create needs >=5 consented/AI faces in E2E_FACES_DIR. fixtures/faces/ is not in the repo.
+    //   Import does not read that directory: it takes a .identity.zip and re-runs photo QA on the
+    //   bundle (§6.5, importBundle in lib/soul/registry.ts). This scenario starts by creating one.
+    // - Step 5: Photoshoot ignores identityId ("Identity ignored: product shoots use the product
+    //   photo only for now.", lib/photoshoot/pipeline.ts) and its UI has no Identity picker.
+    // - Step 6: Motion's identity picker is built but hidden. MOTION_IDENTITIES_ENABLED is false
+    //   (lib/motion/options.ts), so /motion shows an upload only and validateMotion refuses identityId.
     // 1. Create an identity (job A: preview). Each ref has sha256.
     // 2. Export .identity.zip: contains identity.json + refs/ref_N.png; no assetIds or Comfy/mock URLs;
     //    every refs[].sha256 matches its PNG.
@@ -119,6 +127,10 @@ test.describe("Identity wizard", () => {
   test.fixme("shows queue wait, then progress, while the preview renders", async ({ page }) => {
     // TODO(wave2 frontend): with scenario queued_20s (queuedMs shortened), UI shows a "waiting for
     // a GPU" state with queue position; then slow_progress shows a rising progress bar.
+    // Still blocked (checked 2026-10-30):
+    // - Needs an identity first, so >=5 consented/AI faces in FACES_DIR (none in the repo).
+    // - PreviewRun (components/soul/identity-studio.tsx) shows only a StatusPill ("queued" /
+    //   run status). It renders no queue position and no progress bar, though run.progress exists.
     await setMockScenario({ scenario: "queued_20s", queuedMs: 3_000 });
     await page.goto("/identity");
   });
@@ -126,6 +138,10 @@ test.describe("Identity wizard", () => {
   test.fixme("failed preview job surfaces the error and offers retry without resubmitting", async ({ page }) => {
     // TODO(wave2): scenario failed -> error message from the job; retry is an explicit new job,
     // never an automatic resubmit (mockRequests().jobPosts grows by exactly one per click).
+    // Still blocked (checked 2026-10-30):
+    // - Needs an identity first, so >=5 consented/AI faces in FACES_DIR (none in the repo).
+    // - PreviewRun shows step.error.message, but has no Retry control. The only way to try again
+    //   is clicking "Render preview sheet" again (a new POST /preview = one new job).
     await setMockScenario({ scenario: "failed" });
     await page.goto("/identity");
   });
