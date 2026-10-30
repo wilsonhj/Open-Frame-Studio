@@ -1,6 +1,6 @@
 # Open Soul Studio
 
-Open Soul Studio is an open-weights rebuild of three Higgsfield tools: Soul ID, Product Photoshoot and Marketplace Cards. It runs on ComfyUI through the Comfy API, either on Comfy Cloud or on your own GPU. You upload photos of a person once and get a "Soul": a reusable identity, and in trained mode a LoRA `.safetensors` file you download and own. You then use it to shoot your products in ten photoshoot modes, build a marketplace image set (a compliant white-background main image plus secondary and A+ images anchored on it), and animate the result. Every model in the pipeline is open weights and every workflow is a plain ComfyUI graph you can inspect.
+Open Soul Studio is an open-weights rebuild of three Higgsfield tools: Soul ID, Product Photoshoot and Marketplace Cards. It runs on ComfyUI through the Comfy API, either on Comfy Cloud or on your own GPU. You upload photos of a person once and get a "Soul": a reusable identity made of a curated reference set (3–6 best crops after photo QA) plus a style card, saved as a portable `soul.json` with its images that you download and own. You then use it to shoot your products in ten photoshoot modes, build a marketplace image set (a compliant white-background main image plus secondary and A+ images anchored on it), and animate the result. Every model in the pipeline is open weights and every workflow is a plain ComfyUI graph you can inspect.
 
 > Status: Wave 0 scaffold. The app shell, the Comfy client wrapper, the generic job API and an offline mock are in place. The tool pages are placeholders.
 
@@ -36,9 +36,9 @@ COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev     # terminal 2, then open /smoke
 
 | Higgsfield | Open Soul Studio | Built on (open weights, ComfyUI) |
 |---|---|---|
-| **Soul ID**: 5–20 photos → `custom_reference_id` | `/soul`. **Instant** mode picks the best reference crops; **Trained** mode trains a LoRA in one Comfy job and returns a downloadable `.safetensors` | FLUX.3 Klein edit with multi-reference latents; `TrainLoraNode` + `SaveLoRA`; BiRefNet crops |
-| **Product Photoshoot**: 10 modes, 1–10 varied outputs | `/photoshoot`. The same 10 mode ids, with our own prompt templates and variation engine (preset, lighting, angle, palette), optionally with your Soul in frame | FLUX.3 Klein edit with product and Soul references; optional SeedVR2 upscale |
-| **Marketplace Cards**: main, product-images, A+, full set (13 assets) | `/cards`. The main image is a deterministic cutout composited on #FFFFFF at ~85% fill and compliance-checked. Secondary and A+ images are conditioned on it, and their text is rendered in code | BiRefNet; FLUX.3 Klein edit |
+| **Soul ID**: 5–20 photos → `custom_reference_id` | `/soul`. Instant only: photo QA picks the best 3–6 reference crops and adds a style card, exported as a portable `soul.json` bundle (no trained LoRA; Comfy Cloud has no `SaveLoRA`) | FLUX.2 Klein 4B distilled edit with multi-reference latents (FLUX.3 behind a flag) |
+| **Product Photoshoot**: 10 modes, 1–10 varied outputs | `/photoshoot`. The same 10 mode ids, with our own prompt templates and variation engine (preset, lighting, angle, palette), optionally with your Soul in frame | FLUX.2 Klein 4B distilled edit with product and Soul references; optional SeedVR2 3B upscale |
+| **Marketplace Cards**: main, product-images, A+, full set (13 assets) | `/cards`. The main image is a deterministic cutout composited on #FFFFFF at ~85% fill and compliance-checked. Secondary and A+ images are conditioned on it, and their text is rendered in code | BiRefNet; FLUX.2 Klein 4B distilled edit |
 | **Motion** | `/motion`. A Soul still and a product still become one reference-to-video clip | MiniMax H3 reference-to-video template |
 
 ## Architecture
@@ -48,9 +48,11 @@ app/api/jobs/route.ts                       POST multipart → workflows/<name>.
 app/api/jobs/[id]/route.ts                  GET  normalized job {status, terminal, progress, outputs, error}
 app/api/jobs/[id]/outputs/[outputId]        GET  re-hosts the output bytes (signed URLs expire; key stays server-side)
 lib/comfy.ts                                server-only @comfyorg/sdk 0.5.0 wrapper (traps below)
-lib/bindings/index.ts                       registry: workflow name → {input → node id + field}
-lib/inputs.ts                               multipart validation + binding application
-lib/types.ts                                contracts: Job, OutputRef, PipelineStep, ModeTemplate, CardAsset, PhotoshootMode
+lib/bindings/index.ts                       registry: workflow name → GraphBinding {input → node id + field}
+lib/bindings/apply.ts                       applyBindings / checkBinding: values → API-format graph
+lib/inputs.ts                               multipart parsing → binding values (no graph mutation)
+lib/contracts/*.ts                          contracts by domain: job, pipeline, bindings, soul, photoshoot, marketplace, motion
+lib/types.ts                                barrel re-exporting lib/contracts/*
 workflows/*.api.json                        API-format graphs (subgraphs unpacked)
 tests/mock-comfy/server.ts                  mock Comfy API v2 (succeeded / failed / unknown-forever / expired / 422 reuse)
 ```

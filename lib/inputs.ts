@@ -1,8 +1,11 @@
 /**
- * Validate multipart form fields against a WorkflowBinding and apply them to
- * a workflow. Pure apart from the asset factory, so it is unit-testable.
+ * Parse multipart form fields into GraphBinding values (`BindingValues`).
+ * Validates each field per its GraphValueKind (and `required` / `min` / `max`
+ * / `choices`) and turns image parts into asset handles via `toAsset`. It
+ * never touches a graph: apply the result with `applyBindings`.
  */
-import type { InputBinding, WorkflowBinding } from "./types.ts";
+import type { BindingValues } from "./bindings/apply.ts";
+import type { AssetHandle, GraphBinding, GraphInputBinding, GraphValue } from "./types.ts";
 
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
@@ -17,23 +20,35 @@ export class InputError extends Error {
   }
 }
 
-export type ResolvedValue = string | number | boolean | File;
-export type ResolvedInputs = Record<string, ResolvedValue>;
-
 /** Minimal FormData surface (works with the web FormData). */
 export type FormLike = { get(name: string): FormDataEntryValue | null };
 
-export function resolveInputs(binding: WorkflowBinding, form: FormLike): ResolvedInputs {
-  const values: ResolvedInputs = {};
+/** Turns an uploaded file into an asset handle (e.g. `client.assets.fromBytes`). */
+export type ToAsset = (file: File) => Promise<AssetHandle> | AssetHandle;
+
+/**
+ * Validate every bound field first (throws InputError), then convert image
+ * parts with `toAsset`. Absent optional fields are left out, so the graph's
+ * own widget values stay in effect.
+ */
+export async function parseInputs(binding: GraphBinding, form: FormLike, toAsset: ToAsset): Promise<BindingValues> {
+  const parsed: Record<string, Exclude<GraphValue, AssetHandle> | File> = {};
   for (const [name, spec] of Object.entries(binding.inputs)) {
-    const raw = form.get(name);
-    const value = resolveOne(name, spec, raw);
-    if (value !== undefined) values[name] = value;
+    const value = parseOne(name, spec, form.get(name));
+    if (value !== undefined) parsed[name] = value;
+  }
+  const values: BindingValues = {};
+  for (const [name, value] of Object.entries(parsed)) {
+    values[name] = value instanceof File ? await toAsset(value) : value;
   }
   return values;
 }
 
-function resolveOne(name: string, spec: InputBinding, raw: FormDataEntryValue | null): ResolvedValue | undefined {
+function parseOne(
+  name: string,
+  spec: GraphInputBinding,
+  raw: FormDataEntryValue | null,
+): Exclude<GraphValue, AssetHandle> | File | undefined {
   const missing = raw === null || (typeof raw === "string" && raw.trim() === "");
   if (spec.kind === "image") {
     if (missing || !(raw instanceof File) || raw.size === 0) {
@@ -48,57 +63,40 @@ function resolveOne(name: string, spec: InputBinding, raw: FormDataEntryValue | 
   }
   if (raw instanceof File) throw new InputError(name, `"${name}" must be a text field.`);
   if (missing) {
-    if (spec.default !== undefined) return spec.default;
     if (spec.required) throw new InputError(name, `"${name}" is required.`);
     return undefined;
   }
   const text = (raw as string).trim();
   switch (spec.kind) {
     case "text": {
-      const max = spec.maxLength ?? DEFAULT_MAX_TEXT;
-      if (text.length > max) throw new InputError(name, `"${name}" must be at most ${max} characters.`);
+      if (spec.choices) {
+        if (!spec.choices.includes(text)) throw new InputError(name, `"${name}" is not a supported option.`);
+        return text;
+      }
+      if (text.length > DEFAULT_MAX_TEXT) {
+        throw new InputError(name, `"${name}" must be at most ${DEFAULT_MAX_TEXT} characters.`);
+      }
       return text;
     }
-    case "number":
-    case "integer": {
+    case "int":
+    case "float": {
       const value = Number(text);
       if (!Number.isFinite(value)) throw new InputError(name, `"${name}" must be a number.`);
-      if (spec.kind === "integer" && !Number.isInteger(value)) {
+      if (spec.kind === "int" && !Number.isSafeInteger(value)) {
         throw new InputError(name, `"${name}" must be a whole number.`);
       }
       if (spec.min !== undefined && value < spec.min) throw new InputError(name, `"${name}" must be ≥ ${spec.min}.`);
       if (spec.max !== undefined && value > spec.max) throw new InputError(name, `"${name}" must be ≤ ${spec.max}.`);
       return value;
     }
-    case "boolean":
+    case "bool":
       if (!["true", "false", "1", "0", "on", "off"].includes(text)) {
         throw new InputError(name, `"${name}" must be true or false.`);
       }
       return ["true", "1", "on"].includes(text);
-    case "choice":
-      if (!spec.choices?.includes(text)) throw new InputError(name, `"${name}" is not a supported option.`);
-      return text;
-    default:
-      throw new InputError(name, `Unsupported input kind for "${name}".`);
-  }
-}
-
-/** Anything with `setInput(node, field, value)` (an SDK Workflow). */
-export type InputTarget = { setInput(nodeId: string, field: string, value: unknown): void };
-
-/**
- * Apply resolved values. Images become SDK asset handles via `toAsset`
- * (uploaded lazily at submit), set on the loader node's file widget.
- */
-export async function applyInputs(
-  target: InputTarget,
-  binding: WorkflowBinding,
-  values: ResolvedInputs,
-  toAsset: (file: File) => Promise<unknown> | unknown,
-): Promise<void> {
-  for (const [name, value] of Object.entries(values)) {
-    const spec = binding.inputs[name];
-    if (!spec) continue;
-    target.setInput(spec.node, spec.field, value instanceof File ? await toAsset(value) : value);
+    default: {
+      const unknown: never = spec.kind;
+      throw new InputError(name, `Unsupported input kind for "${name}": ${String(unknown)}.`);
+    }
   }
 }

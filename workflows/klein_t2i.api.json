@@ -1,0 +1,136 @@
+{
+  "59": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "flux-2-klein-4b.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "flux2",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    }
+  },
+  "p4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "Studio headshot photograph of a fictional woman in her early thirties, warm light-brown skin, short curly dark-auburn hair, hazel eyes, a small mole above the left side of her lip, thin gold hoop earrings, plain charcoal crew-neck t-shirt, neutral expression with a slight smile, facing the camera, soft even daylight, plain light-grey seamless background, sharp focus, natural skin texture.",
+      "clip": [
+        "2",
+        0
+      ]
+    }
+  },
+  "p58": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "p4",
+        0
+      ]
+    }
+  },
+  "p44": {
+    "class_type": "EmptyFlux2LatentImage",
+    "inputs": {
+      "width": 768,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "p70": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 101
+    }
+  },
+  "p71": {
+    "class_type": "Flux2Scheduler",
+    "inputs": {
+      "steps": 4,
+      "width": 768,
+      "height": 1024
+    }
+  },
+  "p72": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "59",
+        0
+      ],
+      "positive": [
+        "p4",
+        0
+      ],
+      "negative": [
+        "p58",
+        0
+      ],
+      "cfg": 1.0
+    }
+  },
+  "p73": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    }
+  },
+  "p7": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "p70",
+        0
+      ],
+      "guider": [
+        "p72",
+        0
+      ],
+      "sampler": [
+        "p73",
+        0
+      ],
+      "sigmas": [
+        "p71",
+        0
+      ],
+      "latent_image": [
+        "p44",
+        0
+      ]
+    }
+  },
+  "p8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "p7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "p9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "p8",
+        0
+      ],
+      "filename_prefix": "klein_t2i"
+    }
+  }
+}

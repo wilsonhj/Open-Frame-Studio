@@ -76,4 +76,6 @@ None. Nothing could be submitted. The failed submit and the read-only probes too
 
 ## Recommendation
 
+> Superseded (Oct 29): the user chose Instant Soul only (docs/PLAN.md, Update after Wave 0); no HF-imported trained Soul.
+
 Use the PLAN.md fallback. Instant Soul (multi-reference, no training) carries the live demo, and "Trained Soul" is a LoRA trained off-Cloud and imported via HF. Re-run this spike (3 submissions, graphs ready) only if the account is upgraded. Even then it can at best be PARTIAL (train and preview in one job, no downloadable LoRA) unless `SaveLoRA` is enabled on Cloud.

@@ -7,9 +7,13 @@
  *  1. Every wait takes a REQUIRED timeout. A self-hosted proxy job can sit at
  *     `unknown` forever; past the deadline we return a terminal-with-error job
  *     instead of polling indefinitely.
- *  2. `submit()` is NEVER retried here. Each SDK `submit()` mints a fresh
- *     Idempotency-Key, so a retry is a second (billed) job. A 422
- *     `idempotency_key_reuse` is surfaced as `SubmitRejectedError` as-is.
+ *  2. `submit()` is NEVER retried here, and never under a fresh key. The
+ *     caller mints the Idempotency-Key, persists it, then calls `submitOnce`
+ *     with it. A definitive 4xx is `SubmitRejectedError` (a 422
+ *     `idempotency_key_reuse` sets `keyReused`); a transport error or 5xx is
+ *     `SubmitAmbiguousError` (a job may exist). Only the pipeline runner may
+ *     re-send, and only under the SAME key (docs/spec/api.md §2.0); a fresh
+ *     key is a second, billed job.
  *  3. No `metadata` is ever passed to `submit()`.
  *  4. We poll `GET /api/v2/jobs/{id}`; we do not rely on SSE events.
  *  5. Outputs are re-hosted through our own route: signed URLs expire, and
@@ -20,7 +24,7 @@
  */
 import "server-only";
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -33,6 +37,7 @@ import {
   type WorkflowGraph,
 } from "@comfyorg/sdk";
 
+import type { ApiGraph } from "./bindings/apply.ts";
 import type { Job, JobErrorInfo, JobStatus, OutputRef } from "./types.ts";
 import { TERMINAL_STATUSES } from "./types.ts";
 
@@ -54,13 +59,16 @@ export class ComfyNotConfiguredError extends Error {
 }
 
 /**
- * The server rejected a submit (4xx: invalid workflow, idempotency key reuse,
- * insufficient credits, ...). Never retried automatically.
+ * The server definitively rejected a submit (4xx: invalid workflow, idempotency
+ * key reuse, insufficient credits, ...). Never retried automatically.
+ * `keyReused` (422 `idempotency_key_reuse`) means an earlier POST under the
+ * same key already landed: a job may exist, but its id is not known here.
  */
 export class SubmitRejectedError extends Error {
   readonly code: string;
   readonly httpStatus: number | null;
   readonly details: Record<string, unknown> | null;
+  readonly keyReused: boolean;
 
   constructor(message: string, code: string, httpStatus: number | null, details: Record<string, unknown> | null) {
     super(message);
@@ -68,6 +76,24 @@ export class SubmitRejectedError extends Error {
     this.code = code;
     this.httpStatus = httpStatus;
     this.details = details;
+    this.keyReused = code === "idempotency_key_reuse";
+  }
+}
+
+/**
+ * The submit's outcome is unknown: a transport error, an abort or timeout
+ * after the request may have been sent, or a 5xx. A job may or may not exist.
+ * Re-send only under the same `idempotencyKey` (docs/spec/api.md §2.0).
+ */
+export class SubmitAmbiguousError extends Error {
+  readonly idempotencyKey: string;
+  readonly httpStatus: number | null;
+
+  constructor(message: string, idempotencyKey: string, httpStatus: number | null, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "SubmitAmbiguousError";
+    this.idempotencyKey = idempotencyKey;
+    this.httpStatus = httpStatus;
   }
 }
 
@@ -108,11 +134,16 @@ export function workflowPath(name: string, root = process.cwd()): string {
   return join(root, "workflows", `${name}.api.json`);
 }
 
-/** Load `workflows/<name>.api.json`; rejects UI-format exports locally. */
-export async function loadWorkflow(client: Comfy, name: string, root?: string): Promise<Workflow> {
-  const graph = JSON.parse(await readFile(workflowPath(name, root), "utf-8")) as WorkflowGraph;
+/** Read `workflows/<name>.api.json` as a plain graph; rejects UI-format exports locally. */
+export async function loadGraph(name: string, root?: string): Promise<ApiGraph> {
+  const graph: unknown = JSON.parse(await readFile(workflowPath(name, root), "utf-8"));
   assertApiFormat(graph);
-  return client.workflows.fromJson(graph);
+  return graph as ApiGraph;
+}
+
+/** Load `workflows/<name>.api.json` as an SDK Workflow; rejects UI-format exports locally. */
+export async function loadWorkflow(client: Comfy, name: string, root?: string): Promise<Workflow> {
+  return client.workflows.fromJson(await loadGraph(name, root));
 }
 
 export function assertApiFormat(graph: unknown): asserts graph is WorkflowGraph {
@@ -134,35 +165,50 @@ export function assertApiFormat(graph: unknown): asserts graph is WorkflowGraph 
 // Submit (exactly once)
 // ---------------------------------------------------------------------------
 
+export type SubmitOptions = {
+  /**
+   * REQUIRED. Minted (and, in a pipeline, persisted) by the caller before the
+   * call. Re-sending under the same key is safe: the server answers 422
+   * `idempotency_key_reuse` instead of creating a second job.
+   */
+  idempotencyKey: string;
+  signal?: AbortSignal;
+};
+
 /**
- * Submit a workflow exactly once. Never retried, never sent with metadata.
- * The SDK may itself wait out a 429 `queue_full` (same idempotency key, so
- * no double billing); every other failure is surfaced.
+ * Submit a workflow exactly once under the caller's idempotency key. Never
+ * retried, never sent with metadata. The SDK may itself wait out a 429
+ * `queue_full` (same key, so no double billing); every other failure is
+ * classified as SubmitRejectedError (definitive) or SubmitAmbiguousError.
  */
-export async function submitOnce(
-  client: Comfy,
-  workflow: Workflow,
-  options: { signal?: AbortSignal } = {},
-): Promise<Job> {
+export async function submitOnce(client: Comfy, workflow: Workflow, options: SubmitOptions): Promise<Job> {
+  const idempotencyKey = options?.idempotencyKey;
+  if (typeof idempotencyKey !== "string" || idempotencyKey.trim() === "") {
+    throw new TypeError("submitOnce requires an idempotencyKey.");
+  }
   let job: SdkJob;
   try {
-    job = await client.submit(workflow, { signal: options.signal });
+    job = await client.submit(workflow, { idempotencyKey, signal: options.signal });
   } catch (error) {
-    throw toSubmitError(error);
+    throw toSubmitError(error, idempotencyKey);
   }
   return normalizeJob(job);
 }
 
-function toSubmitError(error: unknown): Error {
+export function toSubmitError(error: unknown, idempotencyKey: string): Error {
   if (error instanceof MissingCredentials) return new ComfyNotConfiguredError();
   if (error instanceof ComfyError) {
     const status = error.httpStatus ?? null;
     if (status !== null && status >= 400 && status < 500) {
       return new SubmitRejectedError(error.message, error.code ?? "error", status, error.details ?? null);
     }
-    return error;
+    // 5xx, or no HTTP status at all (no response to read): outcome unknown.
+    return new SubmitAmbiguousError(error.message, idempotencyKey, status, { cause: error });
   }
-  return error instanceof Error ? error : new Error(String(error));
+  // Transport errors (undici "fetch failed"), aborts and timeouts: the POST
+  // may have landed.
+  const message = error instanceof Error ? error.message : String(error);
+  return new SubmitAmbiguousError(message, idempotencyKey, null, { cause: error });
 }
 
 // ---------------------------------------------------------------------------
@@ -342,7 +388,6 @@ export async function fetchOutput(client: Comfy, jobId: string, outputId: string
 
 /** Re-host an output to a local file (e.g. for pipelines that chain steps). */
 export async function saveOutput(client: Comfy, jobId: string, outputId: string, destPath: string): Promise<number> {
-  const { writeFile } = await import("node:fs/promises");
   const response = await fetchOutput(client, jobId, outputId);
   const bytes = new Uint8Array(await response.arrayBuffer());
   await writeFile(destPath, bytes);

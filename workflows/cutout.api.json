@@ -1,0 +1,78 @@
+{
+  "17": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "product.png"
+    }
+  },
+  "14": {
+    "class_type": "LoadBackgroundRemovalModel",
+    "inputs": {
+      "bg_removal_name": "birefnet.safetensors"
+    }
+  },
+  "13": {
+    "class_type": "RemoveBackground",
+    "inputs": {
+      "bg_removal_model": [
+        "14",
+        0
+      ],
+      "image": [
+        "17",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "InvertMask",
+    "inputs": {
+      "mask": [
+        "13",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "JoinImageWithAlpha",
+    "inputs": {
+      "image": [
+        "17",
+        0
+      ],
+      "alpha": [
+        "15",
+        0
+      ]
+    }
+  },
+  "18": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "16",
+        0
+      ],
+      "filename_prefix": "oss_cutout"
+    }
+  },
+  "20": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "13",
+        0
+      ]
+    }
+  },
+  "21": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "20",
+        0
+      ],
+      "filename_prefix": "oss_cutout_mask"
+    }
+  }
+}
