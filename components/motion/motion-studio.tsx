@@ -41,7 +41,7 @@ function errorText(error: JobErrorInfo | null | undefined): string | null {
 }
 
 export function MotionStudio({ runId }: { runId?: string }) {
-  const { run, error, polling, start, cancel, reset } = useRun("motion", runId ? { runId } : undefined);
+  const { run, error, polling, start, cancel } = useRun("motion", runId ? { runId } : undefined);
   const [person, setPerson] = useState<File | null>(null);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [product, setProduct] = useState<File | null>(null);
@@ -90,7 +90,8 @@ export function MotionStudio({ runId }: { runId?: string }) {
     if (!identity && person) body.append("person", person, person.name);
     setSubmitting(true);
     try {
-      reset();
+      // start() keeps the current clip until the POST succeeds, so a 429 or a
+      // dropped response does not drop the only handle to a paid run.
       await start(body);
     } finally {
       setSubmitting(false);
@@ -103,7 +104,6 @@ export function MotionStudio({ runId }: { runId?: string }) {
     setSubmitting(true);
     try {
       const request = { ...run.request, quality: "final", seed: run.result.seed };
-      reset();
       await start(request);
     } finally {
       setSubmitting(false);
