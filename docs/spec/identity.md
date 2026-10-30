@@ -135,6 +135,8 @@ The detector choice is the only part of QA that needs a model. Verified options:
 | Cloud custom `FaceSegment` (comfyui-rmbg), `FaceParse(FaceParsing)` | Comfy Cloud job | In `OI`. Skin and hair masks; could feed automatic style-card colour hints | Optional, Wave 3 at most |
 | WAS `Image Crop Face` (Haar cascade) | Comfy Cloud job | In `OI`. Low accuracy on non-frontal faces | No |
 
+**Implemented (Wave 2, slice C):** tier B runs YuNet `face_detection_yunet_2023mar.onnx` (MIT, vendored in `lib/identity/models/` with its LICENSE and a NOTICE on its WIDER FACE training data) on `onnxruntime-node@1.30.0` (MIT; its CUDA postinstall is skipped). Prior decoding and NMS are ours (`lib/identity/detector.ts`). SFace is not bundled: its upstream licence is unclear and its training data is research-only. Tier A (browser MediaPipe) is not built yet.
+
 **Decision (`ours`):** use MediaPipe in the browser and YuNet on the server. Both are CPU-only, need no Cloud submission, and work on the free tier and offline. The Cloud MediaPipe node is an optional extra check that runs inside the preview job.
 
 ## 5. Choosing the 3–6 reference crops (`ours`)
@@ -243,6 +245,9 @@ Inside a bundle each ref has a `path` relative to `identity.json`. In the server
 - Validate `schema`, the ref count (3–6), file presence, and `refs[].sha256` (required; each must equal the SHA-256 of its PNG file).
 - Run Q1, Q2 and Q7 again on each ref. An imported bundle is untrusted input.
 - Never execute or fetch anything named in a bundle. `path` must be relative, with no `..`.
+- The importer ticks the same likeness-consent box as an uploader; the bundle does not carry consent.
+- Inflate only `identity.json` and `refs/ref_N.png` (optionally one folder deep): at most 7 files, 1 MB of JSON, 8 MB per ref and 60 MB in all, judged from the declared sizes before anything is inflated. Anything else rejects the bundle.
+- The face detector runs on every ref whatever its size (stored crops may be under 512 px), and `crop` must be whole, non-negative pixel numbers.
 - Import always uploads every ref to the current backend and assigns fresh `assetId`s. A bundle never carries `assetId`s or Comfy URLs.
 
 ### 6.6 S-R1: Identity reuse across separate jobs
@@ -336,6 +341,15 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
    - The demo uses only the consenting demo face set (Wave 1 agent 11).
 8. **Eval faces.** Synthetic or consenting only; no scraped or celebrity images (`docs/eval/identity.md`).
 
+### 8.1 How Wave 2 implements this (slice C)
+
+- **Intake without Comfy.** `POST /api/souls` runs consent, QA (§4), cropping (§5.1) and selection (§5.2) in memory on the app server. Originals are never written to disk and never uploaded; only the 3–6 crops are stored, under `${DATA_DIR:-.data}/identities/<id>/`.
+- **Preview uploads crops only.** `POST /api/souls/{id}/preview` uploads the crops (`ensureAssets`, cached per backend origin by `sha256`) and starts the `identity` pipeline, whose `validate` refuses raw `{ upload }` photos.
+- **Routes.** The registry is served under `/api/souls` (`GET` list, `POST` create, `/{id}` get/delete, `/{id}/refs/{n}`, `/{id}/export`, `/import`, `/{id}/preview`). `docs/spec/api.md` calls these `/api/identities`; the path follows the ownership table and can be renamed later.
+- **Access.** Every `GET` that returns a face (list, one identity, ref thumbnails, export) needs the studio access code when one is set; the client fetches thumbnails and the export with the `X-Access-Code` header. Uploads need a `Content-Length` within the cap, and consent is checked before any photo is read.
+- **Consent record.** Each saved identity stores `consentedAt` (create and import). The preview route, the `identity` pipeline and `bestRefs` refuse an identity without it, and the pipeline refuses asset ids that are not all crops of one saved identity.
+- **Delete** removes the local folder and asks Comfy to delete each cached asset (best effort; the response counts any it couldn't delete).
+
 ## 9. Error and status vocabulary
 
 | State | Shown as | Mirrors HF |
@@ -356,5 +370,5 @@ On Higgsfield, the Soul is passed as `--soul-id`, which the CLI sends as `custom
 
 - The blur, pHash and face-size thresholds need calibration on real photos. The golden face set does not exist yet (`docs/spikes/klein-multiref.md:104`).
 - Identity quality of 3 vs 4 vs 6 refs on Klein 4B distilled, and 1 vs 2 refs on H3, has not been measured (0 Cloud runs in Wave 0). It is now decided by the identity gate (`docs/eval/identity.md`), not by eye.
-- YuNet's licence and its packaging in `onnxruntime-node` need checking before vendoring.
+- ~~YuNet's licence and its packaging in `onnxruntime-node` need checking before vendoring.~~ Done: MIT weights, MIT runtime (§4.2).
 - Higgsfield's claim of 20–80 photos in 3–5 min ([`RD` Higgsfield today](../research/main-findings.md#higgsfield-today)) contradicts the skill's 5–20 (`PG:7`). We follow the skill, which is the public contract the CLI agent uses.

@@ -1,0 +1,14 @@
+face_detection_yunet_2023mar.onnx
+  OpenCV YuNet face detector, from the OpenCV Model Zoo:
+  https://huggingface.co/opencv/face_detection_yunet (revision 3cc26e7f1014a5ee5d74a42acee58bafc9d0a310)
+  sha256 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4, 232,589 bytes, unmodified.
+  Licence: MIT, Copyright (c) 2020 Shiqi Yu (see LICENSE in this folder).
+
+  Training data note: the upstream training code (libfacedetection.train, BSD-3-Clause)
+  trains on WIDER FACE, whose dataset licence is CC BY-NC-ND. The weights themselves are
+  released under MIT. Whether a dataset licence reaches trained weights is legally
+  unsettled; we state it here rather than call the model's provenance clean.
+
+SFace (face recognition embeddings) is NOT bundled and NOT used by default: its weights
+are Apache-2.0, but the upstream repository has no licence file and it was trained on
+research-only face datasets.

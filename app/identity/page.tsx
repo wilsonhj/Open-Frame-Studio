@@ -1,4 +1,4 @@
-import { IdentityIntakeForm } from "../../components/identity-intake";
+import { IdentityStudio } from "../../components/soul/identity-studio";
 import { SURFACES } from "../../lib/brand";
 
 export default function IdentityPage() {
@@ -12,7 +12,7 @@ export default function IdentityPage() {
           yourself or of someone who has given you permission.
         </p>
       </div>
-      <IdentityIntakeForm />
+      <IdentityStudio />
     </div>
   );
 }

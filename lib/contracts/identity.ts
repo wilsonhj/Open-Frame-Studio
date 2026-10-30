@@ -49,6 +49,13 @@ export type Identity = {
   name: string;
   /** ISO-8601. */
   createdAt: string;
+  /**
+   * ISO-8601: when this studio's uploader (or importer) confirmed likeness
+   * consent (`IDENTITY_CONSENT_TEXT`). Set on every saved identity; not
+   * exported, since each importer consents again. Jobs refuse an identity
+   * without it.
+   */
+  consentedAt?: string;
   /** IDENTITY_MIN_REFS..IDENTITY_MAX_REFS crops, best first. */
   refs: IdentityRef[];
   styleCard: StyleCard;

@@ -16,11 +16,16 @@ export const MIN_PHOTOS = 5;
 export const MAX_PHOTOS = 20;
 const PHOTO_TYPES = "image/png,image/jpeg,image/webp";
 
-export type IdentityIntake = Pick<IdentityRequest, "name" | "consent"> & { photos: File[] };
+export type IdentityIntake = Pick<IdentityRequest, "name" | "consent"> & {
+  photos: File[];
+  /** Optional look description for the style card (≤ 400 chars). */
+  description?: string;
+};
 
 export function IdentityIntakeForm({ onCreate }: { onCreate?: (intake: IdentityIntake) => Promise<void> }) {
-  const ids = { name: useId(), consent: useId(), photos: useId(), hint: useId() };
+  const ids = { name: useId(), consent: useId(), photos: useId(), hint: useId(), look: useId() };
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [consent, setConsent] = useState(false);
   const [photos, setPhotos] = useState<File[]>([]);
   const [message, setMessage] = useState("");
@@ -48,7 +53,7 @@ export function IdentityIntakeForm({ onCreate }: { onCreate?: (intake: IdentityI
     if (!ready || !onCreate || busy) return;
     setBusy(true);
     try {
-      await onCreate({ name: name.trim(), consent: true, photos });
+      await onCreate({ name: name.trim(), consent: true, photos, description: description.trim() || undefined });
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Could not create the identity.");
     } finally {
@@ -103,6 +108,19 @@ export function IdentityIntakeForm({ onCreate }: { onCreate?: (intake: IdentityI
             : "Tick the consent box to add photos."}
         </p>
       </div>
+
+      <label htmlFor={ids.look} className="block space-y-1 text-sm">
+        <span>Look (optional)</span>
+        <input
+          id={ids.look}
+          value={description}
+          maxLength={400}
+          placeholder="e.g. shoulder-length curly auburn hair, hazel eyes, gold hoops"
+          onChange={(event) => setDescription(event.target.value)}
+          className="block w-full rounded-lg border border-border bg-transparent px-3 py-2 text-sm"
+        />
+        <span className="text-xs text-muted">Added to every prompt that uses this identity. Describe only what you choose to.</span>
+      </label>
 
       <button
         type="submit"
