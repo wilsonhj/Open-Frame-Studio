@@ -97,7 +97,7 @@ describe("buildPrompts", () => {
 
 const SNAPSHOT = {
   "index": 0,
-  "prompt": "Professional e-commerce photo of the product from image 1, unchanged: same shape, label, colour, placed on a pure white seamless backdrop. Overcast diffuse light, macro close-up, cool minimal tones. Clean catalog composition, sharp focus, no text.",
+  "prompt": "Professional e-commerce photo of the product from image 1, unchanged: same shape, label, colour, placed on a pure white seamless backdrop. Overcast diffuse light, macro close-up, cool minimal tones. Clean catalog composition, sharp focus, no text, no letters, no logos.",
   "seed": 42,
   "variation": {
     "preset": "pure white seamless backdrop",

@@ -12,6 +12,7 @@ import { DEMO_MODES, MODE_TEMPLATES, type DemoMode } from "../../lib/enhancer/mo
 import { SURFACES } from "../../lib/brand";
 import { useRun } from "../../lib/client/use-run";
 import { MAX_NOTES, errorDetail, humanReason } from "../../lib/photoshoot/copy";
+import { runProgress, slateFromRequest } from "../../lib/photoshoot/studio-state";
 import type { PhotoshootRequest, PipelineStep, VariationPick } from "../../lib/types";
 
 const TERMINAL = new Set(["succeeded", "partial", "failed", "canceled"]);
@@ -50,6 +51,18 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
   const [localError, setLocalError] = useState<string | null>(null);
 
   const [preview, setPreview] = useState<string | null>(null);
+  // The run whose request the slate was last synced from. A recovered run
+  // (reload, ?run=) restores mode/count/notes so the slate matches the sheet.
+  const [syncedRunId, setSyncedRunId] = useState<string | null>(null);
+  if (run && run.id !== syncedRunId) {
+    setSyncedRunId(run.id);
+    if (!file) {
+      const slate = slateFromRequest(run.request, mode);
+      setMode(slate.mode);
+      setCount(slate.count);
+      setNotes(slate.notes);
+    }
+  }
 
   const template = MODE_TEMPLATES[mode];
   const live = run !== null && !TERMINAL.has(run.status);
@@ -107,7 +120,10 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
       });
     }
   }
-  const shotLabel = sheetMode.sharedStyle ? "S" : "Frame";
+  const shotLabel = sheetMode.sharedStyle ? "Slide" : "Frame";
+  const progress = run ? runProgress(run) : null;
+  // The recovered run's product, as its cutout (the upload itself is not kept client-side).
+  const runProduct = !file ? (sheet?.cutout?.outputs?.find((o) => o.type === "image") ?? null) : null;
   const shootLabel = mode === "carousel_set" ? `Shoot ${count} slides` : `Shoot ${count}`;
 
   return (
@@ -122,6 +138,23 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
           {sheetMode.sharedStyle ? <span title="one look across all slides">🔒 style lock</span> : null}
           {run ? <span className="ml-auto normal-case tracking-normal">{run.status}{polling ? " · live" : ""}</span> : null}
         </header>
+        {progress && progress.total > 0 ? (
+          <div className="-mt-2 flex items-center gap-3 font-mono text-[11px] text-muted" data-testid="run-progress">
+            <div
+              role="progressbar"
+              aria-label="Run progress"
+              aria-valuemin={0}
+              aria-valuemax={progress.total}
+              aria-valuenow={progress.done}
+              className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--ps-film)]"
+            >
+              <div className="h-full bg-[var(--ps-safelight)] transition-[width] duration-500" style={{ width: `${progress.fraction * 100}%` }} />
+            </div>
+            <span className="shrink-0">
+              {progress.done} of {progress.total} jobs done
+            </span>
+          </div>
+        ) : null}
 
         {run?.result?.notices.length ? <p className="text-xs text-muted">{run.result.notices.join(" · ")}</p> : null}
         {run?.error ? (
@@ -167,6 +200,7 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
                   onRetry={live ? undefined : () => void retry(i)}
                   retryJobs={cutoutNeedsRerun ? 2 : 1}
                   retrying={retrying.has(i)}
+                  upscalable
                 />
               );
             })}
@@ -185,10 +219,20 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
             {preview ? (
               // eslint-disable-next-line @next/next/no-img-element -- local object URL preview
               <img src={preview} alt="Product" className="size-14 rounded object-cover" />
+            ) : runProduct ? (
+              // eslint-disable-next-line @next/next/no-img-element -- re-hosted run output (the product cutout)
+              <img src={runProduct.url} alt="Product from this run" className="size-14 rounded bg-[var(--ps-film)] object-contain" />
             ) : (
               <span className="flex size-14 items-center justify-center rounded bg-[var(--ps-film)] text-xl text-[var(--ps-film-ink)]">+</span>
             )}
-            <span className="min-w-0 flex-1 truncate">{file ? file.name : "Upload product photo"}</span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate">{file ? file.name : run ? "Re-add product photo" : "Upload product photo"}</span>
+              {!file && run ? (
+                <span className="text-xs text-muted" data-testid="readd-product">
+                  {runProduct ? "Shown: this run's product. " : ""}Add the photo again to shoot.
+                </span>
+              ) : null}
+            </span>
             <input
               type="file"
               accept={ACCEPT}

@@ -46,7 +46,7 @@ export const MODE_TEMPLATES = {
     minOutputs: 1,
     maxOutputs: MAX_OUTPUTS,
     promptTemplate:
-      "Professional e-commerce photo of {product}, placed on a {style}. {lighting}, {angle}, {palette}. Clean catalog composition, sharp focus, no text.",
+      "Professional e-commerce photo of {product}, placed on a {style}. {lighting}, {angle}, {palette}. Clean catalog composition, sharp focus, no text, no letters, no logos.",
     variationAxes: ["preset", "lighting", "angle", "palette"],
     sharedStyle: false,
     needsPerson: false,
@@ -70,7 +70,7 @@ export const MODE_TEMPLATES = {
     minOutputs: 1,
     maxOutputs: MAX_OUTPUTS,
     promptTemplate:
-      "Lifestyle photo of {product}, in a real setting: {style}. {lighting}, {angle}, {palette}. Natural atmosphere, authentic props, no text.",
+      "Lifestyle photo of {product}, in a real setting: {style}. {lighting}, {angle}, {palette}. Natural atmosphere, authentic props, no text, no letters, no logos.",
     variationAxes: ["preset", "lighting", "angle", "palette"],
     sharedStyle: false,
     needsPerson: false,
@@ -94,7 +94,7 @@ export const MODE_TEMPLATES = {
     minOutputs: 1,
     maxOutputs: MAX_OUTPUTS,
     promptTemplate:
-      "Wide website hero image of {product}, set in {style}, with generous negative space on one side for a headline. {lighting}, {angle}, {palette}. Cinematic, no text.",
+      "Wide website hero image of {product}, set in {style}, with generous empty negative space on one side: a plain, uncluttered background area. {lighting}, {angle}, {palette}. Cinematic, no text, no letters, no logos.",
     variationAxes: ["preset", "lighting", "angle", "palette"],
     sharedStyle: false,
     needsPerson: false,
@@ -118,7 +118,7 @@ export const MODE_TEMPLATES = {
     minOutputs: 1,
     maxOutputs: MAX_OUTPUTS,
     promptTemplate:
-      "Vertical Pinterest-style moodboard image of {product}, styled with {style}. {lighting}, {angle}, {palette}. Editorial, airy, aspirational, no text.",
+      "Vertical Pinterest-style moodboard image of {product}, styled with {style}. {lighting}, {angle}, {palette}. Editorial, airy, aspirational, no text, no letters, no logos.",
     variationAxes: ["preset", "lighting", "angle", "palette"],
     sharedStyle: false,
     needsPerson: false,
@@ -142,7 +142,7 @@ export const MODE_TEMPLATES = {
     minOutputs: 3,
     maxOutputs: MAX_OUTPUTS,
     promptTemplate:
-      "Instagram carousel slide featuring {product}, set in {style}. {lighting}, {angle}, {palette}. Consistent visual system across slides, no text.",
+      "Instagram carousel slide featuring {product}, set in {style}. {lighting}, {angle}, {palette}. Consistent visual system across slides, no text, no letters, no logos.",
     variationAxes: ["angle"],
     sharedStyle: true,
     needsPerson: false,
@@ -157,7 +157,16 @@ export const MODE_TEMPLATES = {
       angle: ["eye-level hero framing", "macro texture detail", "hands-in-use framing", "three-quarter feature framing"],
       palette: PALETTES,
     },
-    roles: ["cover hook: product hero with space for a title", "detail: macro texture", "in use", "feature and benefit", "lifestyle context", "closing call-to-action shot"],
+    // Phrased as composition, never as labels: a model renders quoted or
+    // label-like words ("cover hook", "call to action") as gibberish text.
+    roles: [
+      "opening cover image, a bold product hero with generous empty negative space in the upper third, plain background area",
+      "close-up of the surface texture",
+      "the product in use",
+      "close-up of one key product feature in sharp focus",
+      "the product in a lifestyle context",
+      "closing image, the product centred on a clean, uncluttered background",
+    ],
   },
 } as const satisfies Record<DemoMode, ModeTemplate>;
 

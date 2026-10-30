@@ -84,15 +84,12 @@ function storedAccessCode(): string | null {
 }
 
 /**
- * A billed request (start, actions). Sends the studio access code from this
- * tab's session; on 401 `access_code_required` asks for it once and retries.
+ * Send a billed request with the studio access code from this tab's session.
+ * `send(code)` builds and sends the request (the code goes in a header or a
+ * form field, per route). On 401 `access_code_required` asks for the code
+ * once, remembers it for the tab and sends again.
  */
-async function sendBilled(url: string, init: RequestInit): Promise<Response> {
-  const send = (code: string | null) => {
-    const headers = new Headers(init.headers);
-    if (code) headers.set("X-Access-Code", code);
-    return fetch(url, { ...init, headers });
-  };
+export async function withAccessCode(send: (code: string | null) => Promise<Response>): Promise<Response> {
   const response = await send(storedAccessCode());
   if (response.status !== 401) return response;
   const body = (await response.clone().json().catch(() => null)) as { code?: string } | null;
@@ -105,6 +102,15 @@ async function sendBilled(url: string, init: RequestInit): Promise<Response> {
     // storage blocked: use the code for this request only
   }
   return send(code);
+}
+
+/** A billed pipeline request (start, actions): the code goes in `X-Access-Code`. */
+function sendBilled(url: string, init: RequestInit): Promise<Response> {
+  return withAccessCode((code) => {
+    const headers = new Headers(init.headers);
+    if (code) headers.set("X-Access-Code", code);
+    return fetch(url, { ...init, headers });
+  });
 }
 
 async function errorMessage(response: Response): Promise<string> {
