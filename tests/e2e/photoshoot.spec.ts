@@ -169,6 +169,18 @@ test.describe("Photoshoot dock", () => {
     await page.goto("/photoshoot");
   });
 
+  test("a single frame is counted in the singular", async ({ page }) => {
+    await page.goto("/photoshoot");
+    await page.getByTestId("product-input").setInputFiles(PRODUCT);
+    await page.getByRole("button", { name: "Product shot" }).click();
+    await page.getByRole("button", { name: "1", exact: true }).click();
+    await expect(page.getByText("2 jobs · cutout + 1 × 1:1 frame", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Shoot 1", exact: true }).click();
+    await expect(page.getByTestId("run-progress")).toHaveText(/2 of 2 jobs done/, { timeout: 45_000 });
+    const header = page.getByRole("region", { name: "Contact sheet" }).locator("header");
+    await expect(header.getByText("1 frame", { exact: true })).toBeVisible();
+  });
+
   test("packshot x4: upload product, generate, gallery shows 4 varied images", async ({ page }) => {
     await page.goto("/photoshoot");
     await page.getByTestId("product-input").setInputFiles(PRODUCT);
