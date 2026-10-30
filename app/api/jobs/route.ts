@@ -3,6 +3,7 @@ import type { Comfy } from "@comfyorg/sdk";
 import { AccessError, accessErrorResponse, assertMaySubmit, createJobHandle } from "../../../lib/access.ts";
 import { applyBindings } from "../../../lib/bindings/apply.ts";
 import { getBinding } from "../../../lib/bindings/index.ts";
+import { prepareGraph } from "../../../lib/bindings/prepare.ts";
 import {
   ComfyNotConfiguredError,
   SubmitAmbiguousError,
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
       });
     });
     client ??= createClient();
-    const graph = applyBindings(await loadGraph(binding.workflow), binding, values);
+    const graph = applyBindings(prepareGraph(binding.workflow, await loadGraph(binding.workflow), values), binding, values);
     const workflow = client.workflows.fromJson(graph);
     const submitted = await submitOnce(client, workflow, { idempotencyKey: crypto.randomUUID() });
     accepted = true;

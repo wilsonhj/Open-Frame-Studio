@@ -159,12 +159,16 @@ export function laplacianVariance(grey: Uint8Array, width: number, height: numbe
   return sumSq / n - mean * mean;
 }
 
-/** Q4 on the face box: greyscale, short side resized to 512. */
+/**
+ * Q4 on the face box: greyscale, short side scaled down to 512. Smaller faces
+ * are measured at their own size: upscaling them softens edges and would
+ * reject sharp photos as blurry.
+ */
 async function faceSharpness(r: Raster, box: Box): Promise<number> {
   const { x0, y0, x1, y1 } = region(r, box);
   const w = x1 - x0;
   const h = y1 - y0;
-  const scale = 512 / Math.min(w, h);
+  const scale = Math.min(1, 512 / Math.min(w, h));
   const { data, info } = await sharp(r.data, { raw: { width: r.width, height: r.height, channels: 3 } })
     .extract({ left: x0, top: y0, width: w, height: h })
     .resize(Math.max(3, Math.round(w * scale)), Math.max(3, Math.round(h * scale)))
