@@ -157,14 +157,14 @@ export function CopyFields({ value, onChange }: { value: CopyDraft; onChange: (n
       {text("brandName", "Brand", undefined, 40)}
       {text("tagline", "Tagline", "Optional; left out when empty", 60)}
       {text("category", "Category", "For scene prompts, e.g. beauty, kitchen", 40)}
-      {area("bullets", "Benefits", "3–5 lines, each under 90 characters")}
+      {area("bullets", "Benefits", "3–5 lines, each at most 90 characters")}
       {area("specs", "Specs", "One per line: Volume: 30 ml")}
       {area("ingredients", "Ingredients or materials", "One per line: Name – benefit")}
       {area("boxContents", "In the box", "One per line: 2 × Refill pad")}
       {area("painPoints", "Problems it solves", "2–3 lines: Dry skin → Lasting hydration")}
       {area("efficacyClaims", "Results", "2–4 lines: 92% felt more hydrated")}
       {text("efficacySource", "Source of the results", "Required with results; shown as a footnote", 120)}
-      {area("howToUse", "How to use", "2–4 steps, each under 60 characters")}
+      {area("howToUse", "How to use", "2–4 steps, each at most 60 characters")}
       <Field label="Endorsement" hint="A quote you have the right to use">
         <select className={input} value={value.endorsementType} onChange={(e) => up("endorsementType")(e.target.value as CopyDraft["endorsementType"])}>
           <option value="review">Customer review</option>

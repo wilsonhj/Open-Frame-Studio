@@ -170,6 +170,44 @@ test.describe("Cards board", () => {
     expect(manifest.tiles.filter((t) => t.state === "succeeded").map((t) => t.file).sort()).toEqual([...images].sort());
   });
 
+  test("a live run can be canceled from the board", async ({ page }) => {
+    // Jobs stay queued long enough to cancel while the cutout is live.
+    await setMockScenario({ scenario: "queued_20s", queuedMs: 60_000 });
+    await startRun(page, "Story · 8");
+    const hero = page.locator('[data-asset="hero"]');
+    await expect(hero.locator("[data-status]").first()).toHaveAttribute("data-status", /queued|running/);
+
+    await page.getByRole("button", { name: "Cancel run" }).click();
+    await expect(hero.locator("[data-status]").first()).toHaveAttribute("data-status", "canceled", { timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
+    const runId = await page.evaluate(() => sessionStorage.getItem("oss:run:listing"));
+    const run = (await (await page.request.get(`/api/pipelines/listing/${runId}`)).json()) as { status: string };
+    expect(run.status).toBe("canceled");
+    // Cancel never resubmits: only the cutout was ever sent.
+    expect((await mockRequests()).jobPosts).toHaveLength(1);
+  });
+
+  test("a failed cancel is reported and the run can still be canceled", async ({ page }) => {
+    await setMockScenario({ scenario: "queued_20s", queuedMs: 60_000 });
+    await startRun(page, "Story · 8");
+    const cancel = page.getByRole("button", { name: "Cancel run" });
+    await expect(cancel).toBeVisible();
+
+    await page.route("**/cancel", (route) => route.abort());
+    await cancel.click();
+    const failed = page.getByText("Could not cancel the run");
+    await expect(failed).toBeVisible();
+    // The next status poll clears the hook's own error text; this message must outlive it.
+    await page.waitForResponse((r) => r.request().method() === "GET" && /\/api\/pipelines\/listing\/[^/]+$/.test(r.url()));
+    await expect(failed).toBeVisible();
+    await expect(cancel).toBeVisible();
+
+    await page.unroute("**/cancel");
+    await cancel.click();
+    await expect(page.locator('[data-asset="hero"] [data-status]').first()).toHaveAttribute("data-status", "canceled", { timeout: 20_000 });
+    await expect(failed).toHaveCount(0);
+  });
+
   test("a canceled run keeps its finished tiles exportable", async ({ page }) => {
     test.setTimeout(120_000);
     await startRun(page, "Story · 8");

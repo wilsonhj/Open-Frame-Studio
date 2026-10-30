@@ -134,6 +134,12 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
     }
   }
 
+  // `action` resolves null when the request fails; the hook's own error text is cleared by the next poll.
+  async function cancelRun() {
+    setSubmitError(null);
+    if (!(await action("cancel"))) setSubmitError("Could not cancel the run. It may still be live; try again.");
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     void submit();
@@ -200,6 +206,12 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
             >
               Download ZIP
             </a>
+          ) : null}
+          {run && polling ? (
+            // Reset only forgets the run; this stops new steps and asks Comfy to stop live jobs.
+            <Button variant="ghost" onClick={() => void cancelRun()}>
+              Cancel run
+            </Button>
           ) : null}
           {run ? (
             <Button variant="ghost" onClick={reset}>

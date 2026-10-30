@@ -84,7 +84,7 @@ function stringList(r: Record<string, unknown>, field: string, min: number, max:
   const out: string[] = [];
   for (const [i, s] of v.entries()) {
     if (typeof s !== "string" || s.trim() === "") return fail("expected a non-empty string", `${field}[${i}]`);
-    if (s.trim().length > maxLen) return fail(`keep it under ${maxLen} characters`, `${field}[${i}]`);
+    if (s.trim().length > maxLen) return fail(`use at most ${maxLen} characters`, `${field}[${i}]`);
     out.push(s.trim());
   }
   return out;
@@ -119,7 +119,7 @@ function text(o: Record<string, unknown>, key: string, path: string, max: number
     return required ? fail(`${key} is required`, `${path}.${key}`) : undefined;
   }
   if (typeof v !== "string") return fail(`${key} must be a string`, `${path}.${key}`);
-  if (v.trim().length > max) return fail(`keep it under ${max} characters`, `${path}.${key}`);
+  if (v.trim().length > max) return fail(`use at most ${max} characters`, `${path}.${key}`);
   return v.trim();
 }
 

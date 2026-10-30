@@ -36,6 +36,38 @@ describe("cardsPipeline", () => {
     assert.ok(!reuse.ok && reuse.field === "mainJobId");
   });
 
+  it("allows every copy limit at N characters and names the same N at N+1 (§7)", () => {
+    const base = { productImages: [{ upload: "product" }], scope: "complete" as const };
+    const s = (n: number) => "x".repeat(n);
+    // [limit, field the error names, request built with a value of length n]
+    const cases: [number, string, (n: number) => Record<string, unknown>][] = [
+      [80, "productName", (n) => ({ productName: s(n) })],
+      [90, "bullets[1]", (n) => ({ bullets: ["a", s(n), "c"] })],
+      [60, "howToUse[0]", (n) => ({ howToUse: [s(n), "b"] })],
+      [40, "ingredients[0].name", (n) => ({ ingredients: [{ name: s(n) }] })],
+      [20, "ingredients[0].amount", (n) => ({ ingredients: [{ name: "a", amount: s(n) }] })],
+      [60, "ingredients[0].benefit", (n) => ({ ingredients: [{ name: "a", benefit: s(n) }] })],
+      [30, "specs[0].label", (n) => ({ specs: [{ label: s(n), value: "v" }] })],
+      [50, "specs[0].value", (n) => ({ specs: [{ label: "l", value: s(n) }] })],
+      [40, "boxContents[0].name", (n) => ({ boxContents: [{ qty: 1, name: s(n) }] })],
+      [50, "painPoints[0].problem", (n) => ({ painPoints: [{ problem: s(n), solution: "b" }, { problem: "c", solution: "d" }] })],
+      [60, "painPoints[1].solution", (n) => ({ painPoints: [{ problem: "a", solution: "b" }, { problem: "c", solution: s(n) }] })],
+      [8, "efficacyClaims[0].value", (n) => ({ efficacySource: "Study", efficacyClaims: [{ value: s(n), label: "l" }, { value: "1", label: "m" }] })],
+      [40, "efficacyClaims[0].label", (n) => ({ efficacySource: "Study", efficacyClaims: [{ value: "1", label: s(n) }, { value: "2", label: "m" }] })],
+      [160, "endorsement.text", (n) => ({ endorsement: { type: "review", text: s(n), by: "b", rightsConfirmed: true } })],
+      [50, "endorsement.by", (n) => ({ endorsement: { type: "review", text: "t", by: s(n), rightsConfirmed: true } })],
+    ];
+    for (const [max, field, build] of cases) {
+      assert.equal(cardsPipeline.validate({ ...base, ...build(max) }).ok, true, `${field} at ${max}`);
+      const over = cardsPipeline.validate({ ...base, ...build(max + 1) });
+      assert.ok(!over.ok, `${field} at ${max + 1}`);
+      assert.equal(over.field, field);
+      // N itself is allowed, so the message must not say "under N".
+      assert.match(over.error, new RegExp(`(at most |–)${max} characters`), field);
+      assert.doesNotMatch(over.error, /under/, field);
+    }
+  });
+
   it("plans cutout -> compose_main and builds a main result", async () => {
     const request = { scope: "hero" as const, productImages: [{ assetId: "asset_hero" }] };
     const steps = await cardsPipeline.plan(request, planCtx);
