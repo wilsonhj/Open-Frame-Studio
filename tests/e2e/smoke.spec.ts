@@ -19,6 +19,14 @@ test.beforeEach(async () => {
   await resetMock();
 });
 
+test("the page declares an icon that loads, so the browser's favicon request is not a 404", async ({ page }) => {
+  await page.goto("/");
+  const href = await page.locator('link[rel="icon"]').first().getAttribute("href", { timeout: 5_000 });
+  expect(href).toBeTruthy();
+  const icon = await page.request.get(href!);
+  expect(icon.status()).toBe(200);
+});
+
 test("landing page renders and links to the 4 tools", async ({ page }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
