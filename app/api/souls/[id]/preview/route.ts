@@ -4,9 +4,10 @@
  * step 8). Billed, so it takes a rate-limit slot like every other submit.
  * Only the saved crops go to Comfy (ensureAssets), never the originals.
  */
+import { AccessError, accessErrorResponse } from "../../../../../lib/access.ts";
 import { ComfyNotConfiguredError } from "../../../../../lib/comfy.ts";
 import { errorResponse, NO_STORE } from "../../../../../lib/identity/http.ts";
-import { gateSubmit } from "../../../../../lib/pipeline/gate.ts";
+import { gateSubmit, jobCharge } from "../../../../../lib/pipeline/gate.ts";
 import { createRun } from "../../../../../lib/pipeline/runner.ts";
 import { ensureAssets, getSoul } from "../../../../../lib/soul/registry.ts";
 
@@ -35,9 +36,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       consent: true, // backed by soul.consentedAt, checked above
       photos: ready.refs.slice(0, 4).map((r) => ({ assetId: r.assetId })),
       preview: true,
-    });
+    }, undefined, jobCharge(request));
     if (!created.ok) {
       gate.refund();
+      if (created.status === 429) {
+        return accessErrorResponse(new AccessError(429, created.code, created.error, created.retryAfterSeconds));
+      }
       return Response.json({ error: created.error, field: created.field ?? "" }, { status: created.status, headers: NO_STORE });
     }
     return Response.json(created.run, { status: 202, headers: NO_STORE });

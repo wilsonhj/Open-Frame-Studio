@@ -257,7 +257,7 @@ describe("preview pipeline validation", () => {
     const created = await runner.createRun("identity", { name: "a", consent: true, photos: [{ assetId: "11111111-1111-4111-8111-111111111111" }] });
     assert.equal(created.ok, false);
     assert.equal(!created.ok && created.status, 400);
-    assert.equal(!created.ok && created.field, "photos");
+    assert.equal(!created.ok && created.status !== 429 && created.field, "photos");
     assert.equal(mock.state.jobPosts.length, jobs, "nothing submitted");
   });
 
