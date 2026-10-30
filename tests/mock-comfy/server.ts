@@ -283,8 +283,24 @@ export function startMockComfy(options: { port?: number; scenario?: Scenario } =
         outputJson(job, storeOutput(job, "-vid-1", MP4_STUB, "video/mp4", "open-soul-studio/multi_00001_.mp4"), "12", "video"),
       ];
     }
-    // Keep the original id (`out-<jobId>`) so existing tests and clients stay stable.
-    return [outputJson(job, storeOutput(job, "", PNG_1X1, "image/png", "open-soul-studio/smoke_00001_.png"), "3", "image")];
+    // Like Comfy, emit one output per Save* node of the submitted graph. Image
+    // outputs echo the first input asset so code steps downstream see a real image.
+    const saves = Object.entries(job.workflow).filter(
+      ([, node]) => typeof (node as { class_type?: unknown })?.class_type === "string" && (node as { class_type: string }).class_type.startsWith("Save"),
+    );
+    if (saves.length === 0) saves.push(["3", { class_type: "SaveImage" }]);
+    const input = assetIdsIn(job.workflow).map((id) => state.assets.get(id)).find((a) => a?.contentType.startsWith("image/"));
+    // The first output keeps the original id (`out-<jobId>`) so existing tests and clients stay stable.
+    return saves.map(([nodeId, node], i) => {
+      const suffix = i === 0 ? "" : `-${nodeId}`;
+      if ((node as { class_type: string }).class_type === "SaveVideo") {
+        return outputJson(job, storeOutput(job, suffix, MP4_STUB, "video/mp4", `open-soul-studio/mock_${nodeId}_00001_.mp4`), nodeId, "video");
+      }
+      const bytes = input?.bytes ?? PNG_1X1;
+      const type = input?.contentType ?? "image/png";
+      const ext = type === "image/jpeg" ? "jpg" : type === "image/webp" ? "webp" : "png";
+      return outputJson(job, storeOutput(job, suffix, bytes, type, `open-soul-studio/mock_${nodeId}_00001_.${ext}`), nodeId, "image");
+    });
   }
 
   function jobJson(job: MockJob, advance: boolean) {

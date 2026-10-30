@@ -60,8 +60,10 @@ async function prefillOutput(jobId) {
   const types = classTypes(job.workflow).join(" ");
   const seedNode = Object.values(job.workflow ?? {}).find((n) => n?.inputs && "seed" in n.inputs);
   const seed = Number(seedNode?.inputs?.seed ?? createHash("sha1").update(jobId).digest().readUInt32BE(0));
-  const variant = /birefnet|removebg|cutout/i.test(types) ? "cutout" : "shot";
-  const bytes = await renderFrame({ source, seed, index: frame++, variant });
+  const variant = /birefnet|removebackground|removebg|cutout/i.test(types) ? "cutout" : "shot";
+  // The mock has no background-removal model: a cutout passes the upload through
+  // unchanged, so only a product photo that already has transparency passes A4.
+  const bytes = variant === "cutout" && source ? source : await renderFrame({ source, seed, index: frame++, variant });
   const outId = `out-${jobId}`;
   mock.state.assets.set(outId, {
     id: outId,
