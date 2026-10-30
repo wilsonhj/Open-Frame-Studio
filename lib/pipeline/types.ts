@@ -179,7 +179,7 @@ export type PipelineDefinition<K extends PipelineKind> = {
   /**
    * Build the full, concrete step list (every step `pending`, with
    * `dependsOn` and `timeoutMs`; seeds and prompts resolved). The request's
-   * images are `{ assetId }` by now. May read the Soul registry. Runs once per
+   * images are `{ assetId }` by now. May read the identity registry. Runs once per
    * run, before persist; never at resume.
    */
   plan(request: PipelineRequestMap[K], ctx: PlanContext): Promise<PipelineStep[]>;

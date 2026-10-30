@@ -114,7 +114,7 @@ CI runs install with a frozen lockfile, lint, typecheck, `pnpm test` with a blan
 | Product Shoot (`/photoshoot`) | A product-only journey: a cutout, then N Klein frames, with per-item retry. Adds `lib/photoshoot/`, `lib/enhancer/` (mode templates and the variation engine) and the shoot components. |
 | Listing Images (`/listing`) | The hero image composed at 85% fill on pure #FFFFFF, 2000×2000, with compliance checks A1–A7; a non-compliant hero fails the run. Adds `lib/cards/` and `components/cards/`. |
 | Shell | A studio rail, shared UI primitives, a `/runs` page, a `useRun` polling hook (1 s, backing off to 5 s), and `pnpm demo`, which starts the mock on port 8199 and the app on port 3000. |
-| Tooling | `docs/OWNERS.md` with `scripts/check-owners.mjs` for path ownership, `models/manifest.json` with `scripts/check-models.mjs`, bundled OFL fonts, and `sharp` and `fflate` dependencies. |
+| Tooling | `docs/OWNERS.md` with `scripts/check-owners.mjs` for path ownership, `models/manifest.json` with `scripts/check-models.mjs`, bundled OFL fonts, and the `sharp` dependency. |
 | Still stubbed or missing | Identity and Motion pipelines (the rail shows them as "soon"), the listing gallery and story panels, and any Comfy Cloud run. |
 
 Its description reports 216 passing tests and clean lint, typecheck and build, all against the mock, as of head `6fed7bb` (the head has since moved to `2241590`); real model quality and golden runs are not verified.

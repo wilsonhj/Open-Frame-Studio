@@ -200,8 +200,9 @@ const retryItem: ActionHandler<"photoshoot"> = {
           data: s.data,
         };
       }
-      // A failed cutout blocks every shot: retry it too.
-      if (s.id === CUTOUT_STEP && cutout && cutout.status !== "succeeded") {
+      // A failed cutout blocks every shot: retry it too, unless an earlier
+      // retry already restarted it (resetting a live step is refused).
+      if (s.id === CUTOUT_STEP && cutout && cutout.status !== "succeeded" && TERMINAL_STEP_STATUSES.includes(cutout.status)) {
         return {
           id: s.id,
           kind: "comfy",

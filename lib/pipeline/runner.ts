@@ -232,6 +232,9 @@ export async function createRun(kind: string, raw: unknown, uploads: Map<string,
   const assetIds = new Map<string, Promise<string>>();
   let committed = 0;
   const refuse = async (result: Extract<CreateResult, { ok: false }>): Promise<CreateResult> => {
+    // Let every started upload settle first, so the refund decision sees all
+    // commits and no late write lands after the cleanup.
+    await Promise.allSettled(assetIds.values());
     // Nothing references the files of a run that was never saved.
     await removeRunFiles(runId);
     return committed > 0 ? { ...result, assetsCreated: true } : result;
@@ -523,14 +526,18 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Download one output, retrying transient failures a few times within the step deadline. */
+/**
+ * Download one output of a job Comfy already finished (and billed), retrying
+ * transient failures with backoff until the step deadline, so a blip never
+ * throws away a paid result.
+ */
 async function downloadOutput(c: Comfy, jobId: string, outputId: string, step: PipelineStep, signal?: AbortSignal): Promise<Uint8Array> {
-  for (let attempt = 1; ; attempt++) {
+  for (let backoff = 500; ; backoff = Math.min(backoff * 2, 10_000)) {
     try {
       return new Uint8Array(await (await fetchOutput(c, jobId, outputId)).arrayBuffer());
     } catch (e) {
-      if (attempt >= 4 || signal?.aborted || Date.parse(step.deadlineAt ?? now()) - Date.now() <= 0) throw e;
-      await pause(Math.min(500 * 2 ** (attempt - 1), remaining(step)), signal);
+      if (signal?.aborted || Date.parse(step.deadlineAt ?? now()) - Date.now() <= 0) throw e;
+      await pause(Math.min(backoff, remaining(step)), signal);
     }
   }
 }
@@ -602,7 +609,8 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
       if (Date.parse(step.deadlineAt ?? now()) - Date.now() <= 0) {
         // Out of budget: one last look, then ask Comfy to stop the job.
         const last = await getJob(c, step.jobId!).catch(() => null);
-        if (last?.status === "succeeded") {
+        // A job that ended upstream is reported as it ended (api.md §2.0).
+        if (last?.terminal) {
           job = last;
           break;
         }

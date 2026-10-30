@@ -143,4 +143,18 @@ describe("photoshoot plan and result", () => {
     const res = await photoshootPipeline.actions!.retry.run({ run, params: { index: "0" }, body: null, plan: ctx } as never);
     assert.equal(res.type === "error" && res.status, 409);
   });
+
+  it("retrying a second frame while the restarted cutout runs leaves the cutout alone", async () => {
+    const request = { mode: "packshot" as const, prompt: "", images: [{ assetId: "a" }], count: 2 };
+    const steps = await photoshootPipeline.plan(request, ctx);
+    steps[0].status = "running"; // restarted by an earlier frame retry
+    steps[1].status = "pending";
+    steps[2].status = "skipped";
+    const run = { kind: "photoshoot", request, steps } as unknown as PipelineRun<"photoshoot">;
+    const res = await photoshootPipeline.actions!.retry.run({ run, params: { index: "1" }, body: null, plan: ctx } as never);
+    assert.equal(res.type, "replan");
+    if (res.type !== "replan") return;
+    assert.equal(res.steps[0], steps[0], "the running cutout is not reset");
+    assert.equal(res.steps[2].status, "pending");
+  });
 });
