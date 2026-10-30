@@ -219,7 +219,8 @@ not in this repo.
   full set) and reuse of a finished main image for later assets (`--main-job`). The skill hides its compliance rules
   ("Backend owns marketplace compliance references").
 - **On ComfyUI:** already planned. The hero is a deterministic cutout and composite (no diffusion), compliance-checked in
-  code. Every other slot is a Klein edit conditioned on the hero, with text rendered in code. UX: a board of tiles with
+  code. Generated slots are Klein edits conditioned on the product cutout (some slots are drawn entirely in code), with
+  text rendered in code. UX: a board of tiles with
   per-tile regenerate, a compliance badge on the hero, and ZIP export.
 - **Don't copy:** our slot ids (`hero`, `gallery_*`, `story_*`) and our scopes (`hero`, `gallery`, `story`, `complete`).
   Never use "A+" or a marketplace's brand in the UI. Write our own compliance rules and say in the UI which rules we check.
