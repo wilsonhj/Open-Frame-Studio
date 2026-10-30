@@ -85,6 +85,8 @@ function mainView(run: PipelineRun<"listing"> | null): { url: string | null; che
 export function CardsBoard({ runId }: { runId?: string } = {}) {
   const { run, error, polling, start, action, reset } = useRun("listing", { runId });
   const [scope, setScope] = useState<CardScope>("hero");
+  // A run shows the scope it was made with (a `?run=` reopen never set this tab's pick).
+  const shownScope = run ? run.request.scope : scope;
   const [copy, setCopy] = useState<CopyDraft>(EMPTY_COPY);
   const [regenerating, setRegenerating] = useState<CardAssetId | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -171,7 +173,7 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
       <Card title="Product">
         <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="What to make">
           {SCOPES.map((s) => (
-            <Chip key={s.id} selected={scope === s.id} onClick={() => setScope(s.id)} disabled={!!run}>
+            <Chip key={s.id} selected={shownScope === s.id} onClick={() => setScope(s.id)} disabled={!!run}>
               {s.label}
             </Chip>
           ))}
@@ -196,7 +198,7 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
             />
           </label>
           <Button type="submit" disabled={!file || !!run} busy={busy || polling}>
-            {scope === "hero" ? "Generate main image" : `Generate ${planned.length} images`}
+            {shownScope === "hero" ? "Generate main image" : `Generate ${planned.length} images`}
           </Button>
           {exportable ? (
             <a
