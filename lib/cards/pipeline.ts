@@ -1,7 +1,7 @@
 /**
  * Listing Images pipeline (slice E, docs/spec/listing.md). Current scope: the
  * deterministic hero image only — `cutout` (Comfy) → `compose_main` (code:
- * compose + A1–A7). Every other asset is reported as a skipped tile for now.
+ * compose + A1–A7 and C3). Every other asset is reported as a skipped tile for now.
  */
 import type { CodeHandler, PipelineDefinition, ValidateResult } from "../pipeline/types.ts";
 import type {
@@ -54,6 +54,13 @@ function validate(raw: unknown): ValidateResult<CardsRequest> {
   return { ok: true, value };
 }
 
+/**
+ * The hero file name: `NN_<asset_id>.<ext>` (docs/spec/listing.md G6), with NN
+ * its order in §2. PNG, not JPEG: A1 runs on the file as written and needs an
+ * exactly #FFFFFF border, which JPEG ringing would break.
+ */
+export const HERO_FILE = "01_hero.png";
+
 const composeMainHandler: CodeHandler<"listing"> = async (ctx) => {
   const source = ctx.step.inputs.cutout as StepInputRef;
   const bytes = await ctx.readBytes(source);
@@ -65,7 +72,7 @@ const composeMainHandler: CodeHandler<"listing"> = async (ctx) => {
   return {
     status: ok ? "succeeded" : "failed",
     error: ok ? null : { code: "main_not_compliant", message: `main image failed ${failed.join(", ")}` },
-    files: [{ name: "main.png", contentType: "image/png", bytes: png }],
+    files: [{ name: HERO_FILE, contentType: "image/png", bytes: png }],
     data: { checks, ok, cutoutBbox: cutout.bbox, placed } as unknown as JsonValue,
   };
 };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { useRun } from "../../lib/client/use-run";
 import type { CardAssetId, CardsResult, MainImageCheck, PipelineRun } from "../../lib/types";
@@ -32,6 +32,21 @@ const CHECK_FAILURE: Record<string, string> = {
   A5: "More than one object was found in the photo.",
   A6: "The product is too small in the photo (it needs at least 425 px on its longest side). Upload a larger photo.",
   A7: "The product is almost all white, so it may not stand out on a white background.",
+  C3: "The product is not centred inside the frame, or it touches the edge.",
+};
+
+/**
+ * Why the hero image is missing, by state, when no check explains it (for
+ * example the cutout step ended without a result). Every non-success state has
+ * a reason; the board pairs it with "Try again" and "Upload a different photo".
+ */
+const STATE_REASON: Record<string, string> = {
+  failed: "The hero image could not be made.",
+  timed_out: "The cutout took too long and was stopped.",
+  expired: "The cutout job expired on the server before it finished.",
+  unknown: "We lost track of the cutout job, so its result is unknown.",
+  needs_input: "This step needs more information before it can run.",
+  canceled: "The run was canceled.",
 };
 
 function mainView(run: PipelineRun<"listing"> | null): { url: string | null; checks: MainImageCheck[]; ok: boolean | null } {
@@ -44,21 +59,33 @@ function mainView(run: PipelineRun<"listing"> | null): { url: string | null; che
   return { url: step?.outputs?.[0]?.url ?? null, checks: data?.checks ?? [], ok: data?.ok ?? null };
 }
 
-export function CardsBoard() {
-  const { run, error, polling, start, reset } = useRun("listing");
+/** `runId`: resume this run (the `?run=` deep link from /runs), else this tab's last run. */
+export function CardsBoard({ runId }: { runId?: string } = {}) {
+  const { run, error, polling, start, reset } = useRun("listing", { runId });
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
-  const [productName, setProductName] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  // Revoke the preview's object URL when it is replaced and on unmount.
+  const previewRef = useRef<string | null>(null);
+  useEffect(() => () => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+  }, []);
+  function pickFile(next: File | null) {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = next ? URL.createObjectURL(next) : null;
+    setFile(next);
+    setPreview(previewRef.current);
+  }
+
+  async function submit() {
     if (!file) return;
     setSubmitError(null);
     setBusy(true);
     const body = new FormData();
-    const request = { scope: "hero", productImages: [{ upload: "product" }], ...(productName.trim() ? { productName } : {}) };
+    // The hero never shows text (spec C6), so no product name is asked for here.
+    const request = { scope: "hero", productImages: [{ upload: "product" }] };
     body.append("request", JSON.stringify(request));
     body.append("product", file);
     try {
@@ -70,17 +97,24 @@ export function CardsBoard() {
     }
   }
 
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    void submit();
+  }
+
   const main = mainView(run);
   const heroTile = run?.result?.tiles.find((t) => t.asset === "hero");
   const mainState = heroTile?.state ?? run?.status ?? null;
   // Why the hero image failed, in plain words: the failing error-level checks,
   // else the step error (e.g. the cutout failed), else the run error.
   const failedChecks = main.checks.filter((c) => !c.ok && c.level === "error");
+  const stateReason = mainState ? STATE_REASON[mainState] : undefined;
+  const detail = heroTile?.error?.message ?? run?.error?.message;
   const failure =
-    mainState === "failed" || mainState === "timed_out" || main.ok === false
+    stateReason || main.ok === false
       ? failedChecks.length
         ? failedChecks.map((c) => CHECK_FAILURE[c.id] ?? c.message)
-        : [heroTile?.error?.message ?? run?.error?.message ?? "The hero image could not be made."]
+        : [stateReason ?? STATE_REASON.failed, ...(detail ? [`Details: ${detail}`] : [])]
       : [];
 
   return (
@@ -92,20 +126,7 @@ export function CardsBoard() {
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                setFile(f);
-                setPreview(f ? URL.createObjectURL(f) : null);
-              }}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span>Product name</span>
-            <input
-              value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              placeholder="e.g. Vitamin C serum"
-              className="rounded-lg border border-border bg-background px-3 py-2"
+              onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
             />
           </label>
           <Button type="submit" disabled={!file} busy={busy || polling}>
@@ -161,7 +182,7 @@ export function CardsBoard() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted">A1–A7 run on the written file once the image is composed.</p>
+                <p className="text-sm text-muted">Checks A1–A7 and C3 run on the written file once the image is composed.</p>
               )}
               {failure.length ? (
                 <div role="alert" className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -170,15 +191,22 @@ export function CardsBoard() {
                       <li key={line}>{line}</li>
                     ))}
                   </ul>
-                  <Button variant="ghost" onClick={reset}>
-                    Upload a different photo
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {file && failedChecks.length === 0 ? (
+                      <Button onClick={() => void submit()} busy={busy || polling}>
+                        Try again
+                      </Button>
+                    ) : null}
+                    <Button variant="ghost" onClick={reset}>
+                      Upload a different photo
+                    </Button>
+                  </div>
                 </div>
               ) : null}
               {main.url && main.ok ? (
                 <a
                   href={main.url}
-                  download="main.png"
+                  download={main.url.split("/").pop() || "01_hero.png"}
                   className="inline-flex rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
                 >
                   Download

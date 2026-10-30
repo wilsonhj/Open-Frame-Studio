@@ -48,12 +48,12 @@ describe("composeMain", () => {
     assert.equal(meta.hasAlpha, false);
   });
 
-  it("passes A1–A7 for a real cutout", async () => {
+  it("passes A1–A7 and C3 for a real cutout", async () => {
     const { png, cutout } = await composeMain(await product());
     const checks = await checkMain(png, cutout);
     assert.deepEqual(
       checks.map((c) => c.id),
-      ["A1", "A2", "A3", "A4", "A5", "A6", "A7"],
+      ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "C3"],
     );
     for (const c of checks) assert.ok(c.ok, `${c.id} failed: ${c.value}`);
     assert.ok(mainOk(checks));
@@ -111,3 +111,46 @@ describe("checkMain negative controls", () => {
     await assert.rejects(composeMain(await rgba(50, 50, [])), /empty alpha/);
   });
 });
+
+/** A 2000×2000 RGB white canvas with an opaque block at (left, top). */
+async function canvasWith(left: number, top: number, w: number, h: number): Promise<Uint8Array> {
+  const block = await sharp({ create: { width: w, height: h, channels: 3, background: { r: 30, g: 60, b: 120 } } })
+    .png()
+    .toBuffer();
+  return new Uint8Array(
+    await sharp({ create: { width: 2000, height: 2000, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+      .composite([{ input: block, left, top }])
+      .png()
+      .toBuffer(),
+  );
+}
+
+describe("C3: centred, not cropped (measured from the written pixels)", () => {
+  it("a correctly composed hero image passes, with a margin of at least 150 px", async () => {
+    const { png, cutout, placed } = await composeMain(await product());
+    const c3 = byId(await checkMain(png, cutout, placed), "C3");
+    assert.equal(c3.ok, true);
+    assert.ok((c3.value as number) >= 150, `margin ${c3.value}`);
+    assert.equal(byId(await checkMain(png, cutout), "C3").ok, true, "the pixel fallback agrees");
+  });
+
+  it("fails a composite whose pixels do not match the claimed centred placement", async () => {
+    const { cutout, placed } = await composeMain(await product());
+    // Same claimed placement, but the product was drawn at the left edge.
+    const misplaced = await canvasWith(0, placed.y, placed.width, placed.height);
+    const checks = await checkMain(misplaced, cutout, placed);
+    assert.equal(byId(checks, "C3").ok, false);
+    assert.equal(mainOk(checks), false, "C3 is error-level and blocks the run");
+    // A2 alone (placed box) would still pass: C3 is what catches it.
+    assert.equal(byId(checks, "A2").ok, true);
+  });
+
+  it("fails a product that touches or crosses the canvas edge", async () => {
+    const { cutout } = await composeMain(await product());
+    const clipped = await canvasWith(1300, 300, 700, 1400); // touches the right edge
+    assert.equal(byId(await checkMain(clipped, cutout), "C3").ok, false);
+    const overflowing = { x: -20, y: 150, width: 1700, height: 1700 };
+    assert.equal(byId(await checkMain(clipped, cutout, overflowing), "C3").ok, false);
+  });
+});
+

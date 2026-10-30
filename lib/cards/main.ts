@@ -1,6 +1,6 @@
 /**
  * Deterministic marketplace hero image on pure white (docs/spec/listing.md §4)
- * and its compliance checks A1–A7 (§5). Pure functions over bytes; sharp only.
+ * and its compliance checks A1–A7 and C3 (§5). Pure functions over bytes; sharp only.
  *
  * Port of spikes/cutout-upscale/marketplace_main.py.
  */
@@ -15,6 +15,8 @@ export const MAIN_SIZE = 2000;
 export const MAIN_FILL = 0.85;
 export const ALPHA_FLOOR = 8;
 const BORDER_BAND = 20;
+/** C3: how far (px) visible product pixels may stray outside the placed box. */
+const PLACE_TOLERANCE = 2;
 
 export type CutoutStats = {
   width: number;
@@ -141,11 +143,18 @@ export async function composeMain(cutoutPng: Uint8Array): Promise<ComposeMainRes
 const round = (v: number) => Math.round(v * 10_000) / 10_000;
 
 /**
- * Run A1–A7 on the written main image (and the cutout it was composed from).
- * A2 measures the product's alpha box as placed on the canvas (spec §5.1: the
- * bbox comes from alpha ≥ 8), so a product with pure-white edges (a white cap,
- * sole or label) is not mistaken for background. Without `placed`, A2 falls
- * back to the bbox of non-white pixels in the flattened file.
+ * Run A1–A7 and C3 on the written main image (and the cutout it was composed
+ * from). A2 measures the product's alpha box as placed on the canvas (spec
+ * §5.1: the bbox comes from alpha ≥ 8), so a product with pure-white edges (a
+ * white cap, sole or label) is not mistaken for background. Without `placed`,
+ * A2 falls back to the bbox of non-white pixels in the flattened file.
+ *
+ * C3 (§5 "Centred, not cropped": A1 plus a bbox-inside-canvas assertion) is
+ * measured from the written pixels, so it catches a composite that does not
+ * match its claimed placement: the placed box is centred and clear of every
+ * edge, some product is visible, and no visible (non-white) pixel lies more
+ * than PLACE_TOLERANCE px outside the placed box. Visible pixels may sit
+ * inside it (white product edges blend into the background), never outside.
  */
 export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats, placed?: CropBox): Promise<MainImageCheck[]> {
   const sharp = await loadSharp();
@@ -181,6 +190,17 @@ export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats, placed
     : maxX < 0
       ? 0
       : Math.max(maxX - minX + 1, maxY - minY + 1) / Math.max(width, height);
+  const measured = maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  const box = placed ?? measured;
+  const margin = box ? Math.min(box.x, box.y, width - (box.x + box.width), height - (box.y + box.height)) : 0;
+  const centred = box ? Math.abs(box.x + box.width / 2 - width / 2) <= 1 && Math.abs(box.y + box.height / 2 - height / 2) <= 1 : false;
+  const agrees =
+    !!box &&
+    !!measured &&
+    measured.x >= box.x - PLACE_TOLERANCE &&
+    measured.y >= box.y - PLACE_TOLERANCE &&
+    measured.x + measured.width <= box.x + box.width + PLACE_TOLERANCE &&
+    measured.y + measured.height <= box.y + box.height + PLACE_TOLERANCE;
   const sizeOk = width === MAIN_SIZE && height === MAIN_SIZE && meta.channels === 3 && !meta.hasAlpha;
   const sourcePx = Math.max(cutout.bbox.width, cutout.bbox.height);
 
@@ -221,6 +241,13 @@ export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats, placed
       ok: cutout.nearWhiteFraction <= 0.6,
       value: round(cutout.nearWhiteFraction),
       message: "Product visible on white (≤ 0.6 near-white pixels)",
+    },
+    {
+      id: "C3",
+      level: "error",
+      ok: margin > 0 && centred && agrees,
+      value: margin,
+      message: "Product centred inside the canvas, not cropped (value: smallest edge margin, px)",
     },
   ];
 }
