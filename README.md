@@ -17,6 +17,8 @@ pnpm dev                         # http://127.0.0.1:3000
 - `COMFY_API_KEY` is your key from [platform.comfy.org](https://platform.comfy.org/profile/api-keys). It is read only on the server and is never exposed to the browser.
 - `COMFY_BASE_URL` is optional. Leave it unset to use Comfy Cloud. Set it (for example `http://127.0.0.1:8189`) to use a self-hosted ComfyUI behind `comfy-api-proxy`; the code is the same.
 
+For a live demo with real-looking outputs (no Comfy credits, no network), run `pnpm demo` and open http://127.0.0.1:3000. The walkthrough is in [docs/submission/demo-script.md](docs/submission/demo-script.md).
+
 To work offline, run against the bundled mock Comfy API v2 server:
 
 ```bash
@@ -31,6 +33,8 @@ COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev     # terminal 2, then open /smoke
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` | `node --test` unit tests against `tests/mock-comfy` (no network, no credits) |
 | `pnpm mock-comfy` | Standalone mock Comfy API v2 server |
+| `pnpm demo` | Live-demo mode: the mock on `127.0.0.1:8199`, returning composited product-style PNGs, plus `next dev` pointed at it. It never calls Comfy Cloud and never reads your key. |
+| `pnpm mock` | Only the demo mock, on `127.0.0.1:8199` |
 
 ## How it maps to Higgsfield
 

@@ -1,22 +1,51 @@
 @import "tailwindcss";
 
+/* Tokens: docs/spec/ux.md §15 ("paper" light by default, "darkroom" dark). */
 :root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
-  --muted: #78716c;
-  --card: #ffffff;
-  --border: #e7e5e4;
-  --accent: #7c3aed;
+  --bg: #f4f1ea;
+  --surface: #fbf9f4;
+  --surface-sunk: #ece7dc;
+  --ink: #1b1a17;
+  --ink-2: #55504a;
+  --line: #d9d2c4;
+  --safelight: #d9431e;
+  --safelight-ink: #ffffff;
+  --safelight-wash: #f7dccf;
+  --verdigris: #2e7d6b;
+  --brass: #a86b12;
+  --ok: #2f6b3a;
+  --danger: #b3261e;
+  --scrim: rgb(27 26 23 / 0.55);
+
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-ui: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* Legacy aliases used by the W2.0 primitives. */
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --muted: var(--ink-2);
+  --card: var(--surface);
+  --border: var(--line);
+  --accent: var(--safelight);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0c0a09;
-    --foreground: #f5f5f4;
-    --muted: #a8a29e;
-    --card: #1c1917;
-    --border: #292524;
-    --accent: #a78bfa;
+    --bg: #141210;
+    --surface: #1d1a17;
+    --surface-sunk: #0e0c0b;
+    --ink: #ede8df;
+    --ink-2: #a9a196;
+    --line: #332e29;
+    --safelight: #ff6a3d;
+    --safelight-ink: #1b0b05;
+    --safelight-wash: #3a1e14;
+    --verdigris: #5cc0a6;
+    --brass: #e0a23a;
+    --ok: #7bc48a;
+    --danger: #ff7b72;
+    --scrim: rgb(0 0 0 / 0.65);
   }
 }
 
@@ -27,10 +56,59 @@
   --color-card: var(--card);
   --color-border: var(--border);
   --color-accent: var(--accent);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-sunk: var(--surface-sunk);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-line: var(--line);
+  --color-safelight: var(--safelight);
+  --color-safelight-ink: var(--safelight-ink);
+  --color-safelight-wash: var(--safelight-wash);
+  --color-verdigris: var(--verdigris);
+  --color-brass: var(--brass);
+  --color-ok: var(--ok);
+  --color-danger: var(--danger);
+  --font-display: var(--font-display);
+  --font-ui: var(--font-ui);
+  --font-mono: var(--font-data);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background-color: var(--bg);
+  /* The only texture: a faint 8 px baseline grid (ux.md §1.2). */
+  background-image: linear-gradient(to bottom, color-mix(in srgb, var(--line) 35%, transparent) 1px, transparent 1px);
+  background-size: 100% 8px;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+h1,
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--safelight);
+  outline-offset: 2px;
+}
+
+.label {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.caption {
+  font-family: var(--font-data);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ink-2);
 }
