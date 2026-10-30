@@ -155,6 +155,6 @@ All external sources below were retrieved October 29, 2026 (Pacific). Most exter
 ## Repository evidence
 
 - **R1:** PR #2 (original private repo); the Wave 1 tree; the then-current main tree.
-- **R2:** [Identity acceptance protocol](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/eval/identity.md): selected auxiliary models, unimplemented evaluation script and pending results.
-- **R3:** [Reverse-engineering provenance](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/research/re-findings.md): static evidence boundaries.
-- **R4:** [UX specification](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/spec/ux.md): sections 1, 3, 7 and 10; [implementation plan](https://github.com/wilsonhj/open-frame-studio/blob/main/docs/PLAN.md).
+- **R2:** [Identity acceptance protocol](https://github.com/wilsonhj/Open-Frame-Studio/blob/main/docs/eval/identity.md): selected auxiliary models, unimplemented evaluation script and pending results.
+- **R3:** [Reverse-engineering provenance](https://github.com/wilsonhj/Open-Frame-Studio/blob/main/docs/research/re-findings.md): static evidence boundaries.
+- **R4:** [UX specification](https://github.com/wilsonhj/Open-Frame-Studio/blob/main/docs/spec/ux.md): sections 1, 3, 7 and 10; [implementation plan](https://github.com/wilsonhj/Open-Frame-Studio/blob/main/docs/PLAN.md).

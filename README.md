@@ -8,6 +8,21 @@ You upload 5–20 photos of a person once and get an **identity**: a curated ref
 >
 > Smoke, the Listing hero and a two-frame Product Shoot have run on Comfy Cloud; everything else is verified offline against a mock (`pnpm demo`). See [docs/spikes/](docs/spikes/).
 
+## How it works
+
+![Open Frame Studio](docs/images/home.png)
+
+| Product Shoot | Listing Images |
+|---|---|
+| ![Product Shoot contact sheet](docs/images/product-shoot.png) | ![Listing hero with compliance checks](docs/images/listing-hero.png) |
+| One product photo becomes a set of varied shots: BiRefNet cutout, then FLUX.2 Klein 4B frames that vary setting, lighting, angle and palette. | One product photo becomes a marketplace hero image: cutout, composed at 85% fill on pure white at 2000×2000, then checked (A1–A7, C3). |
+
+Real outputs from Comfy Cloud (hero image, cutout, two Product Shoot frames):
+
+![Real Comfy Cloud outputs](docs/images/comfy-cloud-outputs.png)
+
+The step-by-step walkthrough is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+
 ## Quickstart
 
 Requirements: Node 22.18+ and pnpm 10.
@@ -101,7 +116,8 @@ spikes/                                     Wave 0 spike scripts and graphs: fro
 
 | Doc | What it covers |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the code works today, plus what the open PR #7 changes |
+| [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) | Illustrated walkthrough of Product Shoot, Listing Images and how a run executes |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the code works today |
 | [workflows/README.md](workflows/README.md) | The six registered graphs, their bound inputs and outputs, and how to add one |
 | [docs/spec/](docs/spec/) | Behavioural specs: [API](docs/spec/api.md), [identity](docs/spec/identity.md), [photoshoot](docs/spec/photoshoot.md), [listing](docs/spec/listing.md), [UX](docs/spec/ux.md) |
 | [docs/eval/identity.md](docs/eval/identity.md) | The identity-preservation acceptance gate |

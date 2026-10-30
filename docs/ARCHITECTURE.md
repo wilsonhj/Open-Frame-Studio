@@ -1,6 +1,6 @@
 # Architecture
 
-How the code on `main` works today. The multi-step pipeline runtime and the Product Shoot and Listing Images flows landed with Wave 2; they are summarised in [Wave 2](#pending-pr-7) at the end.
+How the code on `main` works today. The multi-step pipeline runtime and the Product Shoot and Listing Images flows landed with Wave 2; they are summarised in [Wave 2](#wave-2) at the end.
 
 For the HTTP contract, including the planned pipeline routes, see [spec/api.md](spec/api.md). The TypeScript types in `lib/contracts/` are the source of truth.
 
@@ -99,11 +99,11 @@ CI runs install with a frozen lockfile, lint, typecheck, `pnpm test` with a blan
 ## Not built yet
 
 - Identity creation: photo QA, reference selection, the style card and the `identity.json` bundle.
-- The photoshoot, listing and motion tools on `main`. The listing and photoshoot flows are in PR #7.
-- A demonstrated self-hosted run through `comfy-api-proxy`, and any run on Comfy Cloud.
-- The model inventory with revisions, licences and hashes (PR #7 adds a manifest).
+- Motion, and the Listing gallery and story panels. Product Shoot and the Listing hero image are built (see [Wave 2](#wave-2)).
+- A demonstrated self-hosted run through `comfy-api-proxy`. Smoke, the Listing hero and a two-frame Product Shoot have run on Comfy Cloud.
+- Model revisions and hashes: `models/manifest.json` lists every model with its source and licence, but `sha256` values are not filled in yet.
 
-## Pending: PR #7
+## Wave 2
 
 Wave 2 ("pipeline runtime, studio shell, Product Shoot and Listing hero image") is on `main`. It adds the following; this section was written before it merged and may lag the code.
 
