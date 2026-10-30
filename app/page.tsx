@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { APP_NAME, SURFACES } from "../lib/brand";
 import manifest from "../models/manifest.json";
 
 type ManifestModel = {
@@ -14,31 +15,31 @@ type ManifestModel = {
 
 const TOOLS = [
   {
-    href: "/photoshoot",
+    href: SURFACES.photoshoot.href,
     n: "01",
-    title: "Product Photoshoot",
+    title: SURFACES.photoshoot.label,
     body: "Upload one product photo, pick a mode, get a contact sheet of varied shots: lighting, angle and palette change per frame.",
     live: true,
   },
   {
-    href: "/cards",
+    href: SURFACES.listing.href,
     n: "02",
-    title: "Marketplace Cards",
-    body: "A compliant pure-white main image, then secondary and A+ tiles anchored on it: up to 13 listing assets.",
+    title: SURFACES.listing.label,
+    body: "A compliant pure-white hero image, then gallery and story panels anchored on it.",
     live: true,
   },
   {
-    href: "/soul",
+    href: SURFACES.identity.href,
     n: "03",
-    title: "Soul ID",
-    body: "3–6 reference crops plus a style card, saved as a portable soul.json you own. No training.",
+    title: SURFACES.identity.label,
+    body: "3–6 reference crops plus a style card, saved as a portable identity.json you keep. No training.",
     live: false,
   },
   {
-    href: "/motion",
+    href: SURFACES.motion.href,
     n: "04",
-    title: "Motion",
-    body: "Your Soul and your product in one short reference-to-video clip.",
+    title: SURFACES.motion.label,
+    body: "A saved identity and your product in one short reference-to-video clip.",
     live: false,
   },
 ];
@@ -71,13 +72,13 @@ export default function Home() {
   return (
     <div className="space-y-12">
       <section className="space-y-4 pt-2">
-        <p className="label">Open Soul Studio</p>
+        <p className="label">{APP_NAME}</p>
         <h1 className="max-w-3xl text-[40px] leading-[44px]">
           Open-weights product studio on ComfyUI
         </h1>
         <p className="max-w-2xl text-ink-2">
-          A clean-room rebuild of Higgsfield&apos;s Photoshoot and Marketplace Cards. Every frame comes from open
-          weights you can inspect, self-host or run on Comfy Cloud.
+          Product shots and listing images from open weights you can inspect, self-host or run on Comfy Cloud. Every
+          workflow is a plain ComfyUI graph.
         </p>
         <div className="flex flex-wrap gap-3 pt-1">
           <Link
@@ -86,8 +87,8 @@ export default function Home() {
           >
             Start a photoshoot
           </Link>
-          <Link href="/cards" className="rounded-md border border-ink/30 px-4 py-2 text-sm font-medium hover:border-ink">
-            Make listing cards
+          <Link href={SURFACES.listing.href} className="rounded-md border border-ink/30 px-4 py-2 text-sm font-medium hover:border-ink">
+            Make listing images
           </Link>
         </div>
       </section>

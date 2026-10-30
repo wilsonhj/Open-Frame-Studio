@@ -28,7 +28,7 @@ after(async () => {
 });
 
 const fake = {
-  kind: "soul",
+  kind: "identity",
   validate(raw: unknown) {
     const r = raw as { photo?: unknown } | null;
     if (!r || typeof r.photo !== "object") return { ok: false, error: "photo is required", field: "photo" };
@@ -36,7 +36,7 @@ const fake = {
   },
   async plan(request: unknown) {
     const { photo, planError } = request as { photo: { assetId: string }; planError?: string };
-    if (planError === "soul") throw Object.assign(new Error("Soul x not found."), { name: "SoulNotFoundError" });
+    if (planError === "identity") throw Object.assign(new Error("Soul x not found."), { name: "SoulNotFoundError" });
     if (planError === "field") throw Object.assign(new Error("bad mode"), { status: 400, field: "mode" });
     if (planError === "other") throw new Error("boom");
     return [
@@ -92,14 +92,14 @@ const fake = {
 describe("pipeline runner", () => {
   it("rejects an invalid request before any upload", async () => {
     runner.registerDefinition(fake);
-    const res = await runner.createRun("soul", {});
+    const res = await runner.createRun("identity", {});
     assert.deepEqual(res, { ok: false, status: 400, error: "photo is required", field: "photo" });
   });
 
   it("runs a comfy step then a code step end to end and persists the run", async () => {
     runner.registerDefinition(fake);
     const uploads = new Map([["p", { bytes: new Uint8Array(PNG_1X1), filename: "p.png", contentType: "image/png" }]]);
-    const created = await runner.createRun("soul", { photo: { upload: "p" } }, uploads);
+    const created = await runner.createRun("identity", { photo: { upload: "p" } }, uploads);
     assert.ok(created.ok);
     const id = created.run.id;
     assert.ok("assetId" in (created.run.request as unknown as { photo: object }).photo);
@@ -118,12 +118,12 @@ describe("pipeline runner", () => {
     assert.equal(resize.kind, "comfy");
     assert.equal(resize.kind === "comfy" && resize.submission?.state, "accepted");
     assert.ok(resize.kind === "comfy" && resize.jobId);
-    assert.match(resize.outputs![0].url, new RegExp(`^/api/pipelines/soul/${id}/files/resize/0\\.png$`));
+    assert.match(resize.outputs![0].url, new RegExp(`^/api/pipelines/identity/${id}/files/resize/0\\.png$`));
     assert.ok((measure.data as { size: number }).size > 0);
     assert.deepEqual(run.result, { measured: measure.data });
 
     assert.equal(measure.outputs![0].id, "measure/note.txt");
-    assert.equal(measure.outputs![0].url, `/api/pipelines/soul/${id}/files/measure/note.txt`);
+    assert.equal(measure.outputs![0].url, `/api/pipelines/identity/${id}/files/measure/note.txt`);
     const file = await store.readRunFile(id, "measure/note.txt");
     assert.equal(new TextDecoder().decode(file!), "ok");
   });
@@ -131,7 +131,7 @@ describe("pipeline runner", () => {
   it("marks dependents skipped when the comfy job fails", async () => {
     runner.registerDefinition(fake);
     await fetch(`${mock.url}/__mock/scenario`, { method: "POST", body: JSON.stringify({ scenario: "failed" }) });
-    const created = await runner.createRun("soul", { photo: { upload: "p" } }, new Map([["p", { bytes: new Uint8Array(PNG_1X1), filename: "p.png", contentType: "image/png" }]]));
+    const created = await runner.createRun("identity", { photo: { upload: "p" } }, new Map([["p", { bytes: new Uint8Array(PNG_1X1), filename: "p.png", contentType: "image/png" }]]));
     assert.ok(created.ok);
     await runner.whenIdle(created.run.id);
     const run = await store.loadRun(created.run.id);
@@ -139,11 +139,11 @@ describe("pipeline runner", () => {
     assert.deepEqual(run!.steps.map((s) => s.status), ["failed", "skipped", "skipped", "skipped"]);
   });
 
-  it("maps plan() errors to 404 soulId / status+field / 500", async () => {
+  it("maps plan() errors to 404 identityId / status+field / 500", async () => {
     runner.registerDefinition(fake);
     const photo = { assetId: "a" };
-    assert.deepEqual(await runner.createRun("soul", { photo, planError: "soul" }), { ok: false, status: 404, error: "Soul x not found.", field: "soulId" });
-    assert.deepEqual(await runner.createRun("soul", { photo, planError: "field" }), { ok: false, status: 400, error: "bad mode", field: "mode" });
-    assert.deepEqual(await runner.createRun("soul", { photo, planError: "other" }), { ok: false, status: 500, error: "boom" });
+    assert.deepEqual(await runner.createRun("identity", { photo, planError: "identity" }), { ok: false, status: 404, error: "Soul x not found.", field: "identityId" });
+    assert.deepEqual(await runner.createRun("identity", { photo, planError: "field" }), { ok: false, status: 400, error: "bad mode", field: "mode" });
+    assert.deepEqual(await runner.createRun("identity", { photo, planError: "other" }), { ok: false, status: 500, error: "boom" });
   });
 });

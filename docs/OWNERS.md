@@ -17,13 +17,13 @@ signature change is additive only.
 
 | Owner | Name | Owns |
 |---|---|---|
-| A | Runtime | `lib/pipeline/**`, `!lib/pipeline/{types,kinds}.ts`, `lib/store.ts`, `instrumentation.ts`, `lib/comfy.ts`, `lib/inputs.ts`, `lib/metrics.ts`, `app/api/{jobs,pipelines,runs,status}/**`, `tests/mock-comfy/**`, `tests/{comfy,inputs}.test.ts`, `tests/{pipeline,store}/**`, `docs/spec/api.md` |
+| A | Runtime | `lib/pipeline/**`, `!lib/pipeline/{types,kinds}.ts`, `lib/store.ts`, `instrumentation.ts`, `lib/comfy.ts`, `lib/inputs.ts`, `lib/metrics.ts`, `app/api/{jobs,pipelines,runs,status}/**`, `lib/{access,job-deadlines,job-recovery,job-status}.ts`, `tests/mock-comfy/**`, `tests/{comfy,inputs,access,job-deadlines,job-recovery,job-status}.test.ts`, `tests/e2e/recovery.spec.ts`, `tests/{pipeline,store}/**`, `docs/spec/api.md` |
 | B | Graphs & Cloud | `workflows/**`, `models/**`, `scripts/check-models.mjs`, `lib/bindings/**`, `tests/bindings.test.ts`, `tests/graphs/**`, `fixtures/golden/**`, `scripts/{golden-run,check-object-info,check-derived}.mjs`, `apps/**`, `comfy-pack/**`, `docs/spikes/**` |
-| C | Soul | `lib/soul/**`, `app/api/souls/**`, `app/soul/**`, `components/soul/**`, `tests/soul/**`, `tests/e2e/soul.spec.ts`, `docs/spec/soul.md` |
+| C | Identity | `lib/soul/**`, `lib/identity/**`, `app/api/souls/**`, `app/identity/**`, `components/soul/**`, `components/identity-intake.tsx`, `tests/soul/**`, `tests/identity-consent.test.ts`, `tests/e2e/identity.spec.ts`, `docs/spec/identity.md` |
 | D | Photoshoot | `lib/enhancer/**`, `lib/photoshoot/**`, `app/photoshoot/**`, `components/photoshoot/**`, `tests/{enhancer,photoshoot}/**`, `tests/e2e/photoshoot.spec.ts`, `docs/spec/photoshoot.md` |
-| E | Cards | `lib/cards/**`, `assets/fonts/**`, `app/cards/**`, `components/cards/**`, `tests/cards/**`, `tests/e2e/cards.spec.ts`, `docs/spec/marketplace.md` |
+| E | Listing | `lib/cards/**`, `assets/fonts/**`, `app/listing/**`, `components/cards/**`, `tests/cards/**`, `tests/e2e/listing.spec.ts`, `docs/spec/listing.md` |
 | F | Motion | `lib/motion/**`, `app/motion/**`, `components/motion/**`, `tests/motion/**`, `tests/e2e/motion.spec.ts` |
-| G | Shell & DevEx | `app/{layout.tsx,page.tsx,globals.css}`, `app/{runs,smoke}/**`, `components/{shell,ui}/**`, `components/{job-runner,coming-soon}.tsx`, `lib/client/**`, `tests/e2e/{smoke,shell}.spec.ts`, `playwright.config.ts`, `README.md`, `docs/setup/**`, `docs/spec/ux.md`, `docs/submission/**`, `scripts/demo*`, `.env.example`, `.github/**`, `public/**` |
+| G | Shell & DevEx | `app/{layout.tsx,page.tsx,globals.css}`, `app/{runs,smoke}/**`, `components/{shell,ui}/**`, `components/{job-runner,coming-soon}.tsx`, `lib/client/**`, `tests/e2e/{smoke,shell}.spec.ts`, `playwright.config.ts`, `README.md`, `docs/setup/**`, `docs/spec/ux.md`, `docs/UX-PATTERNS.md`, `lib/brand.ts`, `docs/submission/**`, `scripts/demo*`, `.env.example`, `.github/**`, `public/**` |
 | orchestrator | Orchestrator | `lib/contracts/**`, `lib/types.ts`, `lib/pipeline/{types,kinds}.ts`, `package.json`, `pnpm-lock.yaml`, `next.config.ts`, `tsconfig.json`, `eslint.config.mjs`, `postcss.config.mjs`, `next-env.d.ts`, `fixtures/products/**`, `fixtures/README.md`, `scripts/make-fixtures.mjs`, `scripts/check-owners.mjs`, `tests/tooling/**`, `docs/PLAN.md`, `docs/OWNERS.md`, `docs/RESEARCH.md`, `docs/research/**`, `docs/eval/**`, `spikes/**`, `AGENTS.md`, `LICENSE`, `.gitignore` |
 
 Glob syntax: `*` (within one path segment), `**` (any depth), `?`, `{a,b}`; a leading `!` excludes

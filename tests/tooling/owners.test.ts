@@ -46,7 +46,7 @@ test("ownership globs: excludes, braces and the PLAN's seams", async () => {
   assert.equal(owner("assets/fonts/Inter_400Regular.ttf"), "E");
   assert.equal(owner("components/ui/button.tsx"), "G");
   assert.equal(owner("tests/e2e/shell.spec.ts"), "G");
-  assert.equal(owner("tests/e2e/cards.spec.ts"), "E");
+  assert.equal(owner("tests/e2e/listing.spec.ts"), "E");
   assert.equal(owner("lib/contracts/pipeline.ts"), "orchestrator");
   assert.deepEqual(mod.expandBraces("a/{b,c}/{d,e}.ts"), ["a/b/d.ts", "a/b/e.ts", "a/c/d.ts", "a/c/e.ts"]);
 });

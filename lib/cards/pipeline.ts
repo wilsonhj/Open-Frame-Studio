@@ -45,16 +45,16 @@ function validate(raw: unknown): ValidateResult<CardsRequest> {
   if (r.mainJobId !== undefined) {
     return { ok: false, error: "mainJobId reuse is not supported yet", field: "mainJobId" };
   }
-  if (r.scope !== undefined && r.scope !== "main") {
+  if (r.scope !== undefined && r.scope !== "hero") {
     return { ok: false, error: "only scope \"main\" is available right now", field: "scope" };
   }
   const productImages = r.productImages as ImageRef[];
-  const value: CardsRequest = { scope: "main", productImages };
+  const value: CardsRequest = { scope: "hero", productImages };
   if (typeof r.productName === "string" && r.productName.trim()) value.productName = r.productName.trim();
   return { ok: true, value };
 }
 
-const composeMainHandler: CodeHandler<"cards"> = async (ctx) => {
+const composeMainHandler: CodeHandler<"listing"> = async (ctx) => {
   const source = ctx.step.inputs.cutout as StepInputRef;
   const bytes = await ctx.readBytes(source);
   const { png, cutout, placed } = await composeMain(bytes);
@@ -72,8 +72,8 @@ const composeMainHandler: CodeHandler<"cards"> = async (ctx) => {
 
 type ComposeData = { checks: MainImageCheck[]; ok: boolean; cutoutBbox: CropBox };
 
-export const cardsPipeline: PipelineDefinition<"cards"> = {
-  kind: "cards",
+export const cardsPipeline: PipelineDefinition<"listing"> = {
+  kind: "listing",
   validate,
   async plan(request) {
     const hero = request.productImages[0];
@@ -123,7 +123,7 @@ export const cardsPipeline: PipelineDefinition<"cards"> = {
 
     const mainState = composeStep?.status === "pending" && cutoutStep ? cutoutStep.status : (composeStep?.status ?? "pending");
     const tiles: CardTile[] = CARD_ASSETS.map((asset) =>
-      asset === "main_image"
+      asset === "hero"
         ? {
             asset,
             state: mainState,
@@ -134,6 +134,6 @@ export const cardsPipeline: PipelineDefinition<"cards"> = {
           }
         : { asset, state: "skipped", seed: null, url: null, missing: [], error: null },
     );
-    return { assets: ["main_image"], main, tiles, styleBlock: "" };
+    return { assets: ["hero"], main, tiles, styleBlock: "" };
   },
 };

@@ -31,13 +31,13 @@ describe("cardsPipeline", () => {
     const bad = cardsPipeline.validate({ productImages: [{ nope: 1 }] });
     assert.ok(!bad.ok && bad.field === "productImages[0]");
     const good = cardsPipeline.validate({ productImages: [{ upload: "product" }], productName: " Serum " });
-    assert.ok(good.ok && good.value.productName === "Serum" && good.value.scope === "main");
+    assert.ok(good.ok && good.value.productName === "Serum" && good.value.scope === "hero");
     const reuse = cardsPipeline.validate({ productImages: [{ assetId: "a" }], mainJobId: "run_0" });
     assert.ok(!reuse.ok && reuse.field === "mainJobId");
   });
 
   it("plans cutout -> compose_main and builds a main result", async () => {
-    const request = { scope: "main" as const, productImages: [{ assetId: "asset_hero" }] };
+    const request = { scope: "hero" as const, productImages: [{ assetId: "asset_hero" }] };
     const steps = await cardsPipeline.plan(request, planCtx);
     assert.deepEqual(
       steps.map((s) => [s.id, s.kind, s.dependsOn]),
@@ -49,10 +49,10 @@ describe("cardsPipeline", () => {
     assert.equal(steps[0].inputs.image, "asset_hero");
 
     const bytes = await cutoutPng();
-    const run: PipelineRun<"cards"> = {
+    const run: PipelineRun<"listing"> = {
       schema: RUN_SCHEMA,
       id: "run_1",
-      kind: "cards",
+      kind: "listing",
       status: "running",
       createdAt: planCtx.now,
       updatedAt: planCtx.now,
@@ -91,13 +91,13 @@ describe("cardsPipeline", () => {
           type: "image",
           contentType: "image/png",
           sizeBytes: 1,
-          url: "/api/pipelines/cards/run_1/files/main.png",
+          url: "/api/pipelines/listing/run_1/files/main.png",
         },
       ],
     };
     const result = await cardsPipeline.buildResult({ ...run, status: "succeeded" });
     assert.ok(result.main?.ok, JSON.stringify(result.main?.checks));
-    assert.equal(result.main?.compositeUrl, "/api/pipelines/cards/run_1/files/main.png");
+    assert.equal(result.main?.compositeUrl, "/api/pipelines/listing/run_1/files/main.png");
     assert.equal(result.tiles.length, CARD_ASSETS.length);
     assert.equal(result.tiles[0].state, "succeeded");
     assert.ok(result.tiles.slice(1).every((t) => t.state === "skipped"));

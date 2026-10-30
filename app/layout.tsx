@@ -2,12 +2,12 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import { Rail } from "../components/shell/rail";
+import { APP_NAME, APP_TAGLINE } from "../lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Open Soul Studio",
-  description:
-    "Open-weights product studio on ComfyUI: a clean-room rebuild of Higgsfield's Photoshoot and Marketplace Cards.",
+  title: APP_NAME,
+  description: APP_TAGLINE,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

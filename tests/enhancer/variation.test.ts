@@ -9,7 +9,7 @@ const AXES = ["preset", "lighting", "angle", "palette"] as const;
 
 describe("MODE_TEMPLATES", () => {
   it("covers the five demo modes", () => {
-    assert.deepEqual(DEMO_MODES, ["product_shot", "lifestyle_scene", "hero_banner", "moodboard_pin", "social_carousel"]);
+    assert.deepEqual(DEMO_MODES, ["packshot", "in_context", "wide_banner", "mood_still", "carousel_set"]);
   });
 
   for (const mode of DEMO_MODES) {
@@ -28,8 +28,8 @@ describe("MODE_TEMPLATES", () => {
     });
   }
 
-  it("only social_carousel is style locked", () => {
-    for (const mode of DEMO_MODES) assert.equal(MODE_TEMPLATES[mode].sharedStyle, mode === "social_carousel");
+  it("only carousel_set is style locked", () => {
+    for (const mode of DEMO_MODES) assert.equal(MODE_TEMPLATES[mode].sharedStyle, mode === "carousel_set");
   });
 
   it("klein sizes are multiples of 16 near 1 MP", () => {
@@ -43,12 +43,12 @@ describe("MODE_TEMPLATES", () => {
 
 describe("buildPrompts", () => {
   it("is deterministic", () => {
-    const t = MODE_TEMPLATES.lifestyle_scene;
+    const t = MODE_TEMPLATES.in_context;
     assert.deepEqual(buildPrompts(t, "matte bottle", 4, 42), buildPrompts(t, "matte bottle", 4, 42));
   });
 
   it("returns n prompts with filled slots and notes", () => {
-    const out = buildPrompts(MODE_TEMPLATES.product_shot, "amber glass", 3, 7);
+    const out = buildPrompts(MODE_TEMPLATES.packshot, "amber glass", 3, 7);
     assert.equal(out.length, 3);
     for (const p of out) {
       assert.doesNotMatch(p.prompt, /\{\w+\}/);
@@ -73,8 +73,8 @@ describe("buildPrompts", () => {
     });
   }
 
-  it("social_carousel locks style and seed, varies angle and role, closes with CTA", () => {
-    const out = buildPrompts(MODE_TEMPLATES.social_carousel, "", 4, 99);
+  it("carousel_set locks style and seed, varies angle and role, closes with CTA", () => {
+    const out = buildPrompts(MODE_TEMPLATES.carousel_set, "", 4, 99);
     const styleBlock = out[0].prompt.split(". ")[0];
     for (const p of out) {
       assert.equal(p.seed, 99);
@@ -89,8 +89,8 @@ describe("buildPrompts", () => {
     assert.match(out[0].role ?? "", /cover/);
   });
 
-  it("snapshot: product_shot seed 42", () => {
-    const [first] = buildPrompts(MODE_TEMPLATES.product_shot, "", 1, 42);
+  it("snapshot: packshot seed 42", () => {
+    const [first] = buildPrompts(MODE_TEMPLATES.packshot, "", 1, 42);
     assert.deepEqual(first, SNAPSHOT);
   });
 });

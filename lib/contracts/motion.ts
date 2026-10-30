@@ -12,8 +12,8 @@ import type { ImageRef, OutputRef } from "./job.ts";
 export type MotionAspect = "1:1" | "2:3" | "3:2" | "3:4" | "4:3" | "9:16" | "16:9";
 
 export type MotionRequest = {
-  /** `<Picture 1>`: a Soul's best ref, or an uploaded person photo. One is required. */
-  soulId?: string;
+  /** `<Picture 1>`: an identity's best ref, or an uploaded person photo. One is required. */
+  identityId?: string;
   personImage?: ImageRef;
   /** `<Picture 2>`. */
   productImage: ImageRef;

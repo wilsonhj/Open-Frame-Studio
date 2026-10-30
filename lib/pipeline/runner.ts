@@ -143,11 +143,11 @@ async function rewriteUploads(value: unknown, upload: (name: string) => Promise<
 
 export type CreateResult = { ok: true; run: PipelineRun } | { ok: false; status: 400 | 404 | 500; error: string; field?: string };
 
-/** plan() errors: SoulNotFoundError → 404 soulId; `{ status: 400|404, field }` → that; else 500. */
+/** plan() errors: SoulNotFoundError → 404 identityId; `{ status: 400|404, field }` → that; else 500. */
 function planError(e: unknown): CreateResult {
   const err = e as { name?: string; message?: string; status?: unknown; field?: unknown } | null;
   const error = err?.message || "Unable to plan the run.";
-  if (err?.name === "SoulNotFoundError") return { ok: false, status: 404, error, field: "soulId" };
+  if (err?.name === "SoulNotFoundError") return { ok: false, status: 404, error, field: "identityId" };
   if ((err?.status === 400 || err?.status === 404) && typeof err.field === "string") return { ok: false, status: err.status, error, field: err.field };
   return { ok: false, status: 500, error };
 }

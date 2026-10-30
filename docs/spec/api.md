@@ -1,4 +1,4 @@
-# Spec: Open Soul Studio HTTP API
+# Spec: Open Frame Studio HTTP API
 
 Status: Wave 1 contract, frozen with `lib/contracts/*.ts` (barrel: `lib/types.ts`) and `lib/bindings/*.ts` (`docs/PLAN.md:144`).
 The TypeScript types in `lib/contracts/*.ts` (re-exported by `lib/types.ts`) are the source of truth; this page names them and adds the HTTP behaviour.
@@ -80,7 +80,7 @@ A pipeline is a flat list of `PipelineStep`s (`lib/contracts/pipeline.ts:27-110`
 
 ### Routes shared by all four kinds
 
-`{kind}` is one of `soul | photoshoot | cards | motion` (`PipelineKind`).
+`{kind}` is one of `identity | photoshoot | cards | motion` (`PipelineKind`).
 
 | Route | Purpose | Response |
 |---|---|---|
@@ -109,7 +109,7 @@ A request that uses only `assetId` refs may instead be sent as `application/json
   request: PipelineRequestMap[K],
   result: PipelineResultMap[K] | null,  // set when terminal
   error: JobErrorInfo | null,
-  schema: "open-soul-studio/run@1",
+  schema: "open-frame-studio/run@1",
   cancelRequested?: boolean
 }
 ```
@@ -119,11 +119,11 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 **Run status** is decided like this:
 - `succeeded`: every step succeeded.
 - `partial`: the run finished, but at least one step is `failed`, `timed_out` or `needs_input`, and at least one deliverable exists.
-- `failed`: nothing deliverable exists, or a gating step failed. For example, a failed main-image compliance check fails the run before fan-out (`docs/spec/marketplace.md:176`).
+- `failed`: nothing deliverable exists, or a gating step failed. For example, a failed main-image compliance check fails the run before fan-out (`docs/spec/listing.md:176`).
 
 ### 2.0 Durable run state and restart
 
-**Store.** One JSON document per run at `${DATA_DIR:-.data}/runs/<runId>.json`, with `schema: "open-soul-studio/run@1"` (`RUN_SCHEMA`, `lib/contracts/pipeline.ts`). Files written by code steps live under `.data/runs/<runId>/files/`; the Soul registry lives in `.data/souls/<id>/`. `.data/` is gitignored.
+**Store.** One JSON document per run at `${DATA_DIR:-.data}/runs/<runId>.json`, with `schema: "open-frame-studio/run@1"` (`RUN_SCHEMA`, `lib/contracts/pipeline.ts`). Files written by code steps live under `.data/runs/<runId>/files/`; the identity registry lives in `.data/identities/<id>/`. `.data/` is gitignored.
 - A single process owns the store. All writes go through `lib/store.ts` (Wave 2), with a per-run write queue and temp-write + `fsync` + `rename`, so a crash leaves either the old or the new document, never a torn one.
 - Every state transition is one awaited write. Nothing that matters for restart lives only in memory.
 - `GET /api/pipelines/{kind}/{runId}` reads the store; it returns `404` if the document is absent.
@@ -165,38 +165,38 @@ A restarted runner therefore never re-plans: it only executes the persisted step
 
 Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/contracts/pipeline.ts`). `deadlineAt` survives a restart, so a restart never extends a step's budget.
 
-### 2.1 `POST /api/pipelines/soul`
+### 2.1 `POST /api/pipelines/identity`
 
 | | |
 |---|---|
-| Request | `SoulRequest` (`lib/contracts/soul.ts:57-63`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
-| Steps | photo QA + crop + pHash dedupe (code, CPU) → choose the best 3–6 → `klein_edit_multiref` preview sheet (optional; the only Comfy step) → write `soul.json` (code) |
-| Result | `SoulResult` (`lib/contracts/soul.ts:74-79`): `{ soul: Soul, rejected: [{index, reason}], preview: OutputRef \| null }` |
+| Request | `IdentityRequest` (`lib/contracts/identity.ts:57-63`): `{ name, photos: ImageRef[3..12], preview?: boolean }` |
+| Steps | photo QA + crop + pHash dedupe (code, CPU) → choose the best 3–6 → `klein_edit_multiref` preview sheet (optional; the only Comfy step) → write `identity.json` (code) |
+| Result | `IdentityResult` (`lib/contracts/identity.ts:74-79`): `{ identity: Identity, rejected: [{index, reason}], preview: OutputRef \| null }` |
 
-`Soul` (`lib/contracts/soul.ts:46-55`) is the exact contents of `soul.json`:
+`identity` (`lib/contracts/identity.ts:46-55`) is the exact contents of `identity.json`:
 
 ```json
-{ "schema": "open-soul-studio/soul@1", "id": "…", "name": "Maya", "createdAt": "…",
+{ "schema": "open-frame-studio/identity@1", "id": "…", "name": "Maya", "createdAt": "…",
   "refs": [ { "assetId": "…", "crop": {"x":0,"y":0,"width":768,"height":1024},
               "phash": "c3a1f0e07c3e1f0f", "qaScore": 0.92 } ],
   "styleCard": { "description": "…", "traits": {"hair": "short curly dark-auburn"},
                  "keep": ["small mole above the left lip"] } }
 ```
 
-- **Refs and paths.** In an exported bundle, each ref uses `path` (relative to `soul.json`) instead of `assetId`.
-- **No LoRA.** Soul ID is Instant only (`docs/PLAN.md:7`).
+- **Refs and paths.** In an exported bundle, each ref uses `path` (relative to `identity.json`) instead of `assetId`.
+- **No LoRA.** Identity is Instant only (`docs/PLAN.md:7`).
 - **Registry routes (planned):**
-  - `GET /api/souls` → `Soul[]`;
-  - `GET /api/souls/{id}` → `Soul`;
-  - `GET /api/souls/{id}/export` → a zip of `soul.json` plus `refs/ref_N.png` (no `assetId`s or Comfy URLs);
-  - `POST /api/souls/import` (multipart zip) → `201 Soul`. Import validates `refs[].sha256`, uploads every ref and assigns fresh `assetId`s (`docs/spec/soul.md` §6.5, §6.6).
+  - `GET /api/identities` → `identity[]`;
+  - `GET /api/identities/{id}` → `identity`;
+  - `GET /api/identities/{id}/export` → a zip of `identity.json` plus `refs/ref_N.png` (no `assetId`s or Comfy URLs);
+  - `POST /api/identities/import` (multipart zip) → `201 identity`. Import validates `refs[].sha256`, uploads every ref and assigns fresh `assetId`s (`docs/spec/identity.md` §6.5, §6.6).
 
 ### 2.2 `POST /api/pipelines/photoshoot`
 
 | | |
 |---|---|
-| Request | `PhotoshootRequest` (`lib/contracts/photoshoot.ts:12-30`): `{ mode, prompt, images: ImageRef[], count, aspectRatio?, soulId?, styleRef?, quality?: "fast"\|"final", transparent?, seed? }` |
-| Steps | `cutout` of the product (cached by content hash) → prompt builder (code) → N × `klein_edit_multiref` (or `klein_t2i` for text-only `product_shot`) → optional N × `upscale` (`final`) → optional `cutout` (`transparent`) |
+| Request | `PhotoshootRequest` (`lib/contracts/photoshoot.ts:12-30`): `{ mode, prompt, images: ImageRef[], count, aspectRatio?, identityId?, styleRef?, quality?: "fast"\|"final", transparent?, seed? }` |
+| Steps | `cutout` of the product (cached by content hash) → prompt builder (code) → N × `klein_edit_multiref` (or `klein_t2i` for text-only `packshot`) → optional N × `upscale` (`final`) → optional `cutout` (`transparent`) |
 | Result | `PhotoshootResult` (`lib/contracts/photoshoot.ts:43-50`): `{ mode, aspectRatio, count, notices[], items: [{ index, seed, status, variation: {preset, lighting, angle, palette}, output, error }] }` |
 
 - **Field names.** The request fields follow Higgsfield's `{mode, prompt, images[], count, aspect_ratio}` (`docs/spec/photoshoot.md:314`), written in camelCase (`aspectRatio`).
@@ -204,28 +204,28 @@ Default step budgets are in `DEFAULT_STEP_TIMEOUT_MS` (`lib/contracts/pipeline.t
 - **Clamping and snapping.** Out-of-range `count` and off-whitelist aspect ratios are clamped or snapped, and each change adds a line to `notices` (not an error).
 - **Retry (planned).** `POST /api/pipelines/photoshoot/{runId}/items/{index}/retry` submits one new job with a new seed. It returns `202 PipelineRun`.
 
-### 2.3 `POST /api/pipelines/cards`
+### 2.3 `POST /api/pipelines/listing`
 
 | | |
 |---|---|
-| Request | `CardsRequest` (`lib/contracts/marketplace.ts:17-46`): `scope?` or `assets?: CardAssetId[]` (assets win; default `main`), `mainJobId?`, `productImages: ImageRef[1..6]`, plus the copy fields from `docs/spec/marketplace.md:197-220` (`productName`, `bullets`, `painPoints`, `efficacyClaims` + `efficacySource`, `howToUse`, `endorsement`, …) |
+| Request | `CardsRequest` (`lib/contracts/listing.ts:17-46`): `scope?` or `assets?: CardAssetId[]` (assets win; default `hero`), `mainJobId?`, `productImages: ImageRef[1..6]`, plus the copy fields from `docs/spec/listing.md:197-220` (`productName`, `bullets`, `painPoints`, `efficacyClaims` + `efficacySource`, `howToUse`, `endorsement`, …) |
 | Steps | main: `cutout` → trim (code) → `upscale` if needed → compose + compliance checks (code). Then the fan-out, in parallel, per asset: `klein_edit_multiref` (anchor cutout → `image_1`, node 54) or `klein_t2i` → render the card (code). |
-| Result | `CardsResult` (`lib/contracts/marketplace.ts:71-77`): `{ assets, main: MainImageResult \| null, tiles: [{ asset, state, seed, url, missing[], error }], styleBlock }` |
+| Result | `CardsResult` (`lib/contracts/listing.ts:71-77`): `{ assets, main: MainImageResult \| null, tiles: [{ asset, state, seed, url, missing[], error }], styleBlock }` |
 
-- **Tile states.** `CardTile.state` is a `CardTileState`: `PipelineStepStatus | "needs_input"` (`lib/contracts/marketplace.ts:15`), e.g. `queued | running | succeeded | needs_input | failed`.
-- **Missing copy.** A tile whose user copy is missing is `needs_input`, and `missing` lists the request fields it needs. The run then ends `partial` (`docs/spec/marketplace.md:246`, T-T3).
-- **Regenerate (planned).** `POST /api/pipelines/cards/{runId}/tiles/{assetId}/regenerate` re-runs only that tile. It keeps the anchor and `styleBlock` and changes only the seed (R-A3). It returns `202 PipelineRun`.
-- **Export (planned).** `GET /api/pipelines/cards/{runId}/export` returns a zip of the `succeeded` tiles plus `cards.json`.
+- **Tile states.** `CardTile.state` is a `CardTileState`: `PipelineStepStatus | "needs_input"` (`lib/contracts/listing.ts:15`), e.g. `queued | running | succeeded | needs_input | failed`.
+- **Missing copy.** A tile whose user copy is missing is `needs_input`, and `missing` lists the request fields it needs. The run then ends `partial` (`docs/spec/listing.md:246`, T-T3).
+- **Regenerate (planned).** `POST /api/pipelines/listing/{runId}/tiles/{assetId}/regenerate` re-runs only that tile. It keeps the anchor and `styleBlock` and changes only the seed (R-A3). It returns `202 PipelineRun`.
+- **Export (planned).** `GET /api/pipelines/listing/{runId}/export` returns a zip of the `succeeded` tiles plus `cards.json`.
 
 ### 2.4 `POST /api/pipelines/motion`
 
 | | |
 |---|---|
-| Request | `MotionRequest` (`lib/contracts/motion.ts:14-30`): `{ soulId? \| personImage?, productImage, prompt, duration?, aspectRatio?, quality?: "preview"\|"final", refFidelity?: "match"\|"max", seed? }` |
-| Steps | resolve `<Picture 1>` (the Soul's best ref, or the uploaded person) → prompt builder (code; adds `<Picture N>` role tags) → `h3_r2v` |
+| Request | `MotionRequest` (`lib/contracts/motion.ts:14-30`): `{ identityId? \| personImage?, productImage, prompt, duration?, aspectRatio?, quality?: "preview"\|"final", refFidelity?: "match"\|"max", seed? }` |
+| Steps | resolve `<Picture 1>` (the identity's best ref, or the uploaded person) → prompt builder (code; adds `<Picture N>` role tags) → `h3_r2v` |
 | Result | `MotionResult` (`lib/contracts/motion.ts:32-36`): `{ video: OutputRef \| null, seed, frames }` |
 
-- **Person reference.** Exactly one of `soulId` or `personImage` is required.
+- **Person reference.** Exactly one of `identityId` or `personImage` is required.
 - **Quality.** `quality: "final"` (the default) sets `turbo=false` with 20 base steps. `preview` uses the 4-step turbo LoRA (`docs/spikes/h3-r2v.md:104`).
 - **Aspect ratio.** `aspectRatio` maps to a `ResolutionSelector` option through `H3_ASPECT_OPTIONS` (`lib/bindings/h3_r2v.ts`).
 

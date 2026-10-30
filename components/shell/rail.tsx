@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { APP_NAME, SURFACES } from "../../lib/brand";
+
 export type RailItem = { href: string; label: string; soon?: boolean };
 
 export const TOOLS: readonly RailItem[] = [
-  { href: "/photoshoot", label: "Photoshoot" },
-  { href: "/cards", label: "Cards" },
-  { href: "/soul", label: "Soul", soon: true },
-  { href: "/motion", label: "Motion", soon: true },
+  { ...SURFACES.photoshoot },
+  { ...SURFACES.listing },
+  { ...SURFACES.identity, soon: true },
+  { ...SURFACES.motion, soon: true },
 ];
 
 export function Rail({ demo }: { demo: boolean }) {
@@ -17,9 +19,7 @@ export function Rail({ demo }: { demo: boolean }) {
   return (
     <aside className="flex shrink-0 flex-col gap-6 border-line bg-surface px-4 py-5 md:sticky md:top-0 md:h-screen md:w-[248px] md:border-r max-md:border-b">
       <Link href="/" className="font-display text-xl leading-6 tracking-tight">
-        Open Soul
-        <br />
-        Studio
+        {APP_NAME}
       </Link>
       <nav aria-label="Tools" className="flex flex-col gap-1 max-md:flex-row max-md:flex-wrap">
         <p className="label mb-1 max-md:hidden">Tools</p>

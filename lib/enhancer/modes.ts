@@ -35,11 +35,11 @@ const PALETTES = [
   "rich seasonal tones",
 ] as const;
 
-export type DemoMode = "product_shot" | "lifestyle_scene" | "hero_banner" | "moodboard_pin" | "social_carousel";
+export type DemoMode = "packshot" | "in_context" | "wide_banner" | "mood_still" | "carousel_set";
 
 export const MODE_TEMPLATES = {
-  product_shot: {
-    mode: "product_shot",
+  packshot: {
+    mode: "packshot",
     label: "Product shot",
     defaultAspect: "1:1",
     aspects: ["1:1", "4:5", "3:4", "4:3"],
@@ -53,7 +53,7 @@ export const MODE_TEMPLATES = {
     priority: 1,
     cues: ["white background", "catalog", "packshot", "amazon", "shopify"],
     count: { min: 1, max: MAX_OUTPUTS, def: 1, chips: [1, 2, 3, 4] },
-    soulK: 0,
+    identityK: 0,
     productRef: "cutout",
     pools: {
       preset: ["pure white seamless backdrop", "light grey sweep", "beige paper sweep", "pastel seamless backdrop"],
@@ -62,8 +62,8 @@ export const MODE_TEMPLATES = {
       palette: PALETTES,
     },
   },
-  lifestyle_scene: {
-    mode: "lifestyle_scene",
+  in_context: {
+    mode: "in_context",
     label: "Lifestyle scene",
     defaultAspect: "4:5",
     aspects: ["4:5", "1:1", "3:4", "9:16"],
@@ -77,7 +77,7 @@ export const MODE_TEMPLATES = {
     priority: 2,
     cues: ["lifestyle", "in use", "kitchen", "scene", "real life"],
     count: { min: 1, max: MAX_OUTPUTS, def: 2, chips: [1, 2, 3, 4] },
-    soulK: 0,
+    identityK: 0,
     productRef: "cutout",
     pools: {
       preset: ["kitchen counter", "café table", "bathroom shelf", "outdoor picnic blanket", "tidy home desk"],
@@ -86,8 +86,8 @@ export const MODE_TEMPLATES = {
       palette: PALETTES,
     },
   },
-  hero_banner: {
-    mode: "hero_banner",
+  wide_banner: {
+    mode: "wide_banner",
     label: "Hero banner",
     defaultAspect: "16:9",
     aspects: ["16:9", "3:2"],
@@ -101,7 +101,7 @@ export const MODE_TEMPLATES = {
     priority: 3,
     cues: ["hero", "banner", "header", "website", "email"],
     count: { min: 1, max: MAX_OUTPUTS, def: 1, chips: [1, 2, 3, 4] },
-    soulK: 0,
+    identityK: 0,
     productRef: "cutout",
     pools: {
       preset: ["a minimal stone plinth scene", "a sunlit studio set", "a soft gradient set", "a botanical set with leaves"],
@@ -110,8 +110,8 @@ export const MODE_TEMPLATES = {
       palette: PALETTES,
     },
   },
-  moodboard_pin: {
-    mode: "moodboard_pin",
+  mood_still: {
+    mode: "mood_still",
     label: "Moodboard pin",
     defaultAspect: "2:3",
     aspects: ["2:3"],
@@ -125,7 +125,7 @@ export const MODE_TEMPLATES = {
     priority: 3,
     cues: ["pinterest", "pin", "moodboard", "aesthetic"],
     count: { min: 1, max: MAX_OUTPUTS, def: 2, chips: [1, 2, 3, 4] },
-    soulK: 0,
+    identityK: 0,
     productRef: "cutout",
     pools: {
       preset: ["linen and dried flowers", "marble and gold accents", "ceramics and soft fabric", "books and a coffee cup"],
@@ -134,8 +134,8 @@ export const MODE_TEMPLATES = {
       palette: PALETTES,
     },
   },
-  social_carousel: {
-    mode: "social_carousel",
+  carousel_set: {
+    mode: "carousel_set",
     label: "Social carousel",
     defaultAspect: "4:5",
     aspects: ["4:5", "1:1"],
@@ -149,7 +149,7 @@ export const MODE_TEMPLATES = {
     priority: 3,
     cues: ["carousel", "slides", "instagram", "linkedin"],
     count: { min: 3, max: MAX_OUTPUTS, def: 4, chips: [3, 4] },
-    soulK: 0,
+    identityK: 0,
     productRef: "cutout",
     pools: {
       preset: ["a warm minimal studio set", "a soft terracotta set", "a clean concrete set", "a sage green set"],

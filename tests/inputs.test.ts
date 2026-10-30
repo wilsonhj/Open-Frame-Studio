@@ -5,12 +5,12 @@ import { describe, it } from "node:test";
 
 import { applyBindings, type ApiGraph } from "../lib/bindings/apply.ts";
 import { BINDINGS } from "../lib/bindings/index.ts";
-import { InputError, parseInputs } from "../lib/inputs.ts";
+import { InputError, parseInputs, seedsOf, verifyImageBytes } from "../lib/inputs.ts";
 import type { AssetHandle } from "../lib/types.ts";
 import { CARD_ASSETS, PHOTOSHOOT_MODES } from "../lib/types.ts";
 
 const binding = BINDINGS.image_resize_smoke;
-const png = () => new File([new Uint8Array([137, 80, 78, 71])], "in.png", { type: "image/png" });
+const png = () => new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "in.png", { type: "image/png" });
 const ASSET: AssetHandle = { __type: "core/ASSET", info: { id: "asset_1" } };
 const toAsset = () => ASSET;
 
@@ -80,5 +80,62 @@ describe("parseInputs", () => {
     assert.equal(next["1"].inputs.image, ASSET);
     assert.equal(next["2"].inputs.scale_by, 0.25);
     assert.equal(next["2"].inputs.upscale_method, "lanczos");
+  });
+});
+
+describe("upload byte check", () => {
+  const file = (bytes: number[], type: string) => new File([new Uint8Array(bytes)], "in", { type });
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0];
+  const JPEG = [0xff, 0xd8, 0xff, 0xe0, 0];
+  const WEBP = [...Buffer.from("RIFF"), 0, 0, 0, 0, ...Buffer.from("WEBPVP8 ")];
+  const HTML = [...Buffer.from("<html><script>")];
+
+  it("accepts files whose leading bytes match the declared type", async () => {
+    await verifyImageBytes({ image: file(PNG, "image/png") });
+    await verifyImageBytes({ image: file(JPEG, "image/jpeg") });
+    await verifyImageBytes({ image: file(WEBP, "image/webp"), scale: 0.5 });
+  });
+
+  it("rejects a mislabelled upload before any asset is created", async () => {
+    await assert.rejects(verifyImageBytes({ image: file(HTML, "image/png") }), InputError);
+    await assert.rejects(verifyImageBytes({ image: file(JPEG, "image/png") }), /does not start like a PNG/);
+    let assets = 0;
+    const binding = BINDINGS.image_resize_smoke;
+    await assert.rejects(
+      parseInputs(binding, form({ image: file(HTML, "image/png") }), () => {
+        assets += 1;
+        return ASSET;
+      }),
+      /does not start like a PNG/,
+    );
+    assert.equal(assets, 0);
+  });
+});
+
+describe("randomized seeds", () => {
+  const t2i = BINDINGS.klein_t2i;
+
+  it("marks the generation seeds randomize, and leaves the upscale seed fixed", () => {
+    assert.equal(BINDINGS.klein_t2i.inputs.seed.randomize, true);
+    assert.equal(BINDINGS.klein_edit_multiref.inputs.seed.randomize, true);
+    assert.equal(BINDINGS.h3_r2v.inputs.seed.randomize, true);
+    assert.equal("randomize" in BINDINGS.upscale.inputs.seed, false);
+  });
+
+  it("fills a fresh random seed when the form omits it, and keeps a locked one", async () => {
+    const a = (await parseInputs(t2i, form({}), toAsset)).seed;
+    const b = (await parseInputs(t2i, form({}), toAsset)).seed;
+    assert.ok(Number.isSafeInteger(a) && (a as number) >= 0, "a random non-negative safe integer");
+    assert.notEqual(a, b, "two unlocked runs get different seeds");
+    const locked = await parseInputs(t2i, form({ seed: "1234" }), toAsset);
+    assert.equal(locked.seed, 1234);
+    assert.deepEqual(seedsOf(t2i, locked), { seed: 1234 });
+    await assert.rejects(parseInputs(t2i, form({ seed: "-1" }), toAsset), /≥ 0/);
+    await assert.rejects(parseInputs(t2i, form({ seed: "1.5" }), toAsset), /whole number/);
+  });
+
+  it("returns no seeds for a workflow without randomize inputs", async () => {
+    const values = await parseInputs(binding, form({ image: png() }), toAsset);
+    assert.deepEqual(seedsOf(binding, values), {});
   });
 });

@@ -11,7 +11,7 @@
   },
   "3": {
     "class_type": "SaveImage",
-    "inputs": { "images": ["2", 0], "filename_prefix": "open-soul-studio/smoke" },
+    "inputs": { "images": ["2", 0], "filename_prefix": "open-frame-studio/smoke" },
     "_meta": { "title": "Save" }
   }
 }

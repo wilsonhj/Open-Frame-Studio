@@ -8,22 +8,22 @@ import { CARD_ASSETS } from "../../lib/types";
 import { Button, Card, StatusPill } from "../ui";
 
 const LABELS: Record<CardAssetId, string> = {
-  main_image: "Main image",
-  infographic: "Infographic",
-  multi_angle: "Multi-angle",
-  detail_shot: "Detail shot",
-  lifestyle: "Lifestyle",
-  whats_in_box: "What's in the box",
-  aplus_hero_banner: "A+ hero banner",
-  aplus_pain_points: "A+ pain points",
-  aplus_features: "A+ features",
-  aplus_ingredients: "A+ ingredients",
-  aplus_efficacy: "A+ efficacy",
-  aplus_how_to_use: "A+ how to use",
-  aplus_endorsement: "A+ endorsement",
+  hero: "Hero image",
+  gallery_callouts: "Callouts",
+  gallery_angles: "Angles",
+  gallery_detail: "Detail",
+  gallery_in_use: "In use",
+  gallery_contents: "Contents",
+  story_banner: "Story banner",
+  story_problem_solution: "Problem / solution",
+  story_feature_grid: "Feature grid",
+  story_materials: "Materials",
+  story_results: "Results",
+  story_how_to: "How to",
+  story_social_proof: "Social proof",
 };
 
-function mainView(run: PipelineRun<"cards"> | null): { url: string | null; checks: MainImageCheck[]; ok: boolean | null } {
+function mainView(run: PipelineRun<"listing"> | null): { url: string | null; checks: MainImageCheck[]; ok: boolean | null } {
   if (!run) return { url: null, checks: [], ok: null };
   const result: CardsResult | null = run.result;
   if (result?.main) return { url: result.main.compositeUrl, checks: result.main.checks, ok: result.main.ok };
@@ -34,7 +34,7 @@ function mainView(run: PipelineRun<"cards"> | null): { url: string | null; check
 }
 
 export function CardsBoard() {
-  const { run, error, polling, start, reset } = useRun("cards");
+  const { run, error, polling, start, reset } = useRun("listing");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [productName, setProductName] = useState("");
@@ -47,7 +47,7 @@ export function CardsBoard() {
     setSubmitError(null);
     setBusy(true);
     const body = new FormData();
-    const request = { scope: "main", productImages: [{ upload: "product" }], ...(productName.trim() ? { productName } : {}) };
+    const request = { scope: "hero", productImages: [{ upload: "product" }], ...(productName.trim() ? { productName } : {}) };
     body.append("request", JSON.stringify(request));
     body.append("product", file);
     try {
@@ -60,7 +60,7 @@ export function CardsBoard() {
   }
 
   const main = mainView(run);
-  const mainState = run?.result?.tiles.find((t) => t.asset === "main_image")?.state ?? run?.status ?? null;
+  const mainState = run?.result?.tiles.find((t) => t.asset === "hero")?.state ?? run?.status ?? null;
 
   return (
     <div className="space-y-6">
@@ -104,7 +104,7 @@ export function CardsBoard() {
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card className="sm:col-span-2 lg:col-span-3" data-asset="main_image">
+        <Card className="sm:col-span-2 lg:col-span-3" data-asset="hero">
           <div className="mb-3 flex items-center gap-2">
             <h2 className="text-sm font-semibold">Main image · 2000×2000 on pure white</h2>
             {mainState ? <StatusPill status={mainState} /> : null}
@@ -155,7 +155,7 @@ export function CardsBoard() {
           </div>
         </Card>
 
-        {CARD_ASSETS.filter((a) => a !== "main_image").map((asset) => (
+        {CARD_ASSETS.filter((a) => a !== "hero").map((asset) => (
           <Card key={asset} data-asset={asset} className="opacity-50">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">{LABELS[asset]}</h2>

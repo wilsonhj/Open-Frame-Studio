@@ -2,7 +2,7 @@
 /**
  * Product Photoshoot screen (docs/spec/ux.md §5): contact sheet on the left,
  * Slate (product, mode, count, notes, SHOOT) on the right. Demo scope: product
- * only, no Soul. Runs through useRun("photoshoot") (slice G).
+ * only, no identity. Runs through useRun("photoshoot") (slice G).
  */
 import { useState } from "react";
 
@@ -26,8 +26,8 @@ function variationOf(step: PipelineStep | undefined): VariationPick | null {
 export function PhotoshootStudio() {
   const { run, error, polling, start, cancel, action, reset } = useRun("photoshoot");
   const [file, setFile] = useState<File | null>(null);
-  const [mode, setMode] = useState<DemoMode>("lifestyle_scene");
-  const [count, setCount] = useState<number>(MODE_TEMPLATES.lifestyle_scene.count.def);
+  const [mode, setMode] = useState<DemoMode>("in_context");
+  const [count, setCount] = useState<number>(MODE_TEMPLATES.in_context.count.def);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export function PhotoshootStudio() {
   const sheetMode = run && (run.request.mode as DemoMode) in MODE_TEMPLATES ? MODE_TEMPLATES[run.request.mode as DemoMode] : template;
   const aspect = run?.result?.aspectRatio ?? run?.request.aspectRatio ?? sheetMode.defaultAspect;
   const shotLabel = sheetMode.sharedStyle ? "S" : "Frame";
-  const shootLabel = mode === "social_carousel" ? `Shoot ${count} slides` : `Shoot ${count}`;
+  const shootLabel = mode === "carousel_set" ? `Shoot ${count} slides` : `Shoot ${count}`;
 
   return (
     <div className="ps-root grid min-h-full gap-6 p-4 lg:grid-cols-[1fr_340px] lg:p-6">

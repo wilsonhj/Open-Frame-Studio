@@ -11,12 +11,12 @@ import { soulPipeline } from "../soul/pipeline.ts";
 import type { PipelineKind } from "../types.ts";
 import type { AnyPipelineDefinition, PipelineDefinition, PipelineRegistry } from "./types.ts";
 
-export const PIPELINE_KINDS: readonly PipelineKind[] = ["soul", "photoshoot", "cards", "motion"];
+export const PIPELINE_KINDS: readonly PipelineKind[] = ["identity", "photoshoot", "listing", "motion"];
 
 export const PIPELINES: PipelineRegistry = {
-  soul: soulPipeline,
+  identity: soulPipeline,
   photoshoot: photoshootPipeline,
-  cards: cardsPipeline,
+  listing: cardsPipeline,
   motion: motionPipeline,
 };
 

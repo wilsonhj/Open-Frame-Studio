@@ -67,7 +67,7 @@ export function validatePhotoshoot(raw: unknown): ValidateResult<PhotoshootReque
   if (r.seed !== undefined && (typeof r.seed !== "number" || !Number.isInteger(r.seed) || r.seed < 0)) {
     return fail("seed must be a non-negative integer", "seed");
   }
-  if (r.soulId !== undefined && typeof r.soulId !== "string") return fail("soulId must be a string", "soulId");
+  if (r.identityId !== undefined && typeof r.identityId !== "string") return fail("identityId must be a string", "identityId");
 
   const value: PhotoshootRequest = {
     mode: r.mode,
@@ -77,7 +77,7 @@ export function validatePhotoshoot(raw: unknown): ValidateResult<PhotoshootReque
   };
   if (aspectRatio) value.aspectRatio = aspectRatio;
   if (typeof r.seed === "number") value.seed = r.seed;
-  if (typeof r.soulId === "string" && r.soulId) value.soulId = r.soulId;
+  if (typeof r.identityId === "string" && r.identityId) value.identityId = r.identityId;
   return { ok: true, value };
 }
 
@@ -220,7 +220,7 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
     const { aspect, snapped } = resolveAspect(run.request);
     const notices: string[] = [];
     if (snapped) notices.push(`Aspect ${run.request.aspectRatio} isn't offered for this mode; used ${aspect}.`);
-    if (run.request.soulId) notices.push("Soul ignored: this demo shoots the product only.");
+    if (run.request.identityId) notices.push("Soul ignored: this demo shoots the product only.");
     const cutout = run.steps.find((s) => s.id === CUTOUT_STEP);
     const picks = variations(run, baseSeedOf(run));
     const items: PhotoshootItem[] = [];

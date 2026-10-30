@@ -7,7 +7,7 @@ import { photoshootPipeline } from "../../lib/photoshoot/pipeline.ts";
 const ctx: PlanContext = { runId: "run_1", now: "2026-10-30T00:00:00.000Z", randomSeed: () => 1000 };
 
 describe("photoshoot validate", () => {
-  const ok = { mode: "lifestyle_scene", prompt: "matte bottle", images: [{ upload: "product" }], count: 2 };
+  const ok = { mode: "in_context", prompt: "matte bottle", images: [{ upload: "product" }], count: 2 };
 
   it("accepts a product-only request", () => {
     const r = photoshootPipeline.validate(ok);
@@ -28,24 +28,24 @@ describe("photoshoot validate", () => {
     assert.ok(!mode.ok && mode.field === "mode");
     const count = photoshootPipeline.validate({ ...ok, count: 5 });
     assert.ok(!count.ok && count.field === "count");
-    const carousel = photoshootPipeline.validate({ ...ok, mode: "social_carousel", count: 2 });
+    const carousel = photoshootPipeline.validate({ ...ok, mode: "carousel_set", count: 2 });
     assert.ok(!carousel.ok && carousel.field === "count");
     const ref = photoshootPipeline.validate({ ...ok, images: [{ url: "x" }] });
     assert.ok(!ref.ok && ref.field === "images[0]");
   });
 
-  it("defaults count per mode and keeps an optional soulId", () => {
-    const r = photoshootPipeline.validate({ mode: "social_carousel", images: [{ assetId: "a" }], soulId: "s1" });
+  it("defaults count per mode and keeps an optional identityId", () => {
+    const r = photoshootPipeline.validate({ mode: "carousel_set", images: [{ assetId: "a" }], identityId: "s1" });
     assert.ok(r.ok);
     assert.equal(r.value.count, 4);
-    assert.equal(r.value.soulId, "s1");
+    assert.equal(r.value.identityId, "s1");
   });
 });
 
 describe("photoshoot plan and result", () => {
   it("plans one cutout and N klein steps wired to it", async () => {
     const steps = await photoshootPipeline.plan(
-      { mode: "hero_banner", prompt: "", images: [{ assetId: "asset_p" }], count: 3 },
+      { mode: "wide_banner", prompt: "", images: [{ assetId: "asset_p" }], count: 3 },
       ctx,
     );
     assert.equal(steps.length, 4);
@@ -65,7 +65,7 @@ describe("photoshoot plan and result", () => {
   });
 
   it("builds items from step outputs and surfaces errors", async () => {
-    const request = { mode: "product_shot" as const, prompt: "", images: [{ assetId: "a" }], count: 2, soulId: "s" };
+    const request = { mode: "packshot" as const, prompt: "", images: [{ assetId: "a" }], count: 2, identityId: "s" };
     const steps = await photoshootPipeline.plan(request, ctx);
     steps[0].status = "succeeded";
     steps[1].status = "succeeded";
@@ -85,7 +85,7 @@ describe("photoshoot plan and result", () => {
   });
 
   it("retry replans one item with a new seed", async () => {
-    const request = { mode: "product_shot" as const, prompt: "", images: [{ assetId: "a" }], count: 2 };
+    const request = { mode: "packshot" as const, prompt: "", images: [{ assetId: "a" }], count: 2 };
     const steps = await photoshootPipeline.plan(request, ctx);
     steps.forEach((s) => (s.status = "succeeded"));
     steps[2].status = "failed";
@@ -106,7 +106,7 @@ describe("photoshoot plan and result", () => {
   });
 
   it("retry answers 409 while the item is still running", async () => {
-    const request = { mode: "product_shot" as const, prompt: "", images: [{ assetId: "a" }], count: 1 };
+    const request = { mode: "packshot" as const, prompt: "", images: [{ assetId: "a" }], count: 1 };
     const steps = await photoshootPipeline.plan(request, ctx);
     steps[1].status = "running";
     const run = { kind: "photoshoot", request, steps } as unknown as PipelineRun<"photoshoot">;

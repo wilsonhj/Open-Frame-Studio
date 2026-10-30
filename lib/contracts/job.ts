@@ -46,6 +46,13 @@ export type OutputRef = {
   url: string;
 };
 
+export type JobStep = {
+  current: number;
+  total: number;
+  /** Class of the running node, e.g. "KSampler" (null if not reported). */
+  nodeClass: string | null;
+};
+
 export type Job = {
   id: string;
   status: JobStatus;
@@ -56,10 +63,16 @@ export type Job = {
   terminal: boolean;
   /** 0..1 when the server reports progress. */
   progress: number | null;
+  /** Sampler step of the node running now, when the server reports one. */
+  step: JobStep | null;
+  /** Place in the queue while queued (the API does not say whether it is 0- or 1-based). */
   queuePosition: number | null;
   outputs: OutputRef[];
   error: JobErrorInfo | null;
 };
+
+/** POST /api/jobs response: the job plus the seed each `randomize` input ran with. */
+export type SubmittedJob = Job & { seeds: Record<string, number> };
 
 // ---------------------------------------------------------------------------
 // Image references inside JSON pipeline requests

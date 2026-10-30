@@ -1,6 +1,6 @@
 /**
- * FLUX.2 Klein 4B distilled multi-reference edit (Soul preview, Photoshoot,
- * Cards secondary / A+ tiles).
+ * FLUX.2 Klein 4B distilled multi-reference edit (identity preview, product shoot,
+ * listing gallery / story tiles).
  *
  * Graph: workflows/klein_edit_multiref.api.json, a verbatim copy of
  * spikes/klein-multiref/flux2_klein_edit_multiref.api.json.
@@ -25,7 +25,7 @@ export const kleinEditMultiref = {
     width: { node: "44", field: "width", kind: "int", mirrors: [{ node: "71", field: "width" }] },
     height: { node: "44", field: "height", kind: "int", mirrors: [{ node: "71", field: "height" }] },
     batch_size: { node: "44", field: "batch_size", kind: "int" },
-    seed: { node: "70", field: "noise_seed", kind: "int" },
+    seed: { node: "70", field: "noise_seed", kind: "int", min: 0, randomize: true },
     steps: { node: "71", field: "steps", kind: "int" },
     cfg: { node: "72", field: "cfg", kind: "float" },
     /** Reference resize budget (default 1.0 MP). */

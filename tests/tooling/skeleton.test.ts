@@ -10,7 +10,7 @@ test("every PipelineKind has a registered definition with a matching kind", () =
     assert.equal(getPipeline(kind).kind, kind);
     assert.equal(typeof getPipeline(kind).validate, "function");
   }
-  assert.equal(isPipelineKind("soul"), true);
+  assert.equal(isPipelineKind("identity"), true);
   assert.equal(isPipelineKind("nope"), false);
   assert.equal(getPipeline("nope"), undefined);
 });

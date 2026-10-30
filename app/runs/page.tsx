@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { runStorageKey } from "../../lib/client/use-run";
 import type { PipelineKind } from "../../lib/types";
 
-const KINDS: readonly PipelineKind[] = ["photoshoot", "cards", "soul", "motion"];
+const KINDS: readonly PipelineKind[] = ["photoshoot", "listing", "identity", "motion"];
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<Array<{ kind: PipelineKind; id: string }>>([]);
