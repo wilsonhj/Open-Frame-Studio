@@ -107,8 +107,28 @@ test.describe("Photoshoot studio", () => {
   });
 });
 
+/** The assembled enhancer prompt in a submitted Klein job (the cutout job has none). */
+function shotPrompt(body: unknown): string | null {
+  if (typeof body === "string") return body.includes("the product from image 1") ? body : null;
+  if (body && typeof body === "object") {
+    for (const value of Object.values(body)) {
+      const found = shotPrompt(value);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+async function shotPrompts(): Promise<string[]> {
+  const { jobPosts } = await mockRequests();
+  return jobPosts.map((post) => shotPrompt(post.body)).filter((p): p is string => p !== null);
+}
+
 test.describe("Photoshoot dock", () => {
   test.fixme("mode rail lists all 10 modes and the aspect picker only offers the whitelist", async ({ page }) => {
+    // Not built (observed on main): the Mode field offers the 5 demo modes only (DEMO_MODES in
+    // lib/enhancer/modes.ts: packshot, in_context, wide_banner, mood_still, carousel_set) and the
+    // slate has no aspect picker; the aspect follows the mode (ux.md §5 item 6 asks for whitelist chips).
     // TODO(wave2 frontend: Photoshoot dock): one control per mode in MODES; aspect options equal ASPECTS;
     // mood_still defaults to 2:3, wide_banner to a >=16:9 aspect.
     await page.goto("/photoshoot");
@@ -117,28 +137,112 @@ test.describe("Photoshoot dock", () => {
   });
 
   test.fixme("interview asks at most 4 questions with chip answers", async ({ page }) => {
+    // Not built (observed on main): /photoshoot has no free-text request box, no mode router call
+    // and no interview chip sheet (photoshoot.md §5); the user picks the mode directly.
     // TODO(wave2 frontend + enhancer router): free-text request routes to a mode; interview shows
     // <=4 questions, each answerable by a labelled chip; skipping keeps defaults.
     await page.goto("/photoshoot");
   });
 
-  test.fixme("packshot x4: upload product, generate, gallery shows 4 varied images", async ({ page }) => {
-    // TODO(wave2): setInputFiles(PRODUCT); count=4; submit. Mock multi_output returns images+video;
-    // gallery must show only images for photoshoot. Assert 4 tiles, each src under /api/jobs/.../outputs/...
-    // and each request body (mockRequests().jobPosts) carries a different preset/light/angle/palette prompt.
+  test("packshot x4: upload product, generate, gallery shows 4 varied images", async ({ page }) => {
+    await page.goto("/photoshoot");
+    await page.getByTestId("product-input").setInputFiles(PRODUCT);
+    await page.getByRole("button", { name: "Product shot" }).click();
+    await page.getByRole("button", { name: "4", exact: true }).click();
+    await expect(page.getByText("5 jobs · cutout + 4 × 1:1 frames")).toBeVisible();
+    await page.getByRole("button", { name: "Shoot 4", exact: true }).click();
+    // The mock fixes the scenario per job at submit. multi_output answers with fixed node ids
+    // (images on "9", a video on "12"), so the cutout job, whose output is read by node id, keeps
+    // the default scenario; every shot job then returns two images and a video.
+    await expect.poll(async () => (await mockRequests()).jobPosts.length).toBe(1);
     await setMockScenario({ scenario: "multi_output" });
-    await page.goto("/photoshoot");
-    void PRODUCT;
+    await expect(page.getByTestId("run-progress")).toHaveText(/5 of 5 jobs done/, { timeout: 45_000 });
+
+    const sheet = page.getByRole("region", { name: "Contact sheet" });
+    await expect(sheet.locator("figure")).toHaveCount(4);
+    await expect(sheet.locator("video")).toHaveCount(0);
+    const picks: string[][] = [];
+    for (let i = 0; i < 4; i++) {
+      const frame = page.getByTestId(`frame-${i}`);
+      // Outputs are re-hosted by the run (never a Comfy URL), one image file per shot step.
+      await expect(frame.locator("img")).toHaveAttribute("src", new RegExp(`^/api/pipelines/photoshoot/[^/]+/files/shot-${i}/\\d+\\.png$`));
+      const caption = await frame.locator("figcaption [title]").first().getAttribute("title");
+      picks.push(caption!.split(" · "));
+    }
+
+    // One cutout + 4 Klein jobs; each Klein prompt carries its own frame's variation...
+    expect((await mockRequests()).jobPosts).toHaveLength(5);
+    const prompts = await shotPrompts();
+    expect(prompts).toHaveLength(4);
+    picks.forEach((pick, i) => {
+      expect(pick).toHaveLength(4); // preset · lighting · angle · palette
+      for (const value of pick) expect(prompts[i].toLowerCase()).toContain(value.toLowerCase());
+    });
+    // ...and the four differ on every axis (photoshoot.md §6).
+    for (let axis = 0; axis < 4; axis++) {
+      expect(new Set(picks.map((pick) => pick[axis])).size).toBe(4);
+    }
   });
 
-  test.fixme("carousel_set shares one style block across 3-10 slides", async ({ page }) => {
-    // TODO(wave2 enhancer style lock): N slides submitted; prompts differ but share the style block.
-    await page.goto("/photoshoot");
-  });
+  // photoshoot.md §2 allows 3–10 slides; the demo caps every mode at MAX_OUTPUTS = 4
+  // (lib/enhancer/modes.ts), so the only count chips are 3 and 4. Both are covered here.
+  for (const slides of [3, 4]) {
+    test(`carousel_set shares one style block across ${slides} slides`, async ({ page }) => {
+      await page.goto("/photoshoot");
+      await page.getByTestId("product-input").setInputFiles(PRODUCT);
+      await page.getByRole("button", { name: "Social carousel" }).click();
+      await page.getByRole("button", { name: String(slides), exact: true }).click();
+      await page.getByRole("button", { name: `Shoot ${slides} slides` }).click();
+      await expect(page.getByTestId("run-progress")).toHaveText(new RegExp(`${slides + 1} of ${slides + 1} jobs done`), {
+        timeout: 45_000,
+      });
+      await expect(page.getByText("🔒 style lock")).toBeVisible();
 
-  test.fixme("long job: queued then progress, cancel is not offered as a retry", async ({ page }) => {
-    // TODO(wave2 Motion/progress HUD shared component): queued_20s (shortened) -> slow_progress.
+      const prompts = await shotPrompts();
+      expect(prompts).toHaveLength(slides);
+      // One shared style block is prepended to every prompt (photoshoot.md §6)...
+      const blocks = prompts.map((p) => p.match(/^Shared visual system for every slide: [^.]+\./)?.[0]);
+      expect(blocks[0]).toBeTruthy();
+      for (const block of blocks) expect(block).toBe(blocks[0]);
+      // ...while the slides themselves differ (role / angle).
+      expect(new Set(prompts).size).toBe(slides);
+    });
+  }
+
+  test("long job: queued then progress, cancel is not offered as a retry", async ({ page }) => {
+    test.setTimeout(90_000);
+    // The cutout job waits for a GPU (queued_20s, shortened); the shot job then runs under
+    // slow_progress (one queued poll, then 10 running polls), long enough to cancel mid-run.
+    await setMockScenario({ scenario: "queued_20s", queuedMs: 6_000 });
+    await page.goto("/photoshoot");
+    await page.getByTestId("product-input").setInputFiles(PRODUCT);
+    await page.getByRole("button", { name: "Product shot" }).click();
+    await page.getByRole("button", { name: "Shoot 1", exact: true }).click();
+    await expect.poll(async () => (await mockRequests()).jobPosts.length).toBe(1);
     await setMockScenario({ scenario: "slow_progress" });
-    await page.goto("/photoshoot");
+
+    const frame = page.getByTestId("frame-0");
+    const progress = page.getByRole("progressbar", { name: "Run progress" });
+    // Queued: the cutout waits for a GPU, the frame waits on the cutout, nothing is done yet.
+    await expect(page.getByText("cutout · queued")).toBeVisible({ timeout: 15_000 });
+    await expect(frame).toContainText("after cutout");
+    await expect(progress).toHaveAttribute("aria-valuenow", "0");
+    // Then progress: the cutout is done and the frame is developing.
+    await expect(frame.locator("[data-status=running]")).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId("run-progress")).toHaveText(/1 of 2 jobs done/);
+    await expect(progress).toHaveAttribute("aria-valuenow", "1");
+
+    // While the run is live the only action is Cancel run: no Retry is offered.
+    await expect(page.getByRole("button", { name: "Cancel run" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /retry/i })).toHaveCount(0);
+    const posts = (await mockRequests()).jobPosts.length;
+    expect(posts).toBe(2);
+
+    await page.getByRole("button", { name: "Cancel run" }).click();
+    await expect(frame.locator("[data-status=canceled]")).toBeVisible({ timeout: 20_000 });
+    // Cancel never resubmits: no new job. Retry is a separate, explicit action that names its cost.
+    await expect(frame.getByRole("button", { name: "Retry · 1 job" })).toBeVisible();
+    expect((await mockRequests()).jobPosts).toHaveLength(posts);
+    await expect(page.getByRole("button", { name: "Shoot 1", exact: true })).toBeEnabled();
   });
 });
