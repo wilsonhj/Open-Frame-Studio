@@ -251,7 +251,8 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
       const step = run.steps.find((s) => s.id === shotStepId(i));
       const output = step?.outputs?.find((o) => o.type === "image") ?? step?.outputs?.[0] ?? null;
       let error = step?.error ?? null;
-      if (!error && step?.status === "skipped" && cutout?.error) error = cutout.error;
+      // Keep the cutout's message, but say the cutout (not this frame) failed.
+      if (!error && step?.status === "skipped" && cutout?.error) error = { ...cutout.error, code: "cutout_failed" };
       items.push({
         index: i,
         seed: typeof step?.inputs.seed === "number" ? step.inputs.seed : 0,
