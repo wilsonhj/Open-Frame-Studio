@@ -14,6 +14,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 - Wait for `[demo] mock Comfy API v2 on http://127.0.0.1:8199` and Next's `Ready`.
 - Open http://127.0.0.1:3000 and visit `/photoshoot`, `/listing`, `/identity` and `/motion` once. The dev compiler builds each route the first time you open it, which takes a few seconds and would otherwise happen on stage.
 - `pnpm demo` never reads or prints `COMFY_API_KEY`, and nothing leaves the machine.
+- The landing description below assumes PR #21 is merged. Before it is, the rail and the landing cards still tag Identity and Motion *soon*.
 - Have these files ready:
   - **Product Shoot:** `fixtures/products/product-mug-tiles.png` (any product photo works).
   - **Listing Images:** `fixtures/products/product-bottle-transparent.png`. The mock cannot remove a background, so a photo with a busy background correctly fails check A4.
@@ -26,8 +27,8 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 ## 0:00 – 0:30 · Landing
 
 - Open http://127.0.0.1:3000. The heading reads *"Open-weights product studio on ComfyUI"*.
-- Point at the rail on the left: **Product Shoot**, **Listing Images**, **Identity**, **Motion**.
-- Say it: **the rail and the tool cards still show a *soon* tag on Identity and Motion, and the Listing card says gallery and story panels "come next". Those labels are out of date: all four tools are built and you are about to use them.**
+- Point at the rail on the left: **Product Shoot**, **Listing Images**, **Identity**, **Motion**. All four are live.
+- Scroll to **Tools**: all four cards are marked **ready**. The Listing card mentions the gallery and story panels; the Motion card reads *"A person photo and your product in one short reference-to-video clip."*
 - Point at the status dot at the bottom of the rail: **"Demo · local mock"**. Say it out loud.
 
 ## 0:30 – 1:30 · Product Shoot
@@ -60,7 +61,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 
 - Click **Motion**. Under **Picture 1 · person**, click **Upload person photo** and pick one of your face photos. Under **Picture 2 · product**, upload `product-bottle-confetti.png`.
 - Point at the prompt: `[Person] holds [Product] up to the light and smiles`. Pick **5 s**, **9:16** and **Preview** (the 4-step turbo). The estimate reads *"1 job · 4 steps · 124 frames"*.
-- Click **Roll clip**. Say it: **the mock has no video model, so the player that appears has nothing real to play.** The run, the job, the polling and the **Download MP4** link are real.
+- Click **Roll clip**. The clip area shows its progress while the job runs. Say it: **the mock has no video model, so the player that appears has nothing real to play.** The run, the job, the polling and the **Download MP4** link are real.
 - Point at the licence notice under the clip: MiniMax H3 is under a conditional community licence, not a permissive one.
 - Say it: in this build Motion takes an uploaded person photo; picking a saved identity here is switched off. Product Shoot does not use identities at all (product photo only).
 
