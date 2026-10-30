@@ -31,7 +31,7 @@ test("the page declares an icon that loads, so the browser's favicon request is 
 test("landing page renders and links to the 4 tools", async ({ page }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
-  await expect(page).toHaveTitle(/DELIBERATELY BROKEN/);
+  await expect(page).toHaveTitle(/Open Frame Studio/);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
   const main = page.getByRole("main");
