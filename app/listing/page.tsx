@@ -18,7 +18,7 @@ export default async function ListingPage({
         <h1 className="text-3xl font-semibold tracking-tight">{SURFACES.listing.label}</h1>
         <p className="max-w-2xl text-muted">
           Upload one product photo. We cut it out, place it at 85% fill on a pure #FFFFFF 2000×2000 canvas and run the
-          marketplace hero-image checks. Pick a gallery, story or complete set to add panels built on that hero image; their
+          marketplace hero-image checks. Pick a gallery, story or complete set to add panels anchored on that cutout; their
           text is drawn exactly as you type it.
         </p>
       </div>
