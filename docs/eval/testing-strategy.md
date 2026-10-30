@@ -70,7 +70,7 @@ Production config refusal, which the demo deployment depends on, is already cove
 - With F1 and F2 fixed (`98243cc`), the suite is green, so the job can be blocking from the start.
 - Each `test.fixme` is a feature's acceptance test, written ahead of the feature. Its PR should turn it into a real test. Keep the count in the PR description so the skipped number only goes down.
 - Add one end-to-end journey per live surface. Two are missing today:
-  - **Product Shoot:** upload `fixtures/products/product-bottle-transparent.png`, `packshot` × 4, all four frames succeed, reload mid-run and the run resumes, exactly one job is submitted per frame (`mockRequests().jobPosts`).
+  - **Product Shoot:** upload `fixtures/products/product-bottle-transparent.png`, `packshot` × 4, all four frames succeed, reload mid-run and the run resumes. The run submits five jobs: one shared `cutout`, then one `klein_edit_multiref` per frame (`mockRequests().jobPosts` length 5).
   - **Listing hero:** the same transparent fixture gives a compliant 2000×2000 hero. `product-box-checker.png` (opaque) fails A4 and the run shows that.
 - Keep `workers: 1`. The mock's scenario switch is global state.
 
