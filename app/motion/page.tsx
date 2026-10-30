@@ -1,10 +1,12 @@
-import { ComingSoon } from "../../components/coming-soon";
-import { SURFACES } from "../../lib/brand";
+import type { Metadata } from "next";
 
-export default function MotionPage() {
-  return (
-    <ComingSoon title={SURFACES.motion.label}>
-      Combine a still of a saved identity and a product still into a short reference-to-video clip.
-    </ComingSoon>
-  );
+import { MotionStudio } from "../../components/motion/motion-studio";
+import { APP_NAME, SURFACES } from "../../lib/brand";
+
+export const metadata: Metadata = { title: `${SURFACES.motion.label} · ${APP_NAME}` };
+
+/** `?run=<id>` (from /runs) reopens that run; otherwise the tab's last run resumes. */
+export default async function MotionPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  const { run } = await searchParams;
+  return <MotionStudio runId={typeof run === "string" && run ? run : undefined} />;
 }
