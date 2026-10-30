@@ -16,14 +16,18 @@
     "typecheck": "tsc --noEmit",
     "test": "node --conditions=react-server --test --experimental-strip-types \"tests/**/*.test.ts\"",
     "test:e2e": "playwright test",
-    "mock-comfy": "node --experimental-strip-types tests/mock-comfy/server.ts"
+    "mock-comfy": "node --experimental-strip-types tests/mock-comfy/server.ts",
+    "check:owners": "node scripts/check-owners.mjs auto",
+    "check:models": "node scripts/check-models.mjs"
   },
   "dependencies": {
     "@comfyorg/sdk": "0.5.0",
+    "fflate": "0.8.3",
     "next": "16.4.3",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

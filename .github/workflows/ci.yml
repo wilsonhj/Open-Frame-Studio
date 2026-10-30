@@ -14,12 +14,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check:owners diffs against the merge base with the PR's base branch.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Slice branches (w2/<slice>...) may only touch their own paths (docs/OWNERS.md).
+      # Skipped (exit 0) when the branch names no slice.
+      - run: pnpm check:owners
+        env:
+          OWNERS_BASE: origin/${{ github.base_ref || 'main' }}
+      - run: pnpm check:models
       - run: pnpm lint
       - run: pnpm typecheck
       # Offline: tests run against tests/mock-comfy, never the real Comfy API.

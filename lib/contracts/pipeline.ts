@@ -18,6 +18,9 @@ export type PipelineKind = "soul" | "photoshoot" | "cards" | "motion";
 /** A reference to an earlier step's output, used to wire steps together. */
 export type StepInputRef = { fromStep: string; outputNode?: string; index?: number };
 
+/** A JSON-serialisable value (persisted inside the run document). */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 /**
  * Per-step status. A superset of JobStatus: `pending` (dependencies not done),
  * `skipped` (not needed / upstream failed), `timed_out` (our per-step deadline
@@ -61,6 +64,12 @@ type PipelineStepBase = {
   finishedAt?: string;
   error?: JobErrorInfo | null;
   outputs?: OutputRef[];
+  /**
+   * Additive (contracts-v1): small JSON result of a `code` step (QA scores,
+   * crops, assembled prompt, layout, ...), persisted with the step so later
+   * steps and `buildResult` read it without re-running the handler.
+   */
+  data?: JsonValue;
 };
 
 /**

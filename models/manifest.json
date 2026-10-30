@@ -1,0 +1,236 @@
+{
+  "schema": "open-soul-studio/models@1",
+  "description": "Every model file referenced by workflows/*.api.json: configured filename, ComfyUI models/ folder, official source, licence, expected sha256 (null until a self-hosted run records it) and whether Comfy Cloud serves it. Checked by scripts/check-models.mjs. Owner: slice B.",
+  "retrieved": "2026-10-29",
+  "models": [
+    {
+      "filename": "flux-2-klein-4b.safetensors",
+      "folder": "diffusion_models",
+      "workflows": [
+        "klein_edit_multiref",
+        "klein_t2i"
+      ],
+      "role": "FLUX.2 Klein 4B distilled diffusion model",
+      "source": {
+        "repo": "Comfy-Org/Flux-2-Klein-4B",
+        "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/blob/main/split_files/diffusion_models/flux-2-klein-4b.safetensors"
+      },
+      "upstream": {
+        "repo": "black-forest-labs/FLUX.2-klein-4B",
+        "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B"
+      },
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "qwen_3_4b.safetensors",
+      "folder": "text_encoders",
+      "workflows": [
+        "klein_edit_multiref",
+        "klein_t2i"
+      ],
+      "role": "FLUX.2 Klein 4B text encoder (Qwen3-4B)",
+      "source": {
+        "repo": "Comfy-Org/Flux-2-Klein-4B",
+        "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/blob/main/split_files/text_encoders/qwen_3_4b.safetensors"
+      },
+      "upstream": {
+        "repo": "Qwen/Qwen3-4B",
+        "url": "https://huggingface.co/Qwen/Qwen3-4B"
+      },
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://huggingface.co/Qwen/Qwen3-4B",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "flux2-vae.safetensors",
+      "folder": "vae",
+      "workflows": [
+        "klein_edit_multiref",
+        "klein_t2i"
+      ],
+      "role": "FLUX.2 VAE",
+      "source": {
+        "repo": "Comfy-Org/Flux-2-Klein-4B",
+        "url": "https://huggingface.co/Comfy-Org/Flux-2-Klein-4B/blob/main/split_files/vae/flux2-vae.safetensors"
+      },
+      "upstream": {
+        "repo": "black-forest-labs/FLUX.2-klein-4B",
+        "url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B"
+      },
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B",
+      "sha256": null,
+      "cloudAvailable": true,
+      "licenceNote": "Shipped in Comfy's FLUX.2 Klein 4B repack alongside the Apache-2.0 model; verify the VAE's own terms before a release claim."
+    },
+    {
+      "filename": "birefnet.safetensors",
+      "folder": "background_removal",
+      "workflows": [
+        "cutout"
+      ],
+      "role": "BiRefNet background removal (product cutout)",
+      "source": {
+        "repo": "Comfy-Org/BiRefNet",
+        "url": "https://huggingface.co/Comfy-Org/BiRefNet/blob/main/background_removal/birefnet.safetensors"
+      },
+      "upstream": {
+        "repo": "ZhengPeng7/BiRefNet",
+        "url": "https://huggingface.co/ZhengPeng7/BiRefNet"
+      },
+      "licence": "MIT",
+      "licenceUrl": "https://huggingface.co/ZhengPeng7/BiRefNet",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "seedvr2_3b_int8_convrot.safetensors",
+      "folder": "diffusion_models",
+      "workflows": [
+        "upscale"
+      ],
+      "role": "SeedVR2 3B restoration/upscale (int8 convrot)",
+      "source": {
+        "repo": "Comfy-Org/SeedVR2",
+        "url": "https://huggingface.co/Comfy-Org/SeedVR2/blob/main/diffusion_models/seedvr2_3b_int8_convrot.safetensors"
+      },
+      "upstream": {
+        "repo": "ByteDance-Seed/SeedVR2-3B",
+        "url": "https://huggingface.co/ByteDance-Seed/SeedVR2-3B"
+      },
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://huggingface.co/ByteDance-Seed/SeedVR2-3B",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "seedvr2_ema_vae_fp16.safetensors",
+      "folder": "vae",
+      "workflows": [
+        "upscale"
+      ],
+      "role": "SeedVR2 VAE",
+      "source": {
+        "repo": "Comfy-Org/SeedVR2",
+        "url": "https://huggingface.co/Comfy-Org/SeedVR2/blob/main/vae/seedvr2_ema_vae_fp16.safetensors"
+      },
+      "upstream": {
+        "repo": "ByteDance-Seed/SeedVR2-3B",
+        "url": "https://huggingface.co/ByteDance-Seed/SeedVR2-3B"
+      },
+      "licence": "Apache-2.0",
+      "licenceUrl": "https://huggingface.co/ByteDance-Seed/SeedVR2-3B",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "folder": "diffusion_models",
+      "workflows": [
+        "h3_r2v"
+      ],
+      "role": "MiniMax H3 reference-to-video+audio DiT (pruned, int8 convrot)",
+      "source": {
+        "repo": "Comfy-Org/MiniMax-H3",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors"
+      },
+      "upstream": {
+        "repo": "MiniMaxAI/MiniMax-H3",
+        "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+      },
+      "licence": "MiniMax H3 Community License (conditional)",
+      "licenceUrl": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+      "licenceNote": "Not permissive. Comfy Cloud generations include commercial rights; self-hosting, local commercial use and weight redistribution follow the H3 Community License (local commercial outputs need a licence bought from Comfy: https://comfy.org/minimax/license).",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "folder": "text_encoders",
+      "workflows": [
+        "h3_r2v"
+      ],
+      "role": "MiniMax H3 text encoder (Qwen3-VL 32B, nvfp4 AWQ)",
+      "source": {
+        "repo": "Comfy-Org/MiniMax-H3",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
+      },
+      "upstream": {
+        "repo": "MiniMaxAI/MiniMax-H3",
+        "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+      },
+      "licence": "MiniMax H3 Community License (conditional)",
+      "licenceUrl": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+      "licenceNote": "Not permissive. Comfy Cloud generations include commercial rights; self-hosting, local commercial use and weight redistribution follow the H3 Community License (local commercial outputs need a licence bought from Comfy: https://comfy.org/minimax/license).",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "minimax_h3_video_vae_fp16.safetensors",
+      "folder": "vae",
+      "workflows": [
+        "h3_r2v"
+      ],
+      "role": "MiniMax H3 video VAE (fp16; the int8 VAE is not on Cloud)",
+      "source": {
+        "repo": "Comfy-Org/MiniMax-H3",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/vae/minimax_h3_video_vae_fp16.safetensors"
+      },
+      "upstream": {
+        "repo": "MiniMaxAI/MiniMax-H3",
+        "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+      },
+      "licence": "MiniMax H3 Community License (conditional)",
+      "licenceUrl": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+      "licenceNote": "Not permissive. Comfy Cloud generations include commercial rights; self-hosting, local commercial use and weight redistribution follow the H3 Community License (local commercial outputs need a licence bought from Comfy: https://comfy.org/minimax/license).",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "minimax_h3_audio_vae_fp32.safetensors",
+      "folder": "vae",
+      "workflows": [
+        "h3_r2v"
+      ],
+      "role": "MiniMax H3 audio VAE",
+      "source": {
+        "repo": "Comfy-Org/MiniMax-H3",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/vae/minimax_h3_audio_vae_fp32.safetensors"
+      },
+      "upstream": {
+        "repo": "MiniMaxAI/MiniMax-H3",
+        "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+      },
+      "licence": "MiniMax H3 Community License (conditional)",
+      "licenceUrl": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+      "licenceNote": "Not permissive. Comfy Cloud generations include commercial rights; self-hosting, local commercial use and weight redistribution follow the H3 Community License (local commercial outputs need a licence bought from Comfy: https://comfy.org/minimax/license).",
+      "sha256": null,
+      "cloudAvailable": true
+    },
+    {
+      "filename": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "folder": "loras",
+      "workflows": [
+        "h3_r2v"
+      ],
+      "role": "MiniMax H3 ref2v 4-step turbo LoRA (previews)",
+      "source": {
+        "repo": "Comfy-Org/MiniMax-H3",
+        "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/blob/main/loras/minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+      },
+      "upstream": {
+        "repo": "MiniMaxAI/MiniMax-H3",
+        "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+      },
+      "licence": "MiniMax H3 Community License (conditional)",
+      "licenceUrl": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+      "licenceNote": "Not permissive. Comfy Cloud generations include commercial rights; self-hosting, local commercial use and weight redistribution follow the H3 Community License (local commercial outputs need a licence bought from Comfy: https://comfy.org/minimax/license).",
+      "sha256": null,
+      "cloudAvailable": true
+    }
+  ]
+}
