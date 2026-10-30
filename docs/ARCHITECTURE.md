@@ -98,7 +98,7 @@ CI runs install with a frozen lockfile, lint, typecheck, `pnpm test` with a blan
 
 ## Not built or not verified yet
 
-- Comfy Cloud runs of the Listing gallery and story panels and of Identity. They are built and covered by unit and mock end-to-end tests. Product Shoot, the Listing hero image and a Motion clip have run on Comfy Cloud.
+- All four tools have run on Comfy Cloud. Open quality issues from those runs: generated Listing panels drift from the product's colour and material (nothing checks consistency with the hero), and Identity's sharpness check (`lib/identity/qa.ts`, `faceSharpness`) upscales faces under 512 px, so sharp photos with smaller faces are rejected as blurry. Its thresholds are marked "calibrate" in the spec.
 - A measured identity-preservation result: the acceptance gate in [`docs/eval/identity.md`](eval/identity.md) needs human reviewers.
 - A demonstrated self-hosted run through `comfy-api-proxy`.
 - End-to-end tests in CI: `pnpm test:e2e` runs locally only, and some specs are still `test.fixme`.
