@@ -10,8 +10,8 @@ export type RailItem = { href: string; label: string; soon?: boolean };
 export const TOOLS: readonly RailItem[] = [
   { ...SURFACES.photoshoot },
   { ...SURFACES.listing },
-  { ...SURFACES.identity, soon: true },
-  { ...SURFACES.motion, soon: true },
+  { ...SURFACES.identity },
+  { ...SURFACES.motion },
 ];
 
 export function Rail({ demo }: { demo: boolean }) {
