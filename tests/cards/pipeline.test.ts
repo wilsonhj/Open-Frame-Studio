@@ -128,4 +128,27 @@ describe("cardsPipeline", () => {
     assert.equal(result.tiles[0].state, "failed");
     assert.deepEqual(result.tiles[0].error, reason);
   });
+
+  it("names the entry an error is in when the request has lists", () => {
+    const base = { productImages: [{ upload: "product" }], scope: "complete" as const };
+    const cases: [Record<string, unknown>, string, string][] = [
+      [{ painPoints: [{ problem: "a", solution: "b" }, { problem: "c" }] }, "painPoints[1].solution", "Problem 2: solution is required"],
+      [{ bullets: ["a", "b", "x".repeat(91)] }, "bullets[2]", "Benefit 3: "],
+      [{ howToUse: ["a", ""] }, "howToUse[1]", "Step 2: "],
+      [{ specs: [{ label: "Volume" }] }, "specs[0].value", "Spec 1: value is required"],
+      [{ ingredients: [{ name: "a" }, { benefit: "b" }] }, "ingredients[1].name", "Ingredient 2: name is required"],
+      [{ boxContents: [{ qty: 0, name: "a" }] }, "boxContents[0].qty", "Box item 1: "],
+      [{ efficacySource: "S", efficacyClaims: [{ value: "1", label: "a" }, { value: "2" }] }, "efficacyClaims[1].label", "Result 2: label is required"],
+      [{ brandColors: ["#000000", "red"] }, "brandColors[1]", "Colour 2: "],
+    ];
+    for (const [extra, field, prefix] of cases) {
+      const res = cardsPipeline.validate({ ...base, ...extra });
+      assert.ok(!res.ok, field);
+      assert.equal(res.field, field);
+      assert.ok(res.error.startsWith(prefix), `${field}: ${res.error}`);
+    }
+    // A whole-list error has no entry to name.
+    const count = cardsPipeline.validate({ ...base, bullets: ["a"] });
+    assert.ok(!count.ok && count.error === "bullets needs 3–5 entries" && count.field === "bullets");
+  });
 });

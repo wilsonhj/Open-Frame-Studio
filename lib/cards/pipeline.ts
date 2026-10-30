@@ -255,6 +255,29 @@ function validate(raw: unknown): ValidateResult<CardsRequest> {
   return { ok: true, value };
 }
 
+/** What one entry of each list is called on the form, so an error can say which entry is wrong. */
+const ENTRY_NAMES: Record<string, string> = {
+  productImages: "Image",
+  assets: "Asset",
+  brandColors: "Colour",
+  bullets: "Benefit",
+  howToUse: "Step",
+  ingredients: "Ingredient",
+  specs: "Spec",
+  boxContents: "Box item",
+  painPoints: "Problem",
+  efficacyClaims: "Result",
+};
+
+/** `validate`, naming the entry (1-based) in front of an error inside a list, e.g. "Benefit 2: …". */
+function validateEntries(raw: unknown): ValidateResult<CardsRequest> {
+  const res = validate(raw);
+  if (res.ok) return res;
+  const m = /^(\w+)\[(\d+)\]/.exec(res.field ?? "");
+  const name = m ? ENTRY_NAMES[m[1]] : undefined;
+  return name ? { ...res, error: `${name} ${Number(m![2]) + 1}: ${res.error}` } : res;
+}
+
 // ---------------------------------------------------------------------------
 // plan
 // ---------------------------------------------------------------------------
@@ -647,7 +670,7 @@ const exportZip: ActionHandler<"listing"> = {
 
 export const cardsPipeline: PipelineDefinition<"listing"> = {
   kind: "listing",
-  validate,
+  validate: validateEntries,
   plan,
   handlers: { [COMPOSE_STEP]: composeMainHandler, [RENDER]: renderCardHandler },
   buildResult,
