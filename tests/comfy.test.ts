@@ -608,6 +608,57 @@ describe("GET /api/jobs/:handle", () => {
     });
   });
 
+  it("a job the deadline canceled says it ran past its time budget, not a plain cancel", async () => {
+    await withDataDir(async () => {
+      mock.setScenario("unknown_forever");
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      const { createJobHandle } = await import("../lib/access.ts");
+      const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt: Date.now() - 16 * 60_000, jobId: submitted.id });
+
+      const { job } = await poll(handle);
+      assert.deepEqual(mock.state.cancels, [submitted.id]);
+      assert.equal(job.status, "canceled");
+      assert.equal(job.terminal, true);
+      assert.equal(job.error?.code, "deadline_exceeded");
+      assert.match(job.error?.message ?? "", /past its 15-minute time budget/);
+    });
+  });
+
+  it("a job the sweep already canceled (record gone) still says it ran past its time budget", async () => {
+    await withDataDir(async () => {
+      mock.setScenario("unknown_forever");
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      const submittedAt = Date.now() - 16 * 60_000;
+      const deadlines = await import("../lib/job-deadlines.ts");
+      await deadlines.recordJob(submitted.id, "image_resize_smoke", submittedAt);
+      await deadlines.reconcileJobs(client);
+      assert.deepEqual(mock.state.cancels, [submitted.id], "the sweep canceled it and dropped its record");
+      const { createJobHandle } = await import("../lib/access.ts");
+      const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt, jobId: submitted.id });
+
+      const { job } = await poll(handle);
+      assert.equal(job.status, "canceled");
+      assert.equal(job.error?.code, "deadline_exceeded");
+    });
+  });
+
+  it("a job canceled inside its deadline is a plain cancel", async () => {
+    await withDataDir(async () => {
+      mock.setScenario("unknown_forever");
+      const { client, wf } = await smokeWorkflow();
+      const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+      await comfy.requestCancel(client, submitted.id);
+      const { createJobHandle } = await import("../lib/access.ts");
+      const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt: Date.now(), jobId: submitted.id });
+
+      const { job } = await poll(handle);
+      assert.equal(job.status, "canceled");
+      assert.equal(job.error?.code, "canceled");
+    });
+  });
+
   it("a running job keeps the deadline saved at submit when JOB_DEADLINE_MS is raised later", async () => {
     await withDataDir(async () => {
       const saved = process.env.JOB_DEADLINE_MS;

@@ -394,15 +394,25 @@ export async function requestCancel(
  * so the client keeps watching it (and can still collect its outputs).
  */
 export function overdueJob(job: Job, outcome: Exclude<CancelOutcome, "canceled">, budgetMs: number): Job {
-  const minutes = Math.round(budgetMs / 60_000);
+  const budget = budgetLabel(budgetMs);
   return {
     ...job,
     terminal: false,
     error:
       outcome === "cancel_requested"
-        ? { code: outcome, message: `Over its ${minutes}-minute budget; cancel requested, waiting for Comfy to stop it.` }
-        : { code: outcome, message: `Over its ${minutes}-minute budget, but the cancel request failed; retrying.` },
+        ? { code: outcome, message: `Over its ${budget} budget; cancel requested, waiting for Comfy to stop it.` }
+        : { code: outcome, message: `Over its ${budget} budget, but the cancel request failed; retrying.` },
   };
+}
+
+/** A canceled job its deadline stopped: say so instead of a plain "Job canceled.". */
+export function deadlineCanceledJob(job: Job, budgetMs: number): Job {
+  return { ...job, error: { code: "deadline_exceeded", message: `Stopped: it ran past its ${budgetLabel(budgetMs)} time budget.` } };
+}
+
+/** "15-minute", or "3-second" for a budget under a minute (JOB_DEADLINE_MS can be that short). */
+function budgetLabel(budgetMs: number): string {
+  return budgetMs < 60_000 ? `${Math.round(budgetMs / 1000)}-second` : `${Math.round(budgetMs / 60_000)}-minute`;
 }
 
 async function fetchSdkJob(client: Comfy, id: string, signal?: AbortSignal): Promise<SdkJob> {
