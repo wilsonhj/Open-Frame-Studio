@@ -83,7 +83,7 @@ function mainView(run: PipelineRun<"listing"> | null): { url: string | null; che
 
 /** `runId`: resume this run (the `?run=` deep link from /runs), else this tab's last run. */
 export function CardsBoard({ runId }: { runId?: string } = {}) {
-  const { run, error, polling, start, cancel, action, reset } = useRun("listing", { runId });
+  const { run, error, polling, start, action, reset } = useRun("listing", { runId });
   const [scope, setScope] = useState<CardScope>("hero");
   const [copy, setCopy] = useState<CopyDraft>(EMPTY_COPY);
   const [regenerating, setRegenerating] = useState<CardAssetId | null>(null);
@@ -132,6 +132,12 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
     } finally {
       setRegenerating(null);
     }
+  }
+
+  // `action` resolves null when the request fails; the hook's own error text is cleared by the next poll.
+  async function cancelRun() {
+    setSubmitError(null);
+    if (!(await action("cancel"))) setSubmitError("Could not cancel the run. It may still be live; try again.");
   }
 
   function onSubmit(e: FormEvent) {
@@ -202,7 +208,7 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
           ) : null}
           {run && polling ? (
             // Reset only forgets the run; this stops new steps and asks Comfy to stop live jobs.
-            <Button variant="ghost" onClick={() => void cancel()}>
+            <Button variant="ghost" onClick={() => void cancelRun()}>
               Cancel run
             </Button>
           ) : null}
