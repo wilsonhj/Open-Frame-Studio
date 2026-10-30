@@ -4,7 +4,7 @@ Placeholder (empty) model files and input images are created in a temp dir so co
 the names the graph uses; everything else (class names, dotted DynamicCombo/Autogrow keys, link
 types, ranges) is checked by ComfyUI's own execution.validate_prompt.
 
-usage: COMFY_DIR=<workspace>/ComfyUI python offline_validate.py GRAPH.json [...]
+usage: COMFY_DIR=path/to/ComfyUI python offline_validate.py GRAPH.json [...]
 """
 import asyncio
 import json
@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 
-COMFY = os.environ.get("COMFY_DIR", "<workspace>/ComfyUI")
+COMFY = os.environ.get("COMFY_DIR", "ComfyUI")
 sys.path.insert(0, COMFY)
 sys.argv = [sys.argv[0], "--cpu"] + [a for a in sys.argv[1:]]
 graphs = [a for a in sys.argv[2:]]
