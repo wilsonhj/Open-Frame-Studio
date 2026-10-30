@@ -12,7 +12,7 @@ For the HTTP contract, including the planned pipeline routes, see [spec/api.md](
 | `/identity` | Works. Intake (name, likeness consent, 5–20 photos; the picker stays locked until consent is given), YuNet photo checks and reference selection, a preview sheet, and `identity.json` export and import, through `/api/souls/**`. |
 | `/photoshoot` | Works. Product cutout, then FLUX.2 Klein frames in five shoot modes (`lib/enhancer/modes.ts`). Uses the product photo only; an identity is ignored for now. |
 | `/listing` | Works. The compliant white-background hero (checks A1–A7, C3), then gallery and story panels anchored on it, with a ZIP export. |
-| `/motion` | Works. A person still (Picture 1, which can be an identity) and a product still become one MiniMax H3 reference-to-video clip. |
+| `/motion` | Works. A person still (Picture 1) and a product still become one MiniMax H3 reference-to-video clip. Using a saved identity as Picture 1 is off for now (`MOTION_IDENTITIES_ENABLED` in `lib/motion/options.ts`), so an `identityId` is refused with a 400. |
 | `/runs` | Recent runs in this tab. |
 | `/api/jobs` | Single-job API, used by `/smoke`. Described below. |
 | Pipelines | `/api/pipelines/[kind]/**` (create, status, actions, step files) over the registry in `lib/pipeline/kinds.ts`: `identity` (`lib/soul/pipeline.ts`), `photoshoot`, `listing` (`lib/cards/pipeline.ts`) and `motion`. Contract in `lib/contracts/pipeline.ts` and [spec/api.md §2](spec/api.md). |
@@ -104,6 +104,7 @@ CI runs install with a frozen lockfile, `check:owners`, `check:models`, `check:g
 - Cloud evidence: Product Shoot, the Listing hero, gallery and story panels, and Identity have run on Comfy Cloud through the app (manual runs on Oct 30; only `fixtures/golden/h3_r2v/` is recorded in the repo). Motion's `h3_r2v` graph has run through `scripts/golden-run.mjs` with two product stills, but `/motion` itself has not run on Cloud. Open quality issues from those runs: generated Listing panels drift from the product's colour and material (nothing checks consistency with the hero), and Identity's sharpness check (`lib/identity/qa.ts`, `faceSharpness`) upscales faces under 512 px, so sharp photos with smaller faces are rejected as blurry (seen below about 450 px in the Oct 30 Cloud run). Its thresholds are marked "calibrate" in the spec.
 - A measured identity-preservation result: the acceptance gate in [`docs/eval/identity.md`](eval/identity.md) needs human reviewers.
 - Identity in Product Shoot: `lib/photoshoot/pipeline.ts` ignores `identityId`, and `/photoshoot` has no identity picker.
+- Identity in Motion: `MOTION_IDENTITIES_ENABLED` is `false`, so `/motion` refuses an `identityId` before anything is uploaded.
 - The Identity preview panel shows a status pill only: no queue position, progress bar or dedicated Retry control.
 - A demonstrated self-hosted run through `comfy-api-proxy`.
 - End-to-end tests in CI: `pnpm test:e2e` runs locally only, and some specs are still `test.fixme`.
@@ -120,5 +121,5 @@ Wave 2 ("pipeline runtime, studio shell, Product Shoot and Listing hero image") 
 | Listing Images (`/listing`) | The hero image composed at 85% fill on pure #FFFFFF, 2000×2000, with compliance checks A1–A7; a non-compliant hero fails the run. Adds `lib/cards/` and `components/cards/`. |
 | Shell | A studio rail, shared UI primitives, a `/runs` page, a `useRun` polling hook (1 s, backing off to 5 s), and `pnpm demo`, which starts the mock on port 8199 and the app on port 3000. |
 | Tooling | `docs/OWNERS.md` with `scripts/check-owners.mjs` for path ownership, `models/manifest.json` with `scripts/check-models.mjs`, bundled OFL fonts, and the `sharp` dependency. |
-| Still stubbed or missing | Identity and Motion pipelines (the rail shows them as "soon"), the listing gallery and story panels, and any Comfy Cloud run. |
+| Still stubbed or missing at the time | Identity and Motion pipelines (the rail shows them as "soon"), the listing gallery and story panels, and any Comfy Cloud run. |
 
