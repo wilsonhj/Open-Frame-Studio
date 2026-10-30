@@ -77,10 +77,19 @@ export function planContext(runId: string): PlanContext {
   return { runId, now: now(), randomSeed: () => crypto.getRandomValues(new Uint32Array(1))[0] };
 }
 
+/** Comfy's 0..1 progress of each running step, so run.progress can rise while a long job runs. */
+const stepProgress = new WeakMap<PipelineStep, number>();
+
+/** Finished steps plus the Comfy progress of running ones (contracts/pipeline.ts `progress`). */
+function runProgress(run: PipelineRun): number {
+  if (!run.steps.length) return 1;
+  const done = run.steps.reduce((sum, s) => sum + (isTerminal(s) ? 1 : (stepProgress.get(s) ?? 0)), 0);
+  return done / run.steps.length;
+}
+
 async function persist(run: PipelineRun): Promise<void> {
   run.updatedAt = now();
-  const done = run.steps.filter(isTerminal).length;
-  run.progress = run.steps.length ? done / run.steps.length : 1;
+  run.progress = runProgress(run);
   await saveRun(run);
 }
 
@@ -656,6 +665,10 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
         signal: runSignal(run),
         onUpdate: (j) => {
           if (j.status === "running" || j.status === "queued") step.status = j.status;
+          if (j.progress !== null) {
+            stepProgress.set(step, j.progress);
+            run.progress = runProgress(run);
+          }
         },
       });
       break;

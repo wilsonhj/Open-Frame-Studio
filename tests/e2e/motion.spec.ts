@@ -88,19 +88,51 @@ test.describe("Motion panel", () => {
   test.fixme("an identity as Picture 1 uses its primary ref", async ({ page }) => {
     // TODO(slice C): once bestRefs is real, set MOTION_IDENTITIES_ENABLED and SoulLibrary lists identities (GET /api/souls); pick one: the job's image_1
     // asset is that identity's ★1 ref (bestRefs(id, 1)), and no person upload is sent.
+    // Still blocked on the app, not the mock: MOTION_IDENTITIES_ENABLED (lib/motion/options.ts) is a hard-coded
+    // `false`, so /motion renders no identity picker and validateMotion refuses any identityId with a 400.
     await page.goto("/motion");
   });
 
-  test.fixme("long H3 job: queue wait then a rising progress bar", async ({ page }) => {
-    // TODO(progress HUD): queued_20s with queuedMs ~3000 shows the queue state; then
-    // slow_progress shows progress increasing across polls until the clip appears.
+  test("long H3 job: queue wait then a rising progress bar", async ({ page }) => {
+    test.setTimeout(120_000);
     await setMockScenario({ scenario: "queued_20s", queuedMs: 3_000 });
     await page.goto("/motion");
+    await page.getByTestId("person-input").setInputFiles(PERSON);
+    await page.getByTestId("product-input").setInputFiles(PRODUCT);
+    await page.getByRole("button", { name: "Roll clip" }).click();
+    // Queued upstream: the wait is named, not a silent spinner (ux.md: every wait shows a state).
+    await expect(page.getByText("Waiting for a GPU…")).toBeVisible();
+    const video = page.getByTestId("motion-video");
+    await expect(video).toBeVisible({ timeout: 30_000 });
+
+    // A long render: run.progress follows Comfy's progress, so the bar fills across polls.
+    await setMockScenario({ scenario: "slow_progress" });
+    await page.getByRole("button", { name: "Roll clip" }).click();
+    await expect(page.getByText("Rendering the clip…")).toBeVisible();
+    const bar = page.getByRole("progressbar", { name: "Clip progress" });
+    const seen: number[] = [];
+    await expect
+      .poll(
+        async () => {
+          const value = await bar.getAttribute("value", { timeout: 200 }).catch(() => null);
+          if (value !== null && Number(value) !== seen.at(-1)) seen.push(Number(value));
+          return seen.length;
+        },
+        { timeout: 45_000, intervals: [250] },
+      )
+      .toBeGreaterThanOrEqual(3);
+    // Strictly rising, and always a real fraction (never a stuck 0 or a premature 1).
+    expect(seen.every((v, i) => v > 0 && v < 1 && (i === 0 || v > seen[i - 1]))).toBe(true);
+    await expect(video).toBeVisible({ timeout: 45_000 });
   });
 
   test.fixme("job stuck in unknown hits the step deadline with a clear message", async ({ page }) => {
     // TODO: scenario unknown_forever; needs a test hook to shorten the 15-min h3_r2v step budget;
     // the step ends timed_out and is never resubmitted.
+    // Still blocked on the app: the budget is DEFAULT_STEP_TIMEOUT_MS.h3_r2v = 900_000 (lib/contracts/pipeline.ts)
+    // with no env override (JOB_DEADLINE_MS only covers /api/jobs), and the playwright webServer env can't be set
+    // from a spec. Also: the runner ends the step with code "poll_timeout", but MotionStudio's errorText() only
+    // special-cases "timed_out", so the user would see the raw "Job … was still unknown after 900000 ms" text.
     await setMockScenario({ scenario: "unknown_forever" });
     await page.goto("/motion");
   });
