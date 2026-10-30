@@ -2,13 +2,18 @@
  * POST /api/pipelines/{kind}: validate → upload → plan → persist → 202
  * PipelineRun<kind> (docs/spec/api.md §2, §2.0). Body: `application/json`
  * (the bare request) or `multipart/form-data` with a `request` JSON part and
- * one file part per `{ "upload": name }`.
+ * one file part per `{ "upload": name }`. The studio access code travels in
+ * the `X-Access-Code` header, so the access check and the size cap run before
+ * any of the body is read.
  */
 
 import { ComfyNotConfiguredError } from "../../../../lib/comfy.ts";
 import { isPipelineKind } from "../../../../lib/pipeline/kinds.ts";
 import { gateSubmit } from "../../../../lib/pipeline/gate.ts";
 import { MAX_UPLOAD_PARTS, createRun, uploadNames, type UploadPart } from "../../../../lib/pipeline/runner.ts";
+
+/** Largest body accepted: MAX_UPLOAD_PARTS images of 20 MB plus 1 MB for the request JSON and multipart framing. */
+export const MAX_BODY_BYTES = MAX_UPLOAD_PARTS * 20 * 1024 * 1024 + 1024 * 1024;
 
 export const runtime = "nodejs";
 
@@ -17,8 +22,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
   if (!isPipelineKind(kind)) {
     return Response.json({ error: `Unknown pipeline kind "${kind}".` }, { status: 404 });
   }
+  // Refuse an oversized body by its declared length, before reading it.
+  const length = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
+    return Response.json({ error: "Request body is too large.", field: "" }, { status: 413 });
+  }
+  // A run submits billed Comfy jobs: same access policy as /api/jobs, checked
+  // from the header before the body is read or buffered.
+  const gate = gateSubmit(request);
+  if (gate instanceof Response) return gate;
   let raw: unknown;
-  let formCode: string | null = null;
   const uploads = new Map<string, UploadPart>();
   try {
     if ((request.headers.get("content-type") ?? "").includes("multipart/form-data")) {
@@ -26,13 +39,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
       const part = form.get("request");
       const text = typeof part === "string" ? part : part ? await part.text() : "";
       raw = JSON.parse(text);
-      const code = form.get("access_code");
-      formCode = typeof code === "string" ? code : null;
-      // Copy only the parts the request references, and refuse an oversized
-      // set of parts before reading any of them into memory.
+      // Copy only the parts the request references, and refuse too many parts
+      // before copying any of them.
       const wanted = new Set(uploadNames(raw));
       const files = [...form.entries()].filter(([name, value]) => name !== "request" && typeof value !== "string");
       if (files.length > MAX_UPLOAD_PARTS) {
+        gate.refund();
         return Response.json({ error: `At most ${MAX_UPLOAD_PARTS} files per request.`, field: "" }, { status: 400 });
       }
       for (const [name, value] of files) {
@@ -47,11 +59,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ kin
       raw = await request.json();
     }
   } catch {
+    gate.refund();
     return Response.json({ error: "Send JSON, or multipart with a `request` JSON part.", field: "" }, { status: 400 });
   }
-  // A run submits billed Comfy jobs: same access policy as /api/jobs.
-  const gate = gateSubmit(request, formCode);
-  if (gate instanceof Response) return gate;
   try {
     const created = await createRun(kind, raw, uploads);
     if (!created.ok) {

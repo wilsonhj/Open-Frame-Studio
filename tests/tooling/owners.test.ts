@@ -70,3 +70,18 @@ test("models manifest covers every workflow model file", async () => {
   const missing = mod.checkModels({ models: [] }, refs).problems;
   assert.equal(missing.length, refs.size);
 });
+
+test("models manifest entries carry the upstream and licence fields the landing page reads", async () => {
+  const mod = (await import(modelsPath)) as ModelsModule;
+  const manifest = JSON.parse(readFileSync(join(ROOT, "models/manifest.json"), "utf8"));
+  const refs = mod.referencedModels();
+  const strip = (patch: (m: Record<string, unknown>) => void) => {
+    const copy = structuredClone(manifest);
+    patch(copy.models[0]);
+    return mod.checkModels(copy, refs).problems;
+  };
+  assert.ok(strip((m) => delete m.upstream).some((p) => p.includes('"upstream"')));
+  assert.ok(strip((m) => (m.upstream = { repo: "x" })).some((p) => p.includes("upstream needs repo and url")));
+  assert.ok(strip((m) => delete m.licenceUrl).some((p) => p.includes('"licenceUrl"')));
+  assert.ok(strip((m) => (m.licence = " ")).some((p) => p.includes("licence must be")));
+});

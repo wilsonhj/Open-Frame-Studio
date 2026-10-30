@@ -131,4 +131,37 @@ describe("pipeline routes: access policy", () => {
     assert.equal(oversized.status, 400);
     assert.match((await oversized.json()).error, /20 MB/);
   });
+
+  it("checks the access code and the size cap before reading the body", async () => {
+    let pulled = false;
+    const body = () =>
+      new ReadableStream(
+        {
+          pull() {
+            pulled = true;
+            throw new Error("the body must not be read");
+          },
+        },
+        { highWaterMark: 0 },
+      );
+    const request = (headers: Record<string, string>) =>
+      new Request("http://localhost/api/pipelines/motion", {
+        method: "POST",
+        body: body(),
+        headers: { "content-type": "multipart/form-data; boundary=x", ...headers },
+        duplex: "half",
+      } as RequestInit);
+
+    env.STUDIO_ACCESS_CODE = "open-sesame-123";
+    const denied = await create.POST(request({}), kindParams("motion"));
+    assert.equal(denied.status, 401);
+    assert.equal(pulled, false, "an unauthorised body is never read");
+
+    const huge = await create.POST(
+      request({ "x-access-code": "open-sesame-123", "content-length": String(create.MAX_BODY_BYTES + 1) }),
+      kindParams("motion"),
+    );
+    assert.equal(huge.status, 413);
+    assert.equal(pulled, false, "an oversized body is never read");
+  });
 });

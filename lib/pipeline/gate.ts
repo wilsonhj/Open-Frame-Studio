@@ -10,10 +10,14 @@ import { AccessError, accessErrorResponse, assertMayControl, assertMaySubmit } f
 /** Header the studio client sends the access code in (JSON and multipart alike). */
 export const ACCESS_CODE_HEADER = "x-access-code";
 
-/** A billed request: returns the slot refund, or the error response to send. */
-export function gateSubmit(request: Request, formCode: string | null = null): { refund: () => void } | Response {
+/**
+ * A billed request: returns the slot refund, or the error response to send.
+ * The code comes from the header only, so routes can check it before reading
+ * the body.
+ */
+export function gateSubmit(request: Request): { refund: () => void } | Response {
   try {
-    return { refund: assertMaySubmit(request, request.headers.get(ACCESS_CODE_HEADER) ?? formCode) };
+    return { refund: assertMaySubmit(request, request.headers.get(ACCESS_CODE_HEADER)) };
   } catch (error) {
     if (error instanceof AccessError) return accessErrorResponse(error);
     throw error;

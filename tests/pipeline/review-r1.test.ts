@@ -214,18 +214,18 @@ describe("runner review round 1", () => {
     await new Promise((r) => setTimeout(r, 50));
     await runner.runAction("identity", id, "POST", ["cancel"], null);
     await new Promise((r) => setTimeout(r, 50));
+    // The upstream cancel is held open, so the run is still winding down.
+    assert.notEqual(runner.whenIdle(id), undefined);
+    assert.ok(!["succeeded", "partial", "failed", "canceled"].includes((await runner.getRun(id))!.status), "still winding down");
     const retry = await runner.runAction("identity", id, "POST", ["items", "flaky", "retry"], null);
     held.open();
     await runner.whenIdle(id);
     const run = await store.loadRun(id);
-    if (retry.type === "run") {
-      // Accepted: then the retried item must actually run.
-      assert.equal(flakyCalls, 1, "an accepted retry must run");
-    } else {
-      assert.equal(retry.type, "error");
-      assert.equal((retry as { status: number }).status, 409);
-      assert.equal(run?.status, "canceled");
-    }
+    assert.deepEqual(retry, { type: "error", status: 409, error: retry.type === "error" ? retry.error : "" });
+    assert.equal(retry.type, "error");
+    assert.equal(flakyCalls, 0, "a refused retry never runs");
+    assert.equal(run?.status, "canceled");
+    assert.equal(run?.steps.find((st) => st.id === "flaky")?.status, "failed", "the item keeps its state");
   });
 
   it("R4: cancel during the ambiguous-submit backoff reports the possible charge", async () => {
