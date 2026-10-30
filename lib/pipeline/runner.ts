@@ -666,7 +666,7 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
         onUpdate: (j) => {
           if (j.status === "running" || j.status === "queued") step.status = j.status;
           if (j.progress !== null) {
-            stepProgress.set(step, j.progress);
+            stepProgress.set(step, Math.max(stepProgress.get(step) ?? 0, j.progress));
             run.progress = runProgress(run);
           }
         },
