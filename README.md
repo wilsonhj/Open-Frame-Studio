@@ -21,6 +21,8 @@ Real outputs from Comfy Cloud (hero image, cutout, two Product Shoot frames):
 
 ![Real Comfy Cloud outputs](docs/images/comfy-cloud-outputs.png)
 
+**Demo video (83 s, real Comfy Cloud run):** [docs/demo/open-frame-studio-demo.mp4](docs/demo/open-frame-studio-demo.mp4)
+
 The step-by-step walkthrough is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
 
 ## Quickstart
