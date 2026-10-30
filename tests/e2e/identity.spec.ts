@@ -24,6 +24,13 @@ test("Identity page renders", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/identity/i);
 });
 
+test("the intro does not promise identities in tools that cannot use them yet", async ({ page }) => {
+  await page.goto("/identity");
+  // Motion's identity picker is off (MOTION_IDENTITIES_ENABLED) and Product Shoot takes a product photo only.
+  await expect(page.getByRole("main")).not.toContainText("reuse in every other tool");
+  await expect(page.getByRole("main")).toContainText("portable identity you keep");
+});
+
 test("likeness consent gates the photo picker", async ({ page }) => {
   await page.goto("/identity");
   const consent = page.locator("form").getByRole("checkbox", { name: /photos of me, or I have this person's permission/i });
