@@ -50,6 +50,10 @@ async function handle(method: "GET" | "POST", request: Request, { params }: Ctx)
       }
       return Response.json({ error: outcome.error }, { status: outcome.status });
     }
+    // A replan that submits no Comfy job gives the prepaid slot back. A create
+    // still keeps its slot (that is the per-request limit); only this path
+    // had already taken one for work that will not bill.
+    if (outcome.releaseSlot) refund();
     return Response.json(outcome.run, { status: action.join("/") === "cancel" ? 200 : 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     refund();

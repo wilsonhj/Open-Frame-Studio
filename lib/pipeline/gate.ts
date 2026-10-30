@@ -28,7 +28,8 @@ export function gateSubmit(request: Request): { refund: () => void } | Response 
  * Charges a gated request for the Comfy jobs it plans: the gate's slot paid
  * for the first, so `jobs - 1` more are taken. Returns their refund; throws
  * AccessError (429) when they don't fit in the window. The runner calls it
- * after planning and before submitting anything.
+ * after planning and before submitting anything. Zero jobs takes nothing
+ * more; the action route releases the prepaid slot in that case.
  */
 export function jobCharge(request: Request): (jobs: number) => () => void {
   return (jobs) => takeSubmitSlots(request, jobs - 1);
