@@ -40,7 +40,7 @@ function plannedAspect(steps: PipelineStep[]): string | null {
 const TERMINAL_STEPS = new Set(["succeeded", "failed", "timed_out", "canceled", "expired", "skipped", "unknown", "needs_input"]);
 
 export function PhotoshootStudio({ runId }: { runId?: string }) {
-  const { run, error, polling, start, cancel, action, reset } = useRun("photoshoot", runId ? { runId } : undefined);
+  const { run, error, polling, start, cancel, action } = useRun("photoshoot", runId ? { runId } : undefined);
   // Frames whose retry request is in flight (one click, one request).
   const [retrying, setRetrying] = useState<ReadonlySet<number>>(new Set());
   const [file, setFile] = useState<File | null>(null);
@@ -92,7 +92,8 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
     body.append("product", file, file.name);
     setSubmitting(true);
     try {
-      reset();
+      // start() keeps the current sheet until the POST succeeds, so a 429 or a
+      // cancelled access prompt does not drop the only handle to a paid run.
       await start(body);
     } catch (e) {
       setLocalError(e instanceof Error ? e.message : String(e));
