@@ -33,16 +33,22 @@ describe("slateFromRequest", () => {
 });
 
 describe("runProgress", () => {
-  const steps = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `s${i}` }) as PipelineStep);
+  /** `n` steps, the first `done` of them succeeded and the rest still running. */
+  const steps = (n: number, done: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `s${i}`, status: i < done ? "succeeded" : "running" }) as PipelineStep);
 
-  it("counts finished jobs from the run's progress fraction", () => {
-    assert.deepEqual(runProgress({ progress: 3 / 5, steps: steps(5) }), { done: 3, total: 5, fraction: 0.6 });
-    assert.deepEqual(runProgress({ progress: 1, steps: steps(5) }), { done: 5, total: 5, fraction: 1 });
+  it("counts finished jobs from terminal steps", () => {
+    assert.deepEqual(runProgress({ progress: 3 / 5, steps: steps(5, 3) }), { done: 3, total: 5, fraction: 0.6 });
+    assert.deepEqual(runProgress({ progress: 1, steps: steps(5, 5) }), { done: 5, total: 5, fraction: 1 });
+  });
+
+  it("does not count running jobs as done, even when their Comfy progress fills the bar", () => {
+    assert.deepEqual(runProgress({ progress: 0.5, steps: steps(5, 0) }), { done: 0, total: 5, fraction: 0.5 });
   });
 
   it("clamps a malformed progress", () => {
-    assert.equal(runProgress({ progress: Number.NaN, steps: steps(3) }).done, 0);
-    assert.equal(runProgress({ progress: 2, steps: steps(3) }).done, 3);
+    assert.equal(runProgress({ progress: Number.NaN, steps: steps(3, 0) }).fraction, 0);
+    assert.equal(runProgress({ progress: 2, steps: steps(3, 3) }).fraction, 1);
   });
 });
 
