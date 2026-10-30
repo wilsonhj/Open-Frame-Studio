@@ -9,7 +9,7 @@
  * With no range and no usable event (a new branch, a first push), it checks
  * nothing and says so: old history is not re-judged.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -30,17 +30,23 @@ export function findViolations(log) {
   return out;
 }
 
-function rangeFromEvent() {
-  const path = process.env.GITHUB_EVENT_PATH;
-  if (!path) return null;
-  const event = JSON.parse(readFileSync(path, "utf8"));
+function hasCommit(sha) {
+  return spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`]).status === 0;
+}
+
+/** The range a GitHub event adds, or null when there is nothing to judge. */
+export function rangeFromEvent(event, commitExists = hasCommit) {
   if (event.pull_request) return `${event.pull_request.base.sha}..${event.pull_request.head.sha}`;
-  if (event.before && event.after && !/^0+$/.test(event.before)) return `${event.before}..${event.after}`;
+  if (event.before && event.after && !/^0+$/.test(event.before)) {
+    // A force-push drops `before` from the clone: check the pushed tip (and a merge's side branch) instead.
+    return commitExists(event.before) ? `${event.before}..${event.after}` : `${event.after}^!`;
+  }
   return null;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const range = process.argv[2] ?? rangeFromEvent();
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  const range = process.argv[2] ?? (eventPath ? rangeFromEvent(JSON.parse(readFileSync(eventPath, "utf8"))) : null);
   if (!range) {
     console.log("check-commit-identity: no range to check (skipped)");
     process.exit(0);
