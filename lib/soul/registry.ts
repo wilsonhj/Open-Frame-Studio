@@ -21,7 +21,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
 import { apiOrigin, createClient } from "../comfy.ts";
 import { assertIdentityConsent } from "../identity/consent.ts";
-import { checkPhoto, sniffImage, type Candidate, type QaOptions } from "../identity/qa.ts";
+import { checkPhoto, sniffImage, stripMetadata, type Candidate, type QaOptions } from "../identity/qa.ts";
 import { dataDir } from "../store.ts";
 import type { CropBox, Identity, IdentityRef, StyleCard } from "../types.ts";
 import { IDENTITY_MAX_REFS, IDENTITY_MIN_REFS, IDENTITY_SCHEMA } from "../types.ts";
@@ -393,10 +393,13 @@ export async function importBundle(zip: Uint8Array, consent: unknown, options: Q
     const qa = await checkPhoto(bytes, n, { ...options, importedRef: true });
     if (qa.reason) throw new IdentityInputError(`refs[${n}]`, `${ref.path}: ${qa.reason.replace(/_/g, " ")}.`);
     const checked = qa as Candidate;
+    // Store a metadata-free re-encode, not the zip bytes (§8.2). The sha256
+    // check above already proved the bundle matches what it claims.
+    const png = await stripMetadata(bytes);
     candidates.push({
       ...checked,
-      png: bytes,
-      sha256: ref.sha256.toLowerCase(),
+      png,
+      sha256: sha256(png),
       phash: typeof ref.phash === "string" && /^[0-9a-f]{16}$/.test(ref.phash) ? ref.phash : checked.phash,
       crop,
       score: typeof ref.qaScore === "number" && ref.qaScore >= 0 && ref.qaScore <= 1 ? ref.qaScore : checked.score,

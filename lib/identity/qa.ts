@@ -266,13 +266,29 @@ export function cropFor(face: Box, width: number, height: number, background: Bo
     }
     const x = clamp(cx - w / 2, 0, width - w);
     const y = clamp(cy - 0.42 * h, 0, height - h);
-    return { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) };
+    // Round, then shrink so the box still lies inside the image. Rounding a
+    // half-pixel clamp (y = 0.5, height = height - 0.5) otherwise lands one
+    // pixel past the edge and sharp.extract throws.
+    const rx = clamp(Math.round(x), 0, Math.max(0, width - 1));
+    const ry = clamp(Math.round(y), 0, Math.max(0, height - 1));
+    const rw = Math.max(1, Math.min(Math.round(w), width - rx));
+    const rh = Math.max(1, Math.min(Math.round(h), height - ry));
+    return { x: rx, y: ry, width: rw, height: rh };
   };
   for (let factor = 2.2; factor >= 1.6 - 1e-9; factor -= 0.1) {
     const crop = build(factor);
     if (!background.some((b) => overlaps(crop, b))) return crop;
   }
   return build(1.6);
+}
+
+/** Re-encode from raw pixels so EXIF, GPS and text chunks are dropped (§8.2). */
+export async function stripMetadata(bytes: Uint8Array): Promise<Uint8Array> {
+  const raster = await decodeRgb(bytes);
+  const png = await sharp(raster.data, { raw: { width: raster.width, height: raster.height, channels: 3 } })
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+  return new Uint8Array(png.buffer, png.byteOffset, png.byteLength);
 }
 
 async function encodeCrop(r: Raster, crop: CropBox): Promise<Uint8Array> {

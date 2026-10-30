@@ -116,6 +116,10 @@ describe("helpers", () => {
     assert.equal(crop.y, Math.round(480 - 0.42 * 825));
     const edge = cropFor({ x: 0, y: 0, width: 400, height: 480 }, 900, 1000);
     assert.ok(edge.x >= 0 && edge.y >= 0 && edge.x + edge.width <= 900 && edge.y + edge.height <= 1000);
+    // Half-pixel clamp: rounding used to produce y + height past the image.
+    const tight = cropFor({ x: 0, y: 227.67, width: 251, height: 301.2 }, 546, 683);
+    assert.ok(tight.x >= 0 && tight.y >= 0 && tight.x + tight.width <= 546 && tight.y + tight.height <= 683);
+    assert.ok(tight.width >= 1 && tight.height >= 1);
     assert.ok(Math.abs(edge.height / edge.width - 1.25) < 0.01);
   });
 
