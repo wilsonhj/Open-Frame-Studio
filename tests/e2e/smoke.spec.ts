@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import { SURFACES } from "../../lib/brand.ts";
 import { mockRequests, resetMock } from "../mock-comfy/control.ts";
 
 const TOOLS = [
@@ -63,4 +64,13 @@ test("/smoke runs image_resize_smoke end to end against the mock", async ({ page
   const seen = await mockRequests();
   expect(seen.jobPosts).toHaveLength(1);
   expect(seen.assetPosts).toBeLessThanOrEqual(1);
+});
+
+test("/runs empty state names exactly the tools that record runs there", async ({ page }) => {
+  // useRun stores an id for photoshoot, listing and motion; identity's preview only polls a given id.
+  await page.goto("/runs");
+  const empty = page.getByRole("main").getByText(/^No runs in this tab yet\./);
+  await expect(empty).toHaveText(
+    `No runs in this tab yet. Start one from ${SURFACES.photoshoot.label}, ${SURFACES.listing.label} or ${SURFACES.motion.label}.`,
+  );
 });
