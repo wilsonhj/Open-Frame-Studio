@@ -3,6 +3,7 @@
  * axes (docs/spec/ux.md §5.3, §7). No fake percentages.
  */
 import { StatusPill } from "../ui";
+import { errorDetail, humanReason } from "../../lib/photoshoot/copy";
 import type { JobErrorInfo, OutputRef, PipelineStepStatus, VariationPick } from "../../lib/types";
 
 export type FrameProps = {
@@ -16,6 +17,10 @@ export type FrameProps = {
   error: JobErrorInfo | null;
   variation: VariationPick | null;
   onRetry?: () => void;
+  /** Jobs a retry submits: 1, or 2 when it must also re-run a failed cutout. */
+  retryJobs?: number;
+  /** A retry request for this frame is in flight. */
+  retrying?: boolean;
 };
 
 const STATUS_COPY: Partial<Record<PipelineStepStatus, string>> = {
@@ -26,7 +31,7 @@ const STATUS_COPY: Partial<Record<PipelineStepStatus, string>> = {
   timed_out: "timed out",
 };
 
-export function Frame({ index, label, aspect, status, waitingNote, output, error, variation, onRetry }: FrameProps) {
+export function Frame({ index, label, aspect, status, waitingNote, output, error, variation, onRetry, retryJobs = 1, retrying = false }: FrameProps) {
   const [w, h] = aspect.split(":").map(Number);
   const live = status === "queued" || status === "running";
   // A skipped frame (its cutout failed) is retryable too: the retry action
@@ -45,7 +50,7 @@ export function Frame({ index, label, aspect, status, waitingNote, output, error
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-3 text-center font-mono text-[11px] text-[var(--ps-film-ink)]">
             <span className="text-2xl opacity-40">{String(index + 1).padStart(2, "0")}</span>
-            <span>{failed ? (error?.code ?? status) : (STATUS_COPY[status] ?? status)}</span>
+            <span>{STATUS_COPY[status] ?? status}</span>
             {!failed && waitingNote ? <span className="opacity-60">{waitingNote}</span> : null}
           </div>
         )}
@@ -63,8 +68,8 @@ export function Frame({ index, label, aspect, status, waitingNote, output, error
           </span>
         ) : null}
         {failed && error ? (
-          <span className="text-red-700 dark:text-red-400" role="alert">
-            {error.code}: {error.message}
+          <span className="text-red-700 dark:text-red-400" role="alert" title={errorDetail(error)}>
+            {humanReason(error)}
           </span>
         ) : null}
         <div className="flex gap-3">
@@ -74,8 +79,14 @@ export function Frame({ index, label, aspect, status, waitingNote, output, error
             </a>
           ) : null}
           {failed && onRetry ? (
-            <button type="button" className="underline decoration-dotted underline-offset-2 hover:text-foreground" onClick={onRetry}>
-              Retry (new seed)
+            <button
+              type="button"
+              disabled={retrying}
+              title="New seed; billed as new Comfy jobs"
+              className="underline decoration-dotted underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+              onClick={onRetry}
+            >
+              {retrying ? "Retrying…" : `Retry · ${retryJobs} ${retryJobs === 1 ? "job" : "jobs"}`}
             </button>
           ) : null}
         </div>

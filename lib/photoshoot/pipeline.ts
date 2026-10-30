@@ -15,11 +15,11 @@ import { TERMINAL_STEP_STATUSES } from "../contracts/pipeline.ts";
 import type { ImageRef } from "../contracts/job.ts";
 import type { AspectRatio, PhotoshootItem, PhotoshootRequest, VariationPick } from "../contracts/photoshoot.ts";
 import { ASPECT_RATIOS } from "../contracts/photoshoot.ts";
+import { MAX_NOTES } from "./copy.ts";
 
 const CUTOUT_STEP = "cutout";
 const CUTOUT_TIMEOUT_MS = 120_000;
 const KLEIN_TIMEOUT_MS = 180_000;
-const MAX_NOTES = 500;
 
 /** Step id of output `i`. */
 export function shotStepId(index: number): string {
@@ -147,8 +147,10 @@ function kleinStep(
     },
     timeoutMs: KLEIN_TIMEOUT_MS,
     status: "pending",
-    // Kept on the step so buildResult survives per-item seed retries.
-    data: { variation },
+    // Kept on the step so buildResult survives per-item seed retries. The
+    // resolved aspect lets the UI lay out frames before a result exists,
+    // never from the raw requested ratio.
+    data: { variation, aspect },
   };
 }
 
