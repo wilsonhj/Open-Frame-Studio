@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import type { PipelineRun, PlanContext } from "../../lib/pipeline/types.ts";
@@ -17,6 +20,8 @@ import {
 } from "../../lib/motion/pipeline.ts";
 import { MOTION_IDENTITIES_ENABLED, pickClipVideo } from "../../lib/motion/options.ts";
 import { buildMotionPrompt, framesFor } from "../../lib/motion/prompt.ts";
+import { identitiesDir } from "../../lib/soul/registry.ts";
+import { IDENTITY_SCHEMA } from "../../lib/types.ts";
 
 const ctx: PlanContext = { runId: "run_1", now: "2026-10-30T00:00:00.000Z", randomSeed: () => 777 };
 const base = { personImage: { upload: "person" }, productImage: { upload: "product" }, prompt: "[Person] holds [Product] up" };
@@ -125,14 +130,35 @@ describe("motion plan", () => {
     assert.equal(clip.inputs.ref_image_size, "max");
   });
 
-  it("an identity the registry can't resolve is a 400 on identityId, not a 500", async () => {
+  it("an unknown identity stays a not-found (the runner answers 404 on identityId), not a 500", async () => {
     const { personImage, ...rest } = planned;
     void personImage;
-    await assert.rejects(motionPipeline.plan({ ...rest, identityId: "maya" }, ctx), (e: { status?: number; field?: string }) => {
-      assert.equal(e.status, 400);
-      assert.equal(e.field, "identityId");
+    await assert.rejects(motionPipeline.plan({ ...rest, identityId: "maya" }, ctx), (e: { name?: string }) => {
+      assert.equal(e.name, "SoulNotFoundError");
       return true;
     });
+  });
+
+  it("an identity the registry refuses (no consent record) is a 400 on identityId, not a 500", async () => {
+    const saved = process.env.DATA_DIR;
+    process.env.DATA_DIR = mkdtempSync(join(tmpdir(), "motion-identity-"));
+    try {
+      const id = randomUUID();
+      const doc = { schema: IDENTITY_SCHEMA, id, name: "No consent", createdAt: ctx.now, refs: [] };
+      mkdirSync(join(identitiesDir(), id), { recursive: true });
+      writeFileSync(join(identitiesDir(), id, "identity.json"), JSON.stringify(doc));
+      const { personImage, ...rest } = planned;
+      void personImage;
+      await assert.rejects(motionPipeline.plan({ ...rest, identityId: id }, ctx), (e: { status?: number; field?: string }) => {
+        assert.equal(e.status, 400);
+        assert.equal(e.field, "identityId");
+        return true;
+      });
+    } finally {
+      rmSync(process.env.DATA_DIR, { recursive: true, force: true });
+      if (saved === undefined) delete process.env.DATA_DIR;
+      else process.env.DATA_DIR = saved;
+    }
   });
 
   it("applies to the real graph through prepareGraph, keeping the fp16 video VAE", async () => {
