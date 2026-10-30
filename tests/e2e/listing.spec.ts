@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { unzipStore } from "../../lib/cards/zip.ts";
-import { mockRequests, resetMock } from "../mock-comfy/control.ts";
+import { mockRequests, resetMock, setMockScenario } from "../mock-comfy/control.ts";
 import type { JobPost } from "../mock-comfy/server.ts";
 
 // Already a cutout (real alpha): the mock's cutout job echoes its input, so this is the hero input that passes A4.
@@ -168,6 +168,23 @@ test.describe("Cards board", () => {
     };
     expect(manifest.anchorJobId).toEqual(expect.any(String));
     expect(manifest.tiles.filter((t) => t.state === "succeeded").map((t) => t.file).sort()).toEqual([...images].sort());
+  });
+
+  test("a live run can be canceled from the board", async ({ page }) => {
+    // Jobs stay queued long enough to cancel while the cutout is live.
+    await setMockScenario({ scenario: "queued_20s", queuedMs: 60_000 });
+    await startRun(page, "Story · 8");
+    const hero = page.locator('[data-asset="hero"]');
+    await expect(hero.locator("[data-status]").first()).toHaveAttribute("data-status", /queued|running/);
+
+    await page.getByRole("button", { name: "Cancel run" }).click();
+    await expect(hero.locator("[data-status]").first()).toHaveAttribute("data-status", "canceled", { timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "Cancel run" })).toHaveCount(0);
+    const runId = await page.evaluate(() => sessionStorage.getItem("oss:run:listing"));
+    const run = (await (await page.request.get(`/api/pipelines/listing/${runId}`)).json()) as { status: string };
+    expect(run.status).toBe("canceled");
+    // Cancel never resubmits: only the cutout was ever sent.
+    expect((await mockRequests()).jobPosts).toHaveLength(1);
   });
 });
 

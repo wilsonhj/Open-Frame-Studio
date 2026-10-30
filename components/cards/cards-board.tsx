@@ -83,7 +83,7 @@ function mainView(run: PipelineRun<"listing"> | null): { url: string | null; che
 
 /** `runId`: resume this run (the `?run=` deep link from /runs), else this tab's last run. */
 export function CardsBoard({ runId }: { runId?: string } = {}) {
-  const { run, error, polling, start, action, reset } = useRun("listing", { runId });
+  const { run, error, polling, start, cancel, action, reset } = useRun("listing", { runId });
   const [scope, setScope] = useState<CardScope>("hero");
   const [copy, setCopy] = useState<CopyDraft>(EMPTY_COPY);
   const [regenerating, setRegenerating] = useState<CardAssetId | null>(null);
@@ -199,6 +199,12 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
             >
               Download ZIP
             </a>
+          ) : null}
+          {run && polling ? (
+            // Reset only forgets the run; this stops new steps and asks Comfy to stop live jobs.
+            <Button variant="ghost" onClick={() => void cancel()}>
+              Cancel run
+            </Button>
           ) : null}
           {run ? (
             <Button variant="ghost" onClick={reset}>
