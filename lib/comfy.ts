@@ -489,9 +489,10 @@ export async function fetchOutput(
   client: Comfy,
   jobId: string,
   outputId: string,
-  options: { outputNodes?: readonly string[] } = {},
+  options: { outputNodes?: readonly string[]; signal?: AbortSignal } = {},
 ): Promise<Response> {
   const job = await client.jobs.get(jobId);
+  options.signal?.throwIfAborted();
   const output = job.outputs.find(
     (candidate) => candidate.id === outputId && isExposedOutput(candidate.nodeId, options.outputNodes),
   );
@@ -501,12 +502,12 @@ export async function fetchOutput(
   // A self-hosted proxy may return a path-relative asset URL.
   const resolved = new URL(url, apiOrigin());
   if (resolved.origin === apiOrigin()) {
-    const bytes = await output.toBytes();
+    const bytes = await output.toBytes({ signal: options.signal });
     const headers = outputResponseHeaders(fallbackType, output.name);
     headers.set("Content-Length", String(bytes.byteLength));
     return new Response(bytes as Uint8Array<ArrayBuffer>, { status: 200, headers });
   }
-  const response = await fetch(resolved);
+  const response = await fetch(resolved, { signal: options.signal });
   if (!response.ok || !response.body) {
     await response.body?.cancel();
     throw new Error(`Output download failed with HTTP ${response.status}.`);

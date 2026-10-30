@@ -13,7 +13,8 @@ import { join } from "node:path";
 
 const ROOT = process.cwd();
 const WEIGHTS = /\.(safetensors|ckpt|pt|pth|bin|gguf|onnx|sft)$/i;
-const REQUIRED = ["filename", "folder", "workflows", "role", "source", "licence", "sha256", "cloudAvailable"];
+// upstream and licenceUrl are read by the landing page (app/page.tsx).
+const REQUIRED = ["filename", "folder", "workflows", "role", "source", "upstream", "licence", "licenceUrl", "sha256", "cloudAvailable"];
 
 /** filename -> Set of workflow names that reference it. */
 export function referencedModels(dir = join(ROOT, "workflows")) {
@@ -42,6 +43,10 @@ export function checkModels(manifest, refs) {
       if (!(key in entry)) problems.push(`models[${i}] (${entry.filename ?? "?"}): missing "${key}"`);
     }
     if (entry.source && (!entry.source.repo || !entry.source.url)) problems.push(`models[${i}]: source needs repo and url`);
+    if ("upstream" in entry && (!entry.upstream?.repo || !entry.upstream?.url)) problems.push(`models[${i}]: upstream needs repo and url`);
+    for (const key of ["licence", "licenceUrl"]) {
+      if (key in entry && (typeof entry[key] !== "string" || !entry[key].trim())) problems.push(`models[${i}]: ${key} must be a non-empty string`);
+    }
     if (entry.sha256 !== null && !/^[0-9a-f]{64}$/.test(String(entry.sha256))) problems.push(`models[${i}]: sha256 must be null or 64 hex chars`);
     if (entries.has(entry.filename)) problems.push(`duplicate manifest entry: ${entry.filename}`);
     entries.set(entry.filename, entry);

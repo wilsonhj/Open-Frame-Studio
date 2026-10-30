@@ -9,7 +9,7 @@ import type { Comfy } from "@comfyorg/sdk";
 import { applyBindings } from "../bindings/apply.ts";
 import { getBinding } from "../bindings/index.ts";
 import { prepareGraph } from "../bindings/prepare.ts";
-import { ComfyNotConfiguredError, SubmitAmbiguousError, SubmitRejectedError, apiOrigin, createClient, fetchOutput, getJob, loadGraph, pollJob, requestCancel, submitOnce } from "../comfy.ts";
+import { ComfyNotConfiguredError, OutputNotFoundError, SubmitAmbiguousError, SubmitRejectedError, apiOrigin, createClient, fetchOutput, getJob, loadGraph, pollJob, requestCancel, submitOnce } from "../comfy.ts";
 import { IMAGE_TYPES, MAX_IMAGE_BYTES, verifyImageBytes } from "../inputs.ts";
 import { listRunIds, loadRun, readRunFile, removeRunFiles, saveRun, writeRunFile } from "../store.ts";
 import type { CodePipelineStep, ComfyPipelineStep, GraphValue, ImageRef, JobErrorInfo, OutputRef, PipelineKind, PipelineRun, PipelineStep, StepInputRef } from "../types.ts";
@@ -526,18 +526,38 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** Extra time past the step deadline for downloading a job Comfy already finished. */
+const DOWNLOAD_GRACE_MS = 30_000;
+/** Longest single download attempt, so a hung transfer is retried. */
+const DOWNLOAD_ATTEMPT_MS = 60_000;
+
+/**
+ * A download error retrying cannot fix: the output does not exist, or the
+ * server refused the request (4xx other than 408 timeout and 429 rate limit).
+ */
+function permanentDownloadError(e: unknown): boolean {
+  if (e instanceof OutputNotFoundError) return true;
+  const status = Number(/HTTP (\d{3})/.exec(e instanceof Error ? e.message : "")?.[1]);
+  return status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 /**
  * Download one output of a job Comfy already finished (and billed), retrying
- * transient failures with backoff until the step deadline, so a blip never
- * throws away a paid result.
+ * transient failures (network, 5xx, 408, 429) with backoff until the step
+ * deadline plus a short grace, so a blip never throws away a paid result.
+ * A permanent error fails at once; a cancel stops it.
  */
 async function downloadOutput(c: Comfy, jobId: string, outputId: string, step: PipelineStep, signal?: AbortSignal): Promise<Uint8Array> {
+  const until = Date.parse(step.deadlineAt ?? now()) + DOWNLOAD_GRACE_MS;
   for (let backoff = 500; ; backoff = Math.min(backoff * 2, 10_000)) {
+    const left = until - Date.now();
+    const attempt = AbortSignal.timeout(Math.max(1, Math.min(DOWNLOAD_ATTEMPT_MS, left)));
     try {
-      return new Uint8Array(await (await fetchOutput(c, jobId, outputId)).arrayBuffer());
+      const response = await fetchOutput(c, jobId, outputId, { signal: signal ? AbortSignal.any([signal, attempt]) : attempt });
+      return new Uint8Array(await response.arrayBuffer());
     } catch (e) {
-      if (signal?.aborted || Date.parse(step.deadlineAt ?? now()) - Date.now() <= 0) throw e;
-      await pause(Math.min(backoff, remaining(step)), signal);
+      if (signal?.aborted || permanentDownloadError(e) || until - Date.now() <= 0) throw e;
+      await pause(Math.min(backoff, until - Date.now()), signal);
     }
   }
 }
@@ -630,6 +650,7 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
     try {
       bytes = await downloadOutput(c, job.id, out.id, step, runSignal(run));
     } catch (e) {
+      if (run.cancelRequested) return (finish(step, "canceled", { code: "canceled", message: `Canceled while downloading the output of finished job ${job.id}.` }), persist(run));
       // The job succeeded upstream; say so, so nobody pays for it twice blindly.
       const message = `Comfy finished job ${job.id}, but downloading its output failed: ${e instanceof Error ? e.message : String(e)}`;
       return (finish(step, "failed", { code: "output_download_failed", message }), persist(run));
@@ -650,12 +671,26 @@ async function runComfy(run: PipelineRun, step: ComfyPipelineStep): Promise<void
 const RUN_DONE = new Set(["succeeded", "partial", "failed", "canceled"]);
 
 /** Load a run; a non-terminal run not driven by this process is resumed. */
+/**
+ * Load a run for a status read. Never waits behind a held run lock (an action
+ * may hold it for a while): a non-terminal run not driven by this process is
+ * then resumed in the background, and this read returns what is current now.
+ */
 export async function getRun(id: string): Promise<PipelineRun | null> {
   void resumeRuns();
   const run = await currentRun(id);
   if (!run || RUN_DONE.has(run.status) || rt.active.has(id) || !definitionFor(run.kind)) return run;
-  return resumeOne(id);
+  // Resuming is quick when the lock is free (a read and a schedule); behind a
+  // held lock it finishes in the background and this read answers now.
+  const resumed = resumeOne(id).catch((e) => {
+    console.error(`[runs] resume of ${id} failed:`, e instanceof Error ? e.message : e);
+    return run;
+  });
+  return Promise.race([resumed, new Promise<PipelineRun>((r) => setTimeout(() => r(run), GET_RESUME_WAIT_MS))]);
 }
+
+/** How long a status read waits for a resume before answering without it. */
+const GET_RESUME_WAIT_MS = 250;
 
 /**
  * Schedule a stored, non-terminal run under the run lock, re-reading it there,
