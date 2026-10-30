@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { deadlineCanceledJob } from "../lib/comfy.ts";
 import { describeJob } from "../lib/job-status.ts";
 import type { Job } from "../lib/types.ts";
 
@@ -41,5 +42,11 @@ describe("describeJob", () => {
     const error = { code: "poll_timeout", message: "Job ran past its 15-minute budget; cancel requested." };
     assert.equal(describeJob(job({ status: "running", error })), error.message);
     assert.equal(describeJob(job({ status: "queued", queuePosition: 2, error })), error.message);
+  });
+
+  it("a job its deadline canceled says it ran past its time budget, as the server reports it", () => {
+    const canceled = job({ status: "canceled", terminal: true, error: { code: "canceled", message: "Job canceled." } });
+    assert.equal(describeJob(deadlineCanceledJob(canceled, 15 * 60_000)), "Stopped: it ran past its 15-minute time budget.");
+    assert.equal(describeJob(deadlineCanceledJob(canceled, 3000)), "Stopped: it ran past its 3-second time budget.");
   });
 });
