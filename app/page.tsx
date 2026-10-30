@@ -25,7 +25,7 @@ const TOOLS = [
     href: SURFACES.listing.href,
     n: "02",
     title: SURFACES.listing.label,
-    body: "A compliant pure-white hero image, then gallery and story panels anchored on it.",
+    body: "A compliant pure-white hero image with the marketplace checks. Gallery and story panels come next.",
     live: true,
   },
   {
@@ -85,7 +85,7 @@ export default function Home() {
             href="/photoshoot"
             className="rounded-md bg-safelight px-4 py-2 text-sm font-medium text-safelight-ink transition hover:brightness-110"
           >
-            Start a photoshoot
+            Start a product shoot
           </Link>
           <Link href={SURFACES.listing.href} className="rounded-md border border-ink/30 px-4 py-2 text-sm font-medium hover:border-ink">
             Make listing images

@@ -1,7 +1,7 @@
 /**
- * Marketplace Cards pipeline (slice E). Demo scope: the deterministic main
- * image only — `cutout` (Comfy) → `compose_main` (code: compose + A1–A7).
- * Every other asset is reported as a skipped tile for now.
+ * Listing Images pipeline (slice E, docs/spec/listing.md). Current scope: the
+ * deterministic hero image only — `cutout` (Comfy) → `compose_main` (code:
+ * compose + A1–A7). Every other asset is reported as a skipped tile for now.
  */
 import type { CodeHandler, PipelineDefinition, ValidateResult } from "../pipeline/types.ts";
 import type {
@@ -46,7 +46,7 @@ function validate(raw: unknown): ValidateResult<CardsRequest> {
     return { ok: false, error: "mainJobId reuse is not supported yet", field: "mainJobId" };
   }
   if (r.scope !== undefined && r.scope !== "hero") {
-    return { ok: false, error: "only scope \"main\" is available right now", field: "scope" };
+    return { ok: false, error: "only scope \"hero\" is available right now", field: "scope" };
   }
   const productImages = r.productImages as ImageRef[];
   const value: CardsRequest = { scope: "hero", productImages };
@@ -58,7 +58,7 @@ const composeMainHandler: CodeHandler<"listing"> = async (ctx) => {
   const source = ctx.step.inputs.cutout as StepInputRef;
   const bytes = await ctx.readBytes(source);
   const { png, cutout, placed } = await composeMain(bytes);
-  const checks = await checkMain(png, cutout);
+  const checks = await checkMain(png, cutout, placed);
   const ok = mainOk(checks);
   const failed = checks.filter((c) => !c.ok && c.level === "error").map((c) => c.id);
   // Compliance gates the run: a non-compliant main image fails this step (files and checks are kept for the UI).
@@ -121,7 +121,11 @@ export const cardsPipeline: PipelineDefinition<"listing"> = {
           }
         : null;
 
-    const mainState = composeStep?.status === "pending" && cutoutStep ? cutoutStep.status : (composeStep?.status ?? "pending");
+    // Until compose runs (pending), or when the runner skipped it because the
+    // cutout failed, the hero tile reports the cutout's state and error, so the
+    // board can say why instead of a bare "skipped".
+    const composeWaiting = composeStep?.status === "pending" || composeStep?.status === "skipped";
+    const mainState = composeWaiting && cutoutStep && cutoutStep.status !== "succeeded" ? cutoutStep.status : (composeStep?.status ?? "pending");
     const tiles: CardTile[] = CARD_ASSETS.map((asset) =>
       asset === "hero"
         ? {

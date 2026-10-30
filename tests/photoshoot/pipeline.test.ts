@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { PipelineRun, PlanContext } from "../../lib/pipeline/types.ts";
-import { photoshootPipeline } from "../../lib/photoshoot/pipeline.ts";
+import { photoshootPipeline, resolveAspect, resolveCount } from "../../lib/photoshoot/pipeline.ts";
 
 const ctx: PlanContext = { runId: "run_1", now: "2026-10-30T00:00:00.000Z", randomSeed: () => 1000 };
 
@@ -23,15 +23,45 @@ describe("photoshoot validate", () => {
     });
   });
 
-  it("rejects unknown modes, bad counts and bad refs", () => {
+  it("rejects unknown modes, non-integer counts, malformed ratios and bad refs", () => {
     const mode = photoshootPipeline.validate({ ...ok, mode: "nope" });
     assert.ok(!mode.ok && mode.field === "mode");
-    const count = photoshootPipeline.validate({ ...ok, count: 5 });
+    const count = photoshootPipeline.validate({ ...ok, count: 2.5 });
     assert.ok(!count.ok && count.field === "count");
-    const carousel = photoshootPipeline.validate({ ...ok, mode: "carousel_set", count: 2 });
-    assert.ok(!carousel.ok && carousel.field === "count");
+    const ratio = photoshootPipeline.validate({ ...ok, aspectRatio: "wide" });
+    assert.ok(!ratio.ok && ratio.field === "aspectRatio");
     const ref = photoshootPipeline.validate({ ...ok, images: [{ url: "x" }] });
     assert.ok(!ref.ok && ref.field === "images[0]");
+  });
+
+  it("clamps the count and snaps the ratio with notices (acceptance #20, #21)", async () => {
+    // #20: a "2-slide carousel" becomes 3 slides, with a notice.
+    const carousel = photoshootPipeline.validate({ ...ok, images: [{ assetId: "a" }], mode: "carousel_set", count: 2 });
+    assert.ok(carousel.ok);
+    const carouselSteps = await photoshootPipeline.plan(carousel.value, ctx);
+    assert.equal(carouselSteps.length, 1 + 3);
+    const carouselResult = await photoshootPipeline.buildResult({
+      kind: "photoshoot",
+      request: carousel.value,
+      steps: carouselSteps,
+    } as unknown as PipelineRun<"photoshoot">);
+    assert.equal(carouselResult.count, 3);
+    assert.ok(carouselResult.notices.some((n) => n.includes("Asked for 2")));
+
+    // #21: a hero banner at 21:9 snaps to 16:9, with a notice.
+    const banner = photoshootPipeline.validate({ ...ok, images: [{ assetId: "a" }], mode: "wide_banner", aspectRatio: "21:9", count: 1 });
+    assert.ok(banner.ok);
+    const bannerResult = await photoshootPipeline.buildResult({
+      kind: "photoshoot",
+      request: banner.value,
+      steps: await photoshootPipeline.plan(banner.value, ctx),
+    } as unknown as PipelineRun<"photoshoot">);
+    assert.equal(bannerResult.aspectRatio, "16:9");
+    assert.ok(bannerResult.notices.some((n) => n.includes("21:9") && n.includes("16:9")));
+
+    // An offered-elsewhere ratio snaps to the nearest one this mode offers, not the default.
+    assert.deepEqual(resolveAspect({ ...ok, mode: "packshot", aspectRatio: "5:4" } as never), { aspect: "4:3", snapped: true });
+    assert.deepEqual(resolveCount({ ...ok, mode: "packshot", count: 6 } as never), { count: 4, clamped: true });
   });
 
   it("defaults count per mode and keeps an optional identityId", () => {
@@ -81,7 +111,7 @@ describe("photoshoot plan and result", () => {
     assert.equal(result.items[0].output?.url, "/api/jobs/j1/outputs/o1");
     assert.equal(result.items[1].error?.code, "content_moderated");
     assert.ok(result.items[0].variation.preset.length > 0);
-    assert.ok(result.notices.some((n) => n.includes("Soul")));
+    assert.ok(result.notices.some((n) => n.includes("Identity ignored")));
   });
 
   it("retry replans one item with a new seed", async () => {

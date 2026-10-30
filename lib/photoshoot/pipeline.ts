@@ -1,14 +1,16 @@
 /**
- * Product Photoshoot pipeline (slice D; docs/spec/photoshoot.md §6–§8).
+ * Product Shoot pipeline (slice D; docs/spec/photoshoot.md §6–§8).
  *
- * Demo scope: product-only. One `cutout` comfy step on the hero product
+ * Current scope: product-only. One `cutout` comfy step on the hero product
  * image, then N `klein_edit_multiref` steps with the cutout as image 1, each
- * with its own enhancer prompt and seed. A Soul id is accepted and ignored.
+ * with its own enhancer prompt and seed. An identity id is accepted and
+ * ignored (with a notice). The runner skips the frames when the cutout fails;
+ * retrying a frame re-runs the failed cutout too.
  */
 import { buildPrompts } from "../enhancer/variation.ts";
 import { DEMO_MODES, KLEIN_SIZES, MODE_TEMPLATES, isDemoMode } from "../enhancer/modes.ts";
 import type { ActionHandler, PipelineDefinition, ValidateResult } from "../pipeline/types.ts";
-import type { ComfyPipelineStep, PipelineRun, PipelineStep } from "../contracts/pipeline.ts";
+import type { ComfyPipelineStep, PipelineStep } from "../contracts/pipeline.ts";
 import { TERMINAL_STEP_STATUSES } from "../contracts/pipeline.ts";
 import type { ImageRef } from "../contracts/job.ts";
 import type { AspectRatio, PhotoshootItem, PhotoshootRequest, VariationPick } from "../contracts/photoshoot.ts";
@@ -50,16 +52,17 @@ export function validatePhotoshoot(raw: unknown): ValidateResult<PhotoshootReque
   if (typeof prompt !== "string") return fail("notes must be a string", "prompt");
   if (prompt.length > MAX_NOTES) return fail(`notes must be at most ${MAX_NOTES} characters`, "prompt");
 
+  // Out-of-range counts and ratios are not errors: plan clamps the count to the
+  // mode's range and snaps the ratio to the nearest one the mode offers, and
+  // buildResult reports each change as a notice (lib/contracts/photoshoot.ts,
+  // docs/spec/photoshoot.md §3, §8). The request keeps what was asked.
   const count = r.count ?? template.count.def;
   if (typeof count !== "number" || !Number.isInteger(count)) return fail("count must be an integer", "count");
-  if (count < template.count.min || count > template.count.max) {
-    return fail(`count must be ${template.count.min}–${template.count.max} for ${template.label}`, "count");
-  }
 
   let aspectRatio: AspectRatio | undefined;
   if (r.aspectRatio !== undefined) {
-    if (!(ASPECT_RATIOS as readonly unknown[]).includes(r.aspectRatio)) {
-      return fail(`unknown aspect ratio; valid: ${ASPECT_RATIOS.join(", ")}`, "aspectRatio");
+    if (typeof r.aspectRatio !== "string" || !parseRatio(r.aspectRatio)) {
+      return fail(`aspect ratio must look like "16:9"; offered: ${ASPECT_RATIOS.join(", ")}`, "aspectRatio");
     }
     aspectRatio = r.aspectRatio as AspectRatio;
   }
@@ -81,13 +84,39 @@ export function validatePhotoshoot(raw: unknown): ValidateResult<PhotoshootReque
   return { ok: true, value };
 }
 
-function resolveAspect(request: PhotoshootRequest): { aspect: AspectRatio; snapped: boolean } {
+/** `"W:H"` with positive integers → W/H, else null. */
+function parseRatio(value: string): number | null {
+  const m = /^(\d{1,4}):(\d{1,4})$/.exec(value);
+  if (!m) return null;
+  const [w, h] = [Number(m[1]), Number(m[2])];
+  return w > 0 && h > 0 ? w / h : null;
+}
+
+/** The mode's ratio closest to the asked one (log distance), else the mode default. */
+export function resolveAspect(request: PhotoshootRequest): { aspect: AspectRatio; snapped: boolean } {
   if (!isDemoMode(request.mode)) return { aspect: "1:1", snapped: false };
   const template = MODE_TEMPLATES[request.mode];
   const asked = request.aspectRatio;
   if (!asked) return { aspect: template.defaultAspect, snapped: false };
-  if ((template.aspects as readonly AspectRatio[]).includes(asked)) return { aspect: asked, snapped: false };
-  return { aspect: template.defaultAspect, snapped: true };
+  const offered = template.aspects as readonly AspectRatio[];
+  if (offered.includes(asked)) return { aspect: asked, snapped: false };
+  const target = parseRatio(asked);
+  if (target === null) return { aspect: template.defaultAspect, snapped: true };
+  let best: AspectRatio = template.defaultAspect;
+  let bestDistance = Infinity;
+  for (const ratio of offered) {
+    const distance = Math.abs(Math.log(parseRatio(ratio)! / target));
+    if (distance < bestDistance) [best, bestDistance] = [ratio, distance];
+  }
+  return { aspect: best, snapped: true };
+}
+
+/** The asked count clamped into the mode's range. */
+export function resolveCount(request: PhotoshootRequest): { count: number; clamped: boolean } {
+  if (!isDemoMode(request.mode)) return { count: request.count, clamped: false };
+  const { min, max } = MODE_TEMPLATES[request.mode].count;
+  const count = Math.min(max, Math.max(min, request.count));
+  return { count, clamped: count !== request.count };
 }
 
 function assetIdOf(ref: ImageRef | undefined): string {
@@ -126,7 +155,8 @@ function planShots(request: PhotoshootRequest, baseSeed: number): PipelineStep[]
   if (!isDemoMode(request.mode)) throw new Error(`photoshoot: unsupported mode ${request.mode}`);
   const template = MODE_TEMPLATES[request.mode];
   const { aspect } = resolveAspect(request);
-  return buildPrompts(template, request.prompt, request.count, baseSeed).map((p) =>
+  const { count } = resolveCount(request);
+  return buildPrompts(template, request.prompt, count, baseSeed).map((p) =>
     kleinStep(p.index, p.prompt, p.seed, aspect, p.variation),
   );
 }
@@ -139,20 +169,8 @@ function storedPick(step: PipelineStep | undefined): VariationPick | null {
   return v as unknown as VariationPick;
 }
 
+/** Every shot step stores its pick at plan time (and retry keeps it); this only covers a malformed run. */
 const EMPTY_PICK: VariationPick = { preset: "", lighting: "", angle: "", palette: "" };
-
-function variations(run: Readonly<PipelineRun<"photoshoot">>, baseSeed: number): VariationPick[] {
-  const { mode, prompt, count } = run.request;
-  if (!isDemoMode(mode)) return [];
-  return buildPrompts(MODE_TEMPLATES[mode], prompt, count, baseSeed).map((p) => p.variation);
-}
-
-/** The base seed is persisted on the request at plan time (seed of shot 0). */
-function baseSeedOf(run: Readonly<PipelineRun<"photoshoot">>): number {
-  if (typeof run.request.seed === "number") return run.request.seed;
-  const first = run.steps.find((s) => s.id === shotStepId(0));
-  return typeof first?.inputs.seed === "number" ? first.inputs.seed : 0;
-}
 
 const retryItem: ActionHandler<"photoshoot"> = {
   method: "POST",
@@ -218,13 +236,14 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
   handlers: {},
   async buildResult(run) {
     const { aspect, snapped } = resolveAspect(run.request);
+    const { count, clamped } = resolveCount(run.request);
     const notices: string[] = [];
-    if (snapped) notices.push(`Aspect ${run.request.aspectRatio} isn't offered for this mode; used ${aspect}.`);
-    if (run.request.identityId) notices.push("Soul ignored: this demo shoots the product only.");
+    if (clamped) notices.push(`Asked for ${run.request.count}; this mode makes ${count}.`);
+    if (snapped) notices.push(`Aspect ${run.request.aspectRatio} isn't offered for this mode; used the nearest, ${aspect}.`);
+    if (run.request.identityId) notices.push("Identity ignored: product shoots use the product photo only for now.");
     const cutout = run.steps.find((s) => s.id === CUTOUT_STEP);
-    const picks = variations(run, baseSeedOf(run));
     const items: PhotoshootItem[] = [];
-    for (let i = 0; i < run.request.count; i++) {
+    for (let i = 0; i < count; i++) {
       const step = run.steps.find((s) => s.id === shotStepId(i));
       const output = step?.outputs?.find((o) => o.type === "image") ?? step?.outputs?.[0] ?? null;
       let error = step?.error ?? null;
@@ -233,12 +252,12 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
         index: i,
         seed: typeof step?.inputs.seed === "number" ? step.inputs.seed : 0,
         status: step?.status ?? "pending",
-        variation: storedPick(step) ?? picks[i] ?? EMPTY_PICK,
+        variation: storedPick(step) ?? EMPTY_PICK,
         output,
         error,
       });
     }
-    return { mode: run.request.mode, aspectRatio: aspect, count: run.request.count, notices, items };
+    return { mode: run.request.mode, aspectRatio: aspect, count, notices, items };
   },
   actions: { retry: retryItem },
 };

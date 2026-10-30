@@ -1,6 +1,6 @@
 /**
- * Deterministic Amazon-style main image (docs/spec/marketplace.md §4) and its
- * compliance checks A1–A7 (§5). Pure functions over bytes; sharp only.
+ * Deterministic marketplace hero image on pure white (docs/spec/listing.md §4)
+ * and its compliance checks A1–A7 (§5). Pure functions over bytes; sharp only.
  *
  * Port of spikes/cutout-upscale/marketplace_main.py.
  */
@@ -140,8 +140,14 @@ export async function composeMain(cutoutPng: Uint8Array): Promise<ComposeMainRes
 
 const round = (v: number) => Math.round(v * 10_000) / 10_000;
 
-/** Run A1–A7 on the written main image (and the cutout it was composed from). */
-export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats): Promise<MainImageCheck[]> {
+/**
+ * Run A1–A7 on the written main image (and the cutout it was composed from).
+ * A2 measures the product's alpha box as placed on the canvas (spec §5.1: the
+ * bbox comes from alpha ≥ 8), so a product with pure-white edges (a white cap,
+ * sole or label) is not mistaken for background. Without `placed`, A2 falls
+ * back to the bbox of non-white pixels in the flattened file.
+ */
+export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats, placed?: CropBox): Promise<MainImageCheck[]> {
   const sharp = await loadSharp();
   const meta = await sharp(mainPng).metadata();
   const { data, info } = await sharp(mainPng).removeAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -170,7 +176,11 @@ export async function checkMain(mainPng: Uint8Array, cutout: CutoutStats): Promi
     }
   }
   const borderWhiteness = border ? borderWhite / border : 0;
-  const fill = maxX < 0 ? 0 : Math.max(maxX - minX + 1, maxY - minY + 1) / Math.max(width, height);
+  const fill = placed
+    ? Math.max(placed.width, placed.height) / Math.max(width, height)
+    : maxX < 0
+      ? 0
+      : Math.max(maxX - minX + 1, maxY - minY + 1) / Math.max(width, height);
   const sizeOk = width === MAIN_SIZE && height === MAIN_SIZE && meta.channels === 3 && !meta.hasAlpha;
   const sourcePx = Math.max(cutout.bbox.width, cutout.bbox.height);
 

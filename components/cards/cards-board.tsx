@@ -23,6 +23,17 @@ const LABELS: Record<CardAssetId, string> = {
   story_social_proof: "Social proof",
 };
 
+/** What a failed check means for the user, in plain words (docs/spec/listing.md §5.1). */
+const CHECK_FAILURE: Record<string, string> = {
+  A1: "The border of the image is not pure white.",
+  A2: "The product does not fill 85% of the frame.",
+  A3: "The image is not a 2000×2000 RGB file.",
+  A4: "The background was not removed: the cutout has no transparency. Try a photo on a plain background.",
+  A5: "More than one object was found in the photo.",
+  A6: "The product is too small in the photo (it needs at least 425 px on its longest side). Upload a larger photo.",
+  A7: "The product is almost all white, so it may not stand out on a white background.",
+};
+
 function mainView(run: PipelineRun<"listing"> | null): { url: string | null; checks: MainImageCheck[]; ok: boolean | null } {
   if (!run) return { url: null, checks: [], ok: null };
   const result: CardsResult | null = run.result;
@@ -60,7 +71,17 @@ export function CardsBoard() {
   }
 
   const main = mainView(run);
-  const mainState = run?.result?.tiles.find((t) => t.asset === "hero")?.state ?? run?.status ?? null;
+  const heroTile = run?.result?.tiles.find((t) => t.asset === "hero");
+  const mainState = heroTile?.state ?? run?.status ?? null;
+  // Why the hero image failed, in plain words: the failing error-level checks,
+  // else the step error (e.g. the cutout failed), else the run error.
+  const failedChecks = main.checks.filter((c) => !c.ok && c.level === "error");
+  const failure =
+    mainState === "failed" || mainState === "timed_out" || main.ok === false
+      ? failedChecks.length
+        ? failedChecks.map((c) => CHECK_FAILURE[c.id] ?? c.message)
+        : [heroTile?.error?.message ?? run?.error?.message ?? "The hero image could not be made."]
+      : [];
 
   return (
     <div className="space-y-6">
@@ -142,7 +163,19 @@ export function CardsBoard() {
               ) : (
                 <p className="text-sm text-muted">A1–A7 run on the written file once the image is composed.</p>
               )}
-              {main.url ? (
+              {failure.length ? (
+                <div role="alert" className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  <ul className="list-disc space-y-1 pl-4">
+                    {failure.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                  <Button variant="ghost" onClick={reset}>
+                    Upload a different photo
+                  </Button>
+                </div>
+              ) : null}
+              {main.url && main.ok ? (
                 <a
                   href={main.url}
                   download="main.png"

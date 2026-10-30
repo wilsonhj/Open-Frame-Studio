@@ -61,6 +61,22 @@ describe("composeMain", () => {
   });
 });
 
+describe("A2 fill uses the placed alpha box", () => {
+  it("a product with pure-white outer rows still fills 85%", async () => {
+    // Opaque 400×800 product whose top 200 rows are pure #FFFFFF (a white cap).
+    const capped = await rgba(400, 800, [
+      { x: 0, y: 0, w: 400, h: 200, rgb: [255, 255, 255] },
+      { x: 0, y: 200, w: 400, h: 600, rgb: [30, 90, 160] },
+    ]);
+    const { png, cutout, placed } = await composeMain(capped);
+    const withPlaced = await checkMain(png, cutout, placed);
+    assert.equal(byId(withPlaced, "A2").ok, true, `A2 ${byId(withPlaced, "A2").value}`);
+    assert.ok(Math.abs(byId(withPlaced, "A2").value! - 0.85) <= 0.01);
+    // The pixel-only fallback is fooled by the white cap: the reason A2 uses `placed`.
+    assert.equal(byId(await checkMain(png, cutout), "A2").ok, false);
+  });
+});
+
 describe("checkMain negative controls", () => {
   it("an un-cut opaque photo fails A4 (real transparency)", async () => {
     const photo = await rgba(600, 600, [{ x: 0, y: 0, w: 600, h: 600, rgb: [180, 170, 160] }]);

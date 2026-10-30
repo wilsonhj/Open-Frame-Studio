@@ -29,7 +29,10 @@ const STATUS_COPY: Partial<Record<PipelineStepStatus, string>> = {
 export function Frame({ index, label, aspect, status, waitingNote, output, error, variation, onRetry }: FrameProps) {
   const [w, h] = aspect.split(":").map(Number);
   const live = status === "queued" || status === "running";
-  const failed = status === "failed" || status === "timed_out" || status === "canceled" || status === "expired";
+  // A skipped frame (its cutout failed) is retryable too: the retry action
+  // re-runs the failed cutout along with the frame.
+  const failed =
+    status === "failed" || status === "timed_out" || status === "canceled" || status === "expired" || status === "skipped";
   return (
     <figure className="flex flex-col gap-2" data-testid={`frame-${index}`}>
       <div

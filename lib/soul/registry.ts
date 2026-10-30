@@ -1,6 +1,6 @@
 /**
  * STUB (W2.0 skeleton). Owner: slice C (docs/OWNERS.md). The Identity registry
- * (`${DATA_DIR:-.data}/souls/<id>/`, docs/spec/api.md §2.0, docs/spec/soul.md).
+ * (`${DATA_DIR:-.data}/souls/<id>/`, docs/spec/api.md §2.0, docs/spec/identity.md).
  * Imported read-only by Photoshoot (D) and Motion (F): keep these exports and
  * signatures; implement the bodies. Server-only (filesystem + Comfy uploads).
  */
@@ -33,7 +33,7 @@ export async function getSoul(id: string): Promise<Identity | null> {
 }
 
 /**
- * The Soul's best `n` refs (best first, `1 <= n <= SOUL_MAX_REFS`, fewer if the
+ * The identity's best `n` refs (best first, `1 <= n <= SOUL_MAX_REFS`, fewer if the
  * Identity has fewer), each with a live `assetId` (`ensureAssets` applied).
  * Throws SoulNotFoundError for an unknown id.
  */

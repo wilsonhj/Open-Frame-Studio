@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { SURFACES } from "../../lib/brand";
 import { runStorageKey } from "../../lib/client/use-run";
 import type { PipelineKind } from "../../lib/types";
 
@@ -29,7 +30,9 @@ export default function RunsPage() {
     <div className="space-y-6">
       <h1 className="text-[28px] leading-[34px]">Recent runs</h1>
       {runs.length === 0 ? (
-        <p className="text-ink-2">No runs in this tab yet. Start one from Photoshoot or Cards.</p>
+        <p className="text-ink-2">
+          No runs in this tab yet. Start one from {SURFACES.photoshoot.label} or {SURFACES.listing.label}.
+        </p>
       ) : (
         <ul className="divide-y divide-line rounded-lg border border-line bg-surface">
           {runs.map((run) => (

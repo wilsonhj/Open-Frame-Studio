@@ -21,7 +21,7 @@ export type SoulLibraryProps = {
 export function SoulLibrary({ variant = "picker", className = "" }: SoulLibraryProps) {
   return (
     <div data-testid="soul-library" data-variant={variant} className={`text-sm text-muted ${className}`}>
-      No Souls yet.
+      No identities yet.
     </div>
   );
 }
