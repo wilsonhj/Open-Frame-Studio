@@ -230,7 +230,8 @@ test.describe("Cards board", () => {
 
   test("reopening a run with ?run= shows the scope it was made with", async ({ page, context }) => {
     await startRun(page, "Story · 8");
-    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("oss:run:listing"))).not.toBeNull();
+    // Let the run finish: a run still submitting jobs would leak them into the next spec's mock log.
+    await expectAllPanelsDone(page, 8);
     const runId = await page.evaluate(() => sessionStorage.getItem("oss:run:listing"));
 
     // A new tab has no remembered run or scope pick: only the deep link says which run this is.
