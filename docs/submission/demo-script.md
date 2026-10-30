@@ -38,7 +38,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 ## 2:40 – 3:40 · Listing Images, the hero image
 
 - Click **Listing Images** and upload `product-bottle-transparent.png`.
-- Click **Generate main image**. The product is cut out, placed at 85% fill on a pure #FFFFFF 2000×2000 canvas, and checked against A1–A7 (white border, fill, canvas size, real transparency, one product, source size, visible on white).
+- Click **Generate main image**. The product is cut out, placed at 85% fill on a pure #FFFFFF 2000×2000 canvas, and checked against A1–A7 and C3 (white border, fill, canvas size, real transparency, one product, source size, visible on white, centred and not cropped).
 - Show the checks and the **compliant** pill, then **Download**. The download link only appears for a compliant image.
 - Optional: upload a busy-background photo instead. The run fails with a plain-words reason ("The background was not removed…") and an **Upload a different photo** button: the gate in action.
 - The gallery and story panels are shown as *coming next*. Say so; don't click them.
