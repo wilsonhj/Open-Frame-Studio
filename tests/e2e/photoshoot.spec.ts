@@ -166,18 +166,25 @@ test.describe("Photoshoot dock", () => {
       const frame = page.getByTestId(`frame-${i}`);
       // Outputs are re-hosted by the run (never a Comfy URL), one image file per shot step.
       await expect(frame.locator("img")).toHaveAttribute("src", new RegExp(`^/api/pipelines/photoshoot/[^/]+/files/shot-${i}/\\d+\\.png$`));
-      const caption = await frame.locator("figcaption [title]").first().getAttribute("title");
-      picks.push(caption!.split(" · "));
+      const titles = await frame.locator("figcaption span[title]").evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute("title") ?? ""),
+      );
+      const caption = titles.find((title) => title.split(" · ").length === 4);
+      if (!caption) throw new Error(`frame ${i} has no 4-part variation title`);
+      picks.push(caption.split(" · "));
     }
 
-    // One cutout + 4 Klein jobs; each Klein prompt carries its own frame's variation...
+    // One cutout + 4 Klein jobs. Shots are posted in parallel, so pair each
+    // frame's variation to the prompt that contains it, not by submit order.
     expect((await mockRequests()).jobPosts).toHaveLength(5);
     const prompts = await shotPrompts();
     expect(prompts).toHaveLength(4);
-    picks.forEach((pick, i) => {
+    const matched = picks.map((pick) => {
       expect(pick).toHaveLength(4); // preset · lighting · angle · palette
-      for (const value of pick) expect(prompts[i].toLowerCase()).toContain(value.toLowerCase());
+      return prompts.findIndex((prompt) => pick.every((value) => prompt.toLowerCase().includes(value.toLowerCase())));
     });
+    expect(matched.every((index) => index >= 0)).toBe(true);
+    expect(new Set(matched).size).toBe(4);
     // ...and the four differ on every axis (photoshoot.md §6).
     for (let axis = 0; axis < 4; axis++) {
       expect(new Set(picks.map((pick) => pick[axis])).size).toBe(4);
