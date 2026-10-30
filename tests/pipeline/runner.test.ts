@@ -146,4 +146,49 @@ describe("pipeline runner", () => {
     assert.deepEqual(await runner.createRun("identity", { photo, planError: "field" }), { ok: false, status: 400, error: "bad mode", field: "mode" });
     assert.deepEqual(await runner.createRun("identity", { photo, planError: "other" }), { ok: false, status: 500, error: "boom" });
   });
+
+  it("a shot still skipped after a retry fixed its failed cutout keeps the run from succeeded", async () => {
+    const scenario = (body: object) => fetch(`${mock.url}/__mock/scenario`, { method: "POST", body: JSON.stringify(body) });
+    await scenario({ scenario: "failed" });
+    const uploads = new Map([["product", { bytes: new Uint8Array(PNG_1X1), filename: "p.png", contentType: "image/png" }]]);
+    const created = await runner.createRun("photoshoot", { mode: "packshot", images: [{ upload: "product" }], count: 2 }, uploads);
+    assert.ok(created.ok);
+    const id = created.run.id;
+    await runner.whenIdle(id);
+    assert.equal((await store.loadRun(id))!.status, "failed");
+
+    // Retrying frame 0 re-runs the cutout and that frame; frame 1 stays skipped.
+    await scenario({ scenario: "succeeded" });
+    const retried = await runner.runAction("photoshoot", id, "POST", ["items", "0", "retry"], null);
+    assert.equal(retried.type, "run");
+    await runner.whenIdle(id);
+    const run = (await store.loadRun(id))!;
+    assert.deepEqual(run.steps.map((s) => s.status), ["succeeded", "succeeded", "skipped"]);
+    assert.equal(run.status, "partial");
+    await fetch(`${mock.url}/__mock/reset`, { method: "POST" });
+  });
+
+  it("a code step that skips on purpose does not keep the run from succeeded", async () => {
+    runner.registerDefinition({
+      ...fake,
+      async plan(request: unknown) {
+        const { photo } = request as { photo: { assetId: string } };
+        return [
+          { id: "resize", kind: "comfy", workflow: "image_resize_smoke", dependsOn: [], inputs: { image: photo.assetId, scale: 0.5 }, timeoutMs: 20_000, status: "pending" },
+          { id: "optional", kind: "code", workflow: "optional", dependsOn: [], inputs: {}, timeoutMs: 10_000, status: "pending" },
+        ];
+      },
+      handlers: { optional: async () => ({ status: "skipped" }) },
+      async buildResult() {
+        return {} as never;
+      },
+    } as unknown as AnyPipelineDefinition);
+    const uploads = new Map([["p", { bytes: new Uint8Array(PNG_1X1), filename: "p.png", contentType: "image/png" }]]);
+    const created = await runner.createRun("identity", { photo: { upload: "p" } }, uploads);
+    assert.ok(created.ok);
+    await runner.whenIdle(created.run.id);
+    const run = (await store.loadRun(created.run.id))!;
+    assert.deepEqual(run.steps.map((s) => s.status), ["succeeded", "skipped"]);
+    assert.equal(run.status, "succeeded");
+  });
 });

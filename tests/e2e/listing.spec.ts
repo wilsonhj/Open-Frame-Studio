@@ -207,6 +207,26 @@ test.describe("Cards board", () => {
     await expect(page.locator('[data-asset="hero"] [data-status]').first()).toHaveAttribute("data-status", "canceled", { timeout: 20_000 });
     await expect(failed).toHaveCount(0);
   });
+
+  test("a canceled run keeps its finished tiles exportable", async ({ page }) => {
+    test.setTimeout(120_000);
+    await startRun(page, "Story · 8");
+    await expectAllPanelsDone(page, 8);
+    // Regenerate one tile with a job that stays queued, then cancel the run while it waits.
+    await setMockScenario({ scenario: "queued_20s", queuedMs: 60_000 });
+    const banner = page.locator('[data-asset="story_banner"]');
+    await banner.getByRole("button", { name: "Regenerate Story banner" }).click();
+    await expect(banner.locator("[data-status]").first()).toHaveAttribute("data-status", /queued|running/);
+    const runId = await page.evaluate(() => sessionStorage.getItem("oss:run:listing"));
+    expect((await page.request.post(`/api/pipelines/listing/${runId}/cancel`)).status()).toBe(200);
+
+    await expect(banner.locator("[data-status]").first()).toHaveAttribute("data-status", "canceled", { timeout: 20_000 });
+    await expect(banner).toContainText("Canceled");
+    await expect(banner).not.toContainText("Working…");
+    // The seven other tiles are done: they can still be downloaded, and the canceled one made again.
+    await expect(page.getByRole("link", { name: "Download ZIP" })).toBeVisible();
+    await expect(banner.getByRole("button", { name: "Regenerate Story banner" })).toBeVisible();
+  });
 });
 
 /** Panel copy short enough to fit every card, so no tile ends in needs_input or text_too_long. */
