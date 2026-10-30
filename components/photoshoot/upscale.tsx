@@ -3,7 +3,8 @@
  * Per-frame "Upscale 2×": one SeedVR2 job through POST /api/jobs, polled
  * until terminal (lib/client/upscale.ts). The result is handed to the frame
  * (`onResult`) so it can show the sharper image; this strip shows status,
- * the output size and a download link.
+ * the output size and a download link. The job is kept in sessionStorage per
+ * frame output, so a reload resumes it instead of offering a second billed job.
  */
 import { useEffect, useState } from "react";
 
@@ -17,6 +18,26 @@ const MAX_POLL_FAILURES = 30;
 
 type Size = { width: number; height: number };
 
+const storageKey = (outputId: string) => `oss:upscale:${outputId}`;
+
+function storedJob(outputId: string): Job | null {
+  try {
+    const job = JSON.parse(window.sessionStorage.getItem(storageKey(outputId)) ?? "null") as Job | null;
+    return job && typeof job.id === "string" ? job : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeJob(outputId: string, job: Job | null) {
+  try {
+    if (job) window.sessionStorage.setItem(storageKey(outputId), JSON.stringify(job));
+    else window.sessionStorage.removeItem(storageKey(outputId));
+  } catch {
+    // Storage unavailable (private mode): resume-on-reload is best effort.
+  }
+}
+
 export function Upscale({ output, onResult }: { output: OutputRef; onResult(result: OutputRef | null): void }) {
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,6 +46,17 @@ export function Upscale({ output, onResult }: { output: OutputRef; onResult(resu
   const [size, setSize] = useState<Size | null>(null);
 
   const result = job?.status === "succeeded" ? (job.outputs.find((o) => o.type === "image") ?? null) : null;
+
+  // Resume this tab's upscale of the frame (a reload drops component state).
+  useEffect(() => {
+    const stored = storedJob(output.id);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- adopt a stored job from browser storage after hydration
+    if (stored) setJob(stored);
+  }, [output.id]);
+
+  useEffect(() => {
+    if (job) storeJob(output.id, job);
+  }, [job, output.id]);
 
   useEffect(() => {
     if (!job || job.terminal || failures >= MAX_POLL_FAILURES) return;
@@ -39,6 +71,7 @@ export function Upscale({ output, onResult }: { output: OutputRef; onResult(resu
         } else if (next.permanent) {
           setError(next.error);
           setJob(null);
+          storeJob(output.id, null);
         } else {
           setFailures((n) => n + 1);
         }
@@ -50,7 +83,7 @@ export function Upscale({ output, onResult }: { output: OutputRef; onResult(resu
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [job, failures]);
+  }, [job, failures, output.id]);
 
   useEffect(() => {
     onResult(result);

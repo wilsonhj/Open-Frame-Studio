@@ -64,14 +64,24 @@ describe("parseInputs", () => {
     const h3 = BINDINGS.h3_r2v;
     const values = await parseInputs(
       h3,
-      form({ seed: "42", duration: "5.5", turbo: "off", prompt: "  hello  ", image_1: png() }),
+      form({ seed: "42", duration: "5.5", turbo: "off", prompt: "  hello  ", image_1: png(), image_2: png() }),
       toAsset,
     );
-    assert.deepEqual(values, { image_1: ASSET, prompt: "hello", seed: 42, duration: 5.5, turbo: false });
-    await assert.rejects(parseInputs(h3, form({ seed: "1.5", image_1: png() }), toAsset), /whole number/);
-    await assert.rejects(parseInputs(h3, form({ turbo: "maybe", image_1: png() }), toAsset), /true or false/);
-    await assert.rejects(parseInputs(h3, form({ prompt: png(), image_1: png() }), toAsset), /text field/);
+    assert.deepEqual(values, { image_1: ASSET, image_2: ASSET, prompt: "hello", seed: 42, duration: 5.5, turbo: false });
+    await assert.rejects(parseInputs(h3, form({ seed: "1.5", image_1: png(), image_2: png() }), toAsset), /whole number/);
+    await assert.rejects(parseInputs(h3, form({ turbo: "maybe", image_1: png(), image_2: png() }), toAsset), /true or false/);
+    await assert.rejects(parseInputs(h3, form({ prompt: png(), image_1: png(), image_2: png() }), toAsset), /text field/);
     await assert.rejects(parseInputs(h3, form({ seed: "1" }), toAsset), /Upload an image for "image_1"/);
+  });
+
+  it("requires both h3_r2v references: an unset LoadImage keeps its placeholder file, which Comfy rejects", async () => {
+    let assets = 0;
+    const counting = () => {
+      assets += 1;
+      return ASSET;
+    };
+    await assert.rejects(parseInputs(BINDINGS.h3_r2v, form({ image_1: png(), prompt: "hi" }), counting), /Upload an image for "image_2"/);
+    assert.equal(assets, 0, "refused before the person photo is uploaded");
   });
 
   it("produces values that apply to the bound node fields", async () => {
