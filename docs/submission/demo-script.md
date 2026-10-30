@@ -1,6 +1,6 @@
 # Live demo script (5 minutes)
 
-**Be upfront from the first minute.** By default this demo runs against a **local mock of the Comfy Cloud API**. The app, the pipelines, the run store, polling, downloads and the compliance checks are all real. Only the models are replaced: the mock returns your uploaded product on a studio backdrop where FLUX.2 Klein would return a generated shot, and passes the upload through where BiRefNet would cut it out. The same flows have also run on real Comfy Cloud (see "Running on Comfy Cloud" below).
+**Be upfront from the first minute.** By default this demo runs against a **local mock of the Comfy Cloud API**. The app, the pipelines, the run store, polling, downloads and the compliance checks are all real. Only the models are replaced: the mock returns your uploaded product on a studio backdrop where FLUX.2 Klein would return a generated shot, and passes the upload through where BiRefNet would cut it out. None of these flows has run on real Comfy Cloud yet (see "Running on Comfy Cloud" below).
 
 ## Before you go on (2 minutes, off stage)
 
@@ -52,8 +52,9 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 
 ## 4:20 – 5:00 · Running on Comfy Cloud
 
-- Nothing in the app changes. Stop `pnpm demo`, set `COMFY_API_KEY` to a Comfy Cloud key with credits, leave `COMFY_BASE_URL` unset and run `pnpm dev`. Behind an HTTPS proxy, also set `NODE_USE_ENV_PROXY=1` (Node's `fetch` ignores `HTTPS_PROXY` otherwise).
-- The same pipelines then submit the real API-format graphs in `workflows/*.api.json`: BiRefNet cutout and FLUX.2 Klein edit for these two tools.
+- Say it plainly: this part is unverified. No workflow has run on Comfy Cloud yet; the key used so far is on a free tier, which refuses job submission (403).
+- Nothing in the app changes. With a Cloud key the same pipelines submit the real API-format graphs in `workflows/*.api.json`: BiRefNet cutout and FLUX.2 Klein edit for these two tools.
+- Don't switch to Cloud on stage. The first Cloud run follows L4 in `docs/eval/testing-strategy.md`: a spend-capped test key used only for that run, the production build with `HANDLE_SECRET` and a `STUDIO_ACCESS_CODE` of at least 12 characters set, and the graphs in its order. Behind an HTTPS proxy, also set `NODE_USE_ENV_PROXY=1` (Node's `fetch` ignores `HTTPS_PROXY` otherwise).
 - The mock speaks the same `/api/v2` surface the `@comfyorg/sdk` uses (asset upload, job submit, job poll, output download), which is why the demo exercises the real client code end to end.
 
 ## If something goes wrong on stage

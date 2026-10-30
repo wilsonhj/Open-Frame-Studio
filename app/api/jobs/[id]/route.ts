@@ -7,6 +7,7 @@ import {
   enforceDeadline,
   forgetJob,
   jobBudgetMs,
+  readRecord,
   sweepJobs,
 } from "../../../../lib/job-deadlines.ts";
 import type { Job } from "../../../../lib/types.ts";
@@ -34,12 +35,19 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     void sweepJobs(); // opportunistic: also covers hosts where the interval can't run
     const options = { publicId: id, outputNodes: Object.values(binding.outputs) };
     let job = await getJob(client, handle.jobId, undefined, options);
-    await clearMissing(handle.jobId);
     if (job.terminal) {
+      // Also ends any run of 404s.
       await forgetJob(handle.jobId).catch(() => undefined);
     } else {
-      const budget = jobBudgetMs();
-      const outcome = await enforceDeadline(client, handle.jobId, handle.submittedAt + budget);
+      // The deadline saved at submit wins, so a later JOB_DEADLINE_MS change
+      // doesn't move it; the handle's submit time is the fallback when no
+      // record could be saved. One read, shared by the calls below.
+      const record = await readRecord(handle.jobId);
+      await clearMissing(handle.jobId, record);
+      const saved = Number.isFinite(record?.deadlineAt) && Number.isFinite(record?.submittedAt) ? record : null;
+      const budget = saved ? saved.deadlineAt - saved.submittedAt : jobBudgetMs();
+      const deadlineAt = saved ? saved.deadlineAt : handle.submittedAt + budget;
+      const outcome = await enforceDeadline(client, handle.jobId, deadlineAt, Date.now(), record);
       if (outcome === "canceled") job = await getJob(client, handle.jobId, undefined, options);
       else if (outcome !== null) job = overdueJob(job, outcome, budget);
     }

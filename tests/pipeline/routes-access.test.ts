@@ -41,6 +41,20 @@ before(async () => {
     buildResult: async () => null,
     actions: { retry: { method: "POST", path: "retry", run: async () => ({ type: "error", status: 409, error: "busy" }) } },
   } as unknown as AnyPipelineDefinition);
+  // A kind whose plan holds `jobs` Comfy steps (never submitted here: every
+  // test refuses them at the charge) and whose `more` action adds two.
+  const comfy = (id: string) => ({ id, kind: "comfy", workflow: "cutout", dependsOn: [], inputs: {}, timeoutMs: 5_000, status: "pending" });
+  const note = { id: "note", kind: "code", workflow: "note", dependsOn: [], inputs: {}, timeoutMs: 5_000, status: "pending" };
+  runner.registerDefinition({
+    kind: "photoshoot",
+    validate: (raw: unknown) => ({ ok: true, value: raw }),
+    plan: async (r: { jobs?: number }) => [note, ...Array.from({ length: r.jobs ?? 0 }, (_, k) => comfy(`job_${k}`))],
+    handlers: { note: async () => ({}) },
+    buildResult: async () => null,
+    actions: {
+      more: { method: "POST", path: "more", run: async (ctx: { run: { steps: unknown[] } }) => ({ type: "replan", steps: [...ctx.run.steps, comfy("extra_1"), comfy("extra_2")] }) },
+    },
+  } as unknown as AnyPipelineDefinition);
 });
 
 after(async () => {
@@ -113,6 +127,46 @@ describe("pipeline routes: access policy", () => {
     } finally {
       delete env.SUBMITS_PER_HOUR;
     }
+  });
+
+  it("a run takes one submit slot per planned Comfy job, and a refused run takes none", async () => {
+    env.SUBMITS_PER_HOUR = "4";
+    try {
+      const big = await create.POST(post("http://localhost/api/pipelines/photoshoot", { jobs: 5 }), kindParams("photoshoot"));
+      assert.equal(big.status, 429);
+      assert.equal((await big.json()).code, "rate_limited");
+      assert.ok(big.headers.get("retry-after"));
+      // The refused run gave every slot back: four one-slot runs still fit.
+      for (let i = 0; i < 4; i++) {
+        const ok = await create.POST(post("http://localhost/api/pipelines/motion", { ok: true }), kindParams("motion"));
+        assert.equal(ok.status, 202, `run ${i + 1}`);
+        await runner.whenIdle((await ok.json()).id);
+      }
+      const full = await create.POST(post("http://localhost/api/pipelines/motion", { ok: true }), kindParams("motion"));
+      assert.equal(full.status, 429);
+    } finally {
+      delete env.SUBMITS_PER_HOUR;
+    }
+  });
+
+  it("charges createRun and replans for the Comfy jobs they would submit", async () => {
+    const charged: number[] = [];
+    const refuse = (jobs: number) => {
+      charged.push(jobs);
+      throw new access.AccessError(429, "rate_limited", "Too many jobs", 60);
+    };
+    const created = await runner.createRun("photoshoot", { jobs: 3 }, new Map(), refuse);
+    assert.deepEqual(created, { ok: false, status: 429, error: "Too many jobs", code: "rate_limited", retryAfterSeconds: 60 });
+    // A code-only run is charged nothing extra and runs.
+    const free = await runner.createRun("photoshoot", { jobs: 0 }, new Map(), (jobs) => (charged.push(jobs), () => {}));
+    assert.ok(free.ok);
+    await runner.whenIdle(free.run.id);
+    const more = await runner.runAction("photoshoot", free.run.id, "POST", ["more"], null, refuse);
+    assert.equal(more.type, "error");
+    assert.equal(more.type === "error" && more.status, 429);
+    assert.deepEqual(charged, [3, 0, 2]);
+    // Refused before the merge: the run is unchanged.
+    assert.deepEqual((await runner.getRun(free.run.id))?.steps.map((st) => st.id), ["note"]);
   });
 
   it("rejects mislabelled and oversized uploads before any asset is created", async () => {

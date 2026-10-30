@@ -5,6 +5,8 @@ import {
   AccessError,
   assertMaySubmit,
   clientIp,
+  limitKey,
+  trackerScanCount,
   trustedProxyHops,
   createJobHandle,
   readJobHandle,
@@ -59,6 +61,20 @@ describe("job handles", () => {
     delete env.HANDLE_SECRET;
     env.STUDIO_ACCESS_CODE = "code";
     expectAccess(() => assertMaySubmit(request(), "code"), 503, "not_configured");
+  });
+});
+
+describe("limitKey", () => {
+  it("groups IPv6 by /64, maps IPv4-mapped addresses to IPv4, keeps IPv4 as is", () => {
+    assert.equal(limitKey(null), null);
+    assert.equal(limitKey("198.51.100.7"), "198.51.100.7");
+    assert.equal(limitKey("::ffff:198.51.100.7"), "198.51.100.7");
+    assert.equal(limitKey("2001:db8:1:2::1"), "2001:db8:1:2::/64");
+    assert.equal(limitKey("2001:0DB8:0001:0002:ffff:ffff:ffff:ffff"), "2001:db8:1:2::/64");
+    assert.equal(limitKey("[2001:db8:1:2::9]"), "2001:db8:1:2::/64");
+    assert.equal(limitKey("fe80::1%eth0"), "fe80:0:0:0::/64");
+    assert.equal(limitKey("::1"), "0:0:0:0::/64");
+    assert.equal(limitKey("not:an:ip:::"), "not:an:ip:::", "unparseable: used as given");
   });
 });
 
@@ -177,6 +193,30 @@ describe("failed access codes", () => {
     }
     expectAccess(() => assertMaySubmit(from("1.2.3.4"), "guess"), 429, "too_many_attempts");
     expectAccess(() => assertMaySubmit(from("1.2.3.4"), "open-sesame"), 429, "too_many_attempts");
+  });
+
+  it("rotating IPv6 addresses inside one /64 shares one failure budget", () => {
+    for (let i = 1; i <= 10; i += 1) {
+      expectAccess(() => assertMaySubmit(from(`2001:db8:1:2::${i.toString(16)}`), "wrong"), 401, "access_code_required");
+    }
+    expectAccess(() => assertMaySubmit(from("2001:db8:1:2:ffff:ffff:ffff:ffff"), "guess"), 429, "too_many_attempts");
+    expectAccess(() => assertMaySubmit(from("[2001:0db8:0001:0002::abcd]"), "open-sesame"), 429, "too_many_attempts");
+    expectAccess(() => assertMaySubmit(from("2001:db8:1:3::1"), "wrong"), 401, "access_code_required"); // another /64
+  });
+
+  it("a full tracker of locked-out addresses is scanned once, then frees up when the earliest window ends", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+    // 10,000 distinct addresses, each locked out: the tracker is full and nothing can be evicted.
+    for (let i = 0; i < 10_000; i += 1) {
+      const ip = `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`;
+      for (let k = 0; k < 10; k += 1) expectAccess(() => assertMaySubmit(from(ip), "wrong"), 401, "access_code_required");
+    }
+    for (let i = 0; i < 50; i += 1) expectAccess(() => assertMaySubmit(from(`172.16.0.${i}`), "wrong"), 401, "access_code_required");
+    assert.equal(trackerScanCount(), 1, "not rescanned while every entry is still locked");
+
+    t.mock.timers.tick(15 * 60_000); // the locked-out windows end
+    for (let k = 0; k < 10; k += 1) expectAccess(() => assertMaySubmit(from("172.16.1.1"), "wrong"), 401, "access_code_required");
+    expectAccess(() => assertMaySubmit(from("172.16.1.1"), "wrong"), 429, "too_many_attempts");
   });
 
   it("other people's wrong codes never lock out the right code (no global lockout)", () => {

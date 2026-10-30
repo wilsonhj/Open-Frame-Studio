@@ -1,5 +1,5 @@
 /**
- * Listing Images: scopes main | product-images (main+5) | aplus (main+7) | full-set (13).
+ * Listing Images: scopes hero (1) | gallery (hero+5) | story (hero+7) | complete (13).
  * Main image: pure white background, product ~85% of frame, no text. Gallery / story are anchored
  * on the main image. Spec: docs/spec/listing.md.
  */
@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
 import { resetMock, setMockScenario } from "../mock-comfy/control.ts";
 
 const PRODUCT = join(process.cwd(), "fixtures/products/product-mug-tiles.png");
-const SCOPE_COUNTS = { main: 1, "gallery": 6, aplus: 8, "complete": 13 } as const;
+const SCOPE_COUNTS = { "Hero only": 1, "Gallery · 6": 6, "Story · 8": 8, "Complete set · 13": 13 } as const;
 
 test.beforeEach(async () => {
   await resetMock();
@@ -22,11 +22,20 @@ test("Listing Images page renders", async ({ page }) => {
 });
 
 test.describe("Cards board", () => {
-  test.fixme("scope picker sets the tile count", async ({ page }) => {
-    // TODO(wave2 frontend: Cards board): for each scope in SCOPE_COUNTS the grid shows that many
-    // placeholder tiles with asset names (hero, infographic, gallery_angles, ..., aplus_*).
+  test("scope picker sets the tile count and asks for panel copy", async ({ page }) => {
     await page.goto("/listing");
-    void SCOPE_COUNTS;
+    for (const [label, count] of Object.entries(SCOPE_COUNTS)) {
+      await page.getByRole("button", { name: label }).click();
+      await expect(page.getByRole("button", { name: label })).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator("[data-asset]")).toHaveCount(count);
+      // The hero never carries text; every other scope shows the copy form.
+      await expect(page.getByTestId("listing-copy")).toHaveCount(count === 1 ? 0 : 1);
+    }
+    await page.getByRole("button", { name: "Gallery · 6" }).click();
+    for (const asset of ["hero", "gallery_callouts", "gallery_angles", "gallery_detail", "gallery_in_use", "gallery_contents"]) {
+      await expect(page.locator(`[data-asset="${asset}"]`)).toBeVisible();
+    }
+    await expect(page.getByRole("button", { name: /Generate 6 images/ })).toBeVisible();
   });
 
   test.fixme("main image: cutout -> white composite passes compliance", async ({ page }) => {

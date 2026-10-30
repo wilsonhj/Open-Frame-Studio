@@ -19,6 +19,7 @@
     "mock-comfy": "node --experimental-strip-types tests/mock-comfy/server.ts",
     "check:owners": "node scripts/check-owners.mjs auto",
     "check:models": "node scripts/check-models.mjs",
+    "check:graphs": "node scripts/check-object-info.mjs",
     "demo": "node scripts/demo.mjs",
     "mock": "DEMO_NO_NEXT=1 node scripts/demo.mjs"
   },
