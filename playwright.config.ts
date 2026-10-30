@@ -1,4 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium, defineConfig, devices } from "@playwright/test";
 
 /**
@@ -12,6 +14,8 @@ const APP_PORT = Number(process.env.E2E_APP_PORT ?? 3210);
 const MOCK_PORT = Number(process.env.E2E_MOCK_PORT ?? 8190);
 export const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 const APP_URL = `http://127.0.0.1:${APP_PORT}`;
+// A throwaway run store per E2E session, so tests never touch .data/ (override with E2E_DATA_DIR).
+const DATA_DIR = process.env.E2E_DATA_DIR ?? mkdtempSync(join(tmpdir(), "oss-e2e-data-"));
 
 // Prefer Playwright's own browser lookup (PLAYWRIGHT_BROWSERS_PATH). If that build is missing,
 // fall back to a pre-installed Chromium. Never run `playwright install` in this environment.
@@ -70,6 +74,7 @@ export default defineConfig({
         COMFY_BASE_URL: MOCK_URL,
         COMFY_API_KEY: "mock-key-not-a-secret",
         NEXT_TELEMETRY_DISABLED: "1",
+        DATA_DIR,
       },
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,

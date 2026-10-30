@@ -48,7 +48,9 @@ export function isTerminalRun(run: Pick<PipelineRun, "status"> | null | undefine
   return !!run && TERMINAL_RUN_STATUSES.includes(run.status);
 }
 
-const DEFAULT_INTERVAL_MS = 1500;
+const POLL_START_MS = 1000;
+const POLL_MAX_MS = 5000;
+const POLL_BACKOFF = 1.5;
 
 export function runStorageKey(kind: PipelineKind): string {
   return `oss:run:${kind}`;
@@ -83,7 +85,7 @@ async function errorMessage(response: Response): Promise<string> {
 }
 
 export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions = {}): UseRunResult<K> {
-  const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
+  const intervalMs = options.intervalMs;
   const [runId, setRunId] = useState<string | null>(options.runId ?? null);
   const [run, setRun] = useState<PipelineRun<K> | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions =
     const gen = generation.current;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
+    let delay = intervalMs ?? POLL_START_MS;
 
     const tick = async () => {
       try {
@@ -141,7 +144,9 @@ export function useRun<K extends PipelineKind>(kind: K, options: UseRunOptions =
         if (stopped) return;
         setError(err instanceof Error ? err.message : String(err));
       }
-      if (!stopped) timer = setTimeout(tick, intervalMs);
+      if (stopped) return;
+      timer = setTimeout(tick, delay);
+      if (intervalMs === undefined) delay = Math.min(POLL_MAX_MS, Math.round(delay * POLL_BACKOFF));
     };
 
     void tick();

@@ -27,7 +27,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 - Click **Photoshoot**. Upload the product photo.
 - Pick the **product shot** mode and a count of 4. Leave the Soul empty: this run is product only.
 - Click the primary (orange) button. One click is one run. The client never resubmits on its own.
-- While it runs, narrate the states each frame passes through: *queued → running → succeeded*. Every wait shows a state. The browser polls `GET /api/pipelines/photoshoot/{runId}` every 1.5 s.
+- While it runs, narrate the states each frame passes through: *queued → running → succeeded*. Every wait shows a state. The browser polls `GET /api/pipelines/photoshoot/{runId}`, starting at 1 s and backing off to 5 s.
 - **Reload the page mid-run.** The run resumes, because the run id lives in sessionStorage and the run itself is a durable JSON document on the server.
 - What a frame contains: the product, cut out and placed on a varied backdrop. On Cloud, lighting, angle and palette change per frame. Here the mock varies the backdrop palette per frame.
 
