@@ -227,6 +227,21 @@ test.describe("Cards board", () => {
     await expect(page.getByRole("link", { name: "Download ZIP" })).toBeVisible();
     await expect(banner.getByRole("button", { name: "Regenerate Story banner" })).toBeVisible();
   });
+
+  test("reopening a run with ?run= shows the scope it was made with", async ({ page, context }) => {
+    await startRun(page, "Story · 8");
+    await expect.poll(() => page.evaluate(() => sessionStorage.getItem("oss:run:listing"))).not.toBeNull();
+    const runId = await page.evaluate(() => sessionStorage.getItem("oss:run:listing"));
+
+    // A new tab has no remembered run or scope pick: only the deep link says which run this is.
+    const reopened = await context.newPage();
+    await reopened.goto(`/listing?run=${runId}`);
+    await expect(reopened.locator("[data-asset]")).toHaveCount(8);
+    await expect(reopened.getByRole("button", { name: "Story · 8" })).toHaveAttribute("aria-pressed", "true");
+    await expect(reopened.getByRole("button", { name: "Hero only" })).toHaveAttribute("aria-pressed", "false");
+    await expect(reopened.getByRole("button", { name: "Generate 8 images" })).toBeVisible();
+    await expect(reopened.getByRole("button", { name: "Generate main image" })).toHaveCount(0);
+  });
 });
 
 /** Panel copy short enough to fit every card, so no tile ends in needs_input or text_too_long. */
