@@ -1,0 +1,58 @@
+{
+  "workflow": "h3_r2v",
+  "backend": "https://cloud.comfy.org",
+  "values": {
+    "prompt": "A slow push-in on <Picture 1>, the red bottle, standing beside <Picture 2>, the blue mug, on a kitchen counter in morning light.",
+    "seed": 42,
+    "duration": 5,
+    "turbo": true,
+    "steps_turbo": 4,
+    "aspect_ratio": "9:16 (Portrait Widescreen)",
+    "megapixels": 0.4
+  },
+  "inputs": {
+    "image_1": {
+      "fixture": "fixtures/products/product-bottle-confetti.png",
+      "sha256": "cfbfe61b4e61c6a898861f1df2d0a7346d4fc3e30af9ec505cbb85868abfac9b",
+      "bytes": 58852
+    },
+    "image_2": {
+      "fixture": "fixtures/products/product-mug-tiles.png",
+      "sha256": "bcbf7fd7d2f47506b9dd34d15f8684434099e97015f9fa15bc2dfcc6c450b928",
+      "bytes": 139925
+    }
+  },
+  "cost": {
+    "models": [
+      "minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+      "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors"
+    ],
+    "work": "MiniMax H3 reference-to-video with audio, turbo LoRA, 4 steps, 5 s at 24 fps (124 frames)",
+    "resolution": "0.4 MP 9:16 (about 480x832)",
+    "count": 1
+  },
+  "graphSha256": "9a4aed674fb4556c480ca63c14e5b02844bfc596f182094edc215fe4924aecd3",
+  "idempotencyKey": "5c78d978-26ed-4e07-9ca1-5f627631f974",
+  "jobId": "2ea1e8db-8989-4906-ac63-e829c4280e04",
+  "status": "succeeded",
+  "startedAt": "2026-10-30T13:23:47.841Z",
+  "terminal": true,
+  "error": null,
+  "timing": {
+    "wallMs": 39731,
+    "queuedMs": 8125,
+    "runningMs": 31606,
+    "note": "Observed by polling (resolution ~0.5-5 s); not Comfy's server-side execution metrics."
+  },
+  "outputs": [
+    {
+      "nodeId": "92",
+      "name": "video/MiniMax_H3_00001_.mp4",
+      "contentType": "video/mp4",
+      "bytes": 793396,
+      "sha256": "ecd8fb0c2a93540bfe4e25cc7232674e8effe4508bcd6da4d9e3ae35f88513aa",
+      "file": "h3_r2v/92_video_MiniMax_H3_00001_.mp4"
+    }
+  ],
+  "finishedAt": "2026-10-30T13:24:28.829Z"
+}

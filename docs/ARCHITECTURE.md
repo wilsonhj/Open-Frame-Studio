@@ -96,16 +96,16 @@ A `GraphBinding` maps logical input names to `{node, field}` in an API-format gr
 
 CI runs install with a frozen lockfile, lint, typecheck, `pnpm test` with a blank `COMFY_API_KEY`, then build, on Node 22.
 
-## Not built yet
+## Not built or not verified yet
 
-- Identity creation: photo QA, reference selection, the style card and the `identity.json` bundle.
-- Motion, and the Listing gallery and story panels. Product Shoot and the Listing hero image are built (see [Wave 2](#wave-2)).
-- A demonstrated self-hosted run through `comfy-api-proxy`. Smoke, the Listing hero and a two-frame Product Shoot have run on Comfy Cloud.
-- Model revisions and hashes: `models/manifest.json` lists every model with its source and licence, but `sha256` values are not filled in yet.
+- Comfy Cloud runs of the Listing gallery and story panels and of Identity. They are built and covered by unit and mock end-to-end tests. Product Shoot, the Listing hero image and a Motion clip have run on Comfy Cloud.
+- A measured identity-preservation result: the acceptance gate in [`docs/eval/identity.md`](eval/identity.md) needs human reviewers.
+- A demonstrated self-hosted run through `comfy-api-proxy`.
+- End-to-end tests in CI: `pnpm test:e2e` runs locally only, and some specs are still `test.fixme`.
 
 ## Wave 2
 
-Wave 2 ("pipeline runtime, studio shell, Product Shoot and Listing hero image") is on `main`. It adds the following; this section was written before it merged and may lag the code.
+Wave 2 ("pipeline runtime, studio shell, Product Shoot and Listing hero image") is on `main`. The table below is the record of that PR. Later PRs added the Listing gallery and story panels, Identity, Motion, the `object_info` graph check and golden-run tooling, so its last row no longer holds.
 
 | Area | What the PR adds |
 |---|---|
@@ -117,6 +117,3 @@ Wave 2 ("pipeline runtime, studio shell, Product Shoot and Listing hero image") 
 | Tooling | `docs/OWNERS.md` with `scripts/check-owners.mjs` for path ownership, `models/manifest.json` with `scripts/check-models.mjs`, bundled OFL fonts, and the `sharp` dependency. |
 | Still stubbed or missing | Identity and Motion pipelines (the rail shows them as "soon"), the listing gallery and story panels, and any Comfy Cloud run. |
 
-Its description reports 216 passing tests and clean lint, typecheck and build, all against the mock, as of head `6fed7bb` (the head has since moved to `2241590`); real model quality and golden runs are not verified.
-
-Documents most likely to need edits when it merges: the "What exists" table, "Not built yet", the README status note and scripts table, and `workflows/README.md` if it changes bindings. The PR also touches `README.md` (four lines), so expect a small merge conflict with this document's README changes.

@@ -1,6 +1,6 @@
 # How Open Frame Studio works
 
-A walkthrough of the two tools that work today, with what happens at each step. Every generation step is a plain ComfyUI graph in [`workflows/`](../workflows/), sent to Comfy Cloud (or a self-hosted ComfyUI) through the Comfy API. Every check and composite step is ordinary TypeScript running on the server.
+A walkthrough of Product Shoot and the Listing hero image, the two tools recorded here end to end on Comfy Cloud, with what happens at each step. Every generation step is a plain ComfyUI graph in [`workflows/`](../workflows/), sent to Comfy Cloud (or a self-hosted ComfyUI) through the Comfy API. Every check and composite step is ordinary TypeScript running on the server.
 
 ![The studio home page](images/home.png)
 
@@ -24,7 +24,13 @@ Upload a product photo (ideally one with a transparent or plain background). The
 2. **Compose.** The cutout is trimmed, scaled to 85% of a 2000×2000 canvas, centred on pure #FFFFFF and written as `01_hero.png`.
 3. **Checks A1–A7 and C3.** These cover a pure-white border, 85% fill, canvas size, real transparency in the cutout, a single product, enough source resolution, the product being visible on white, and centred and not cropped. Any error-level failure fails the run and hides the download; the page says which check failed and what to do.
 
-Gallery and story panels (conditioned on the hero), Identity and Motion are specified in [`docs/spec/`](spec/) and come next.
+## The other tools
+
+- **Listing gallery and story panels.** Built on the hero: secondary and A+ style panels generated with FLUX.2 Klein conditioned on the hero image, with copy and badges drawn in code and a ZIP export. Covered by unit and mock end-to-end tests; no Cloud run recorded yet.
+- **Identity (`/identity`).** Upload photos of one consenting person; YuNet face checks pick the best 3–6 crops, a Klein job renders a preview sheet, and the result exports as a portable `identity.json` bundle. Covered by unit and mock tests; no Cloud run recorded yet.
+- **Motion (`/motion`).** A person still and a product still become one MiniMax H3 reference-to-video clip. Run on Comfy Cloud: a 4-step turbo preview (5 s, 480×864, with audio) took 40 s; the record is in [`fixtures/golden/h3_r2v/run.json`](../fixtures/golden/h3_r2v/run.json).
+
+Behavioural specs for all of them are in [`docs/spec/`](spec/).
 
 ## Real Comfy Cloud output
 
