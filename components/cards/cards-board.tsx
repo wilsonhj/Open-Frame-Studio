@@ -156,7 +156,8 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
 
   const planned = run ? expandAssets(run.request) : expandAssets({ scope });
   const panels: CardTile[] = planned.filter((a) => a !== "hero").map((a) => (run ? tileFor(run, a) : emptyTile(a)));
-  const finished = run && ["succeeded", "partial", "failed"].includes(run.status);
+  // Every terminal run status: a canceled run keeps the tiles it finished.
+  const finished = run && ["succeeded", "partial", "failed", "canceled"].includes(run.status);
   const exportable = finished && (main.ok || panels.some((t) => t.state === "succeeded"));
 
   return (
@@ -333,7 +334,8 @@ function PanelTile({
           <span className="px-4 text-center text-xs text-muted">
             {tile.state === "needs_input"
               ? `Add ${tile.missing.map((m) => FIELD_NAMES[m] ?? m).join(" and ")} to make this panel.`
-              : tile.error?.message ?? (tile.state === "pending" ? "Waits for the hero image" : "Working…")}
+              : tile.error?.message ??
+                (tile.state === "pending" ? "Waits for the hero image" : tile.state === "canceled" ? "Canceled" : "Working…")}
           </span>
         )}
       </div>
