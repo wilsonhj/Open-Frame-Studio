@@ -32,6 +32,7 @@ beforeEach(() => {
   mock.state.signedFetches.length = 0;
   mock.state.cancels.length = 0;
   mock.state.cancelBehavior = "ok";
+  mock.state.videoOutputType = "video";
 });
 
 async function smokeWorkflow() {
@@ -319,6 +320,34 @@ describe("toSubmitError classification", () => {
 });
 
 describe("outputs: filtering, safe headers, relative URLs", () => {
+  it("a video Comfy Cloud labels 'image' is exposed as video; real images stay images", async () => {
+    mock.setScenario("multi_output");
+    mock.state.videoOutputType = "image"; // what Cloud reports for an MP4 (content type video/mp4)
+    const { client, wf } = await smokeWorkflow();
+    const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+    const done = await comfy.pollJob(client, submitted.id, { timeoutMs: 5_000, intervalMs: 10 });
+    assert.deepEqual(
+      done.outputs.map((o) => [o.type, o.contentType, o.nodeId]),
+      [
+        ["image", "image/png", "9"],
+        ["image", "image/png", "9"],
+        ["video", "video/mp4", "12"],
+      ],
+    );
+  });
+
+  it("derives the output type from the filename or content type only for outputs labelled image", () => {
+    assert.equal(comfy.outputType("image", "H3_00001_.mp4", "application/octet-stream"), "video");
+    assert.equal(comfy.outputType("image", "clip.WEBM", ""), "video");
+    assert.equal(comfy.outputType("image", "clip.mov", "video/quicktime"), "video");
+    assert.equal(comfy.outputType("image", "noext", "video/mp4"), "video");
+    assert.equal(comfy.outputType("image", "voice_00001_.wav", "audio/wav"), "audio");
+    assert.equal(comfy.outputType("image", "song.mp3", ""), "audio");
+    assert.equal(comfy.outputType("image", "frame.png", "image/png"), "image");
+    assert.equal(comfy.outputType("image", "anim.webp", "image/webp"), "image");
+    assert.equal(comfy.outputType("text", "notes.mp4", "text/plain"), "text", "a non-image label is kept");
+  });
+
   it("only exposes outputs from the binding's outputNodes, under the public id", async () => {
     const { client, wf } = await smokeWorkflow();
     const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
@@ -563,6 +592,58 @@ describe("GET /api/jobs/:handle", () => {
       assert.equal(last.job.error, null);
       assert.equal(last.job.outputs.length, 1);
       assert.equal(last.job.outputs[0].url, `/api/jobs/${handle}/outputs/${last.job.outputs[0].id}`, "capability URL kept");
+    });
+  });
+
+  it("a running job keeps the deadline saved at submit when JOB_DEADLINE_MS is raised later", async () => {
+    await withDataDir(async () => {
+      const saved = process.env.JOB_DEADLINE_MS;
+      try {
+        mock.setScenario("unknown_forever");
+        mock.state.cancelBehavior = "pending";
+        const { client, wf } = await smokeWorkflow();
+        const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+        const submittedAt = Date.now() - 61_000;
+        process.env.JOB_DEADLINE_MS = "60000"; // budget at submit: 1 minute, so overdue now
+        const deadlines = await import("../lib/job-deadlines.ts");
+        await deadlines.recordJob(submitted.id, "image_resize_smoke", submittedAt);
+        const { createJobHandle } = await import("../lib/access.ts");
+        const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt, jobId: submitted.id });
+
+        process.env.JOB_DEADLINE_MS = String(60 * 60_000); // raised to an hour while it runs
+        const { job } = await poll(handle);
+        assert.deepEqual(mock.state.cancels, [submitted.id], "the saved 1-minute deadline still applies");
+        assert.equal(job.error?.code, "cancel_requested");
+        assert.match(job.error?.message ?? "", /1-minute budget/);
+      } finally {
+        if (saved === undefined) delete process.env.JOB_DEADLINE_MS;
+        else process.env.JOB_DEADLINE_MS = saved;
+      }
+    });
+  });
+
+  it("a running job is not canceled early when JOB_DEADLINE_MS is lowered later", async () => {
+    await withDataDir(async () => {
+      const saved = process.env.JOB_DEADLINE_MS;
+      try {
+        mock.setScenario("unknown_forever");
+        const { client, wf } = await smokeWorkflow();
+        const submitted = await comfy.submitOnce(client, wf, { idempotencyKey: crypto.randomUUID() });
+        const submittedAt = Date.now() - 2 * 60_000;
+        delete process.env.JOB_DEADLINE_MS; // default 15-minute budget at submit
+        const deadlines = await import("../lib/job-deadlines.ts");
+        await deadlines.recordJob(submitted.id, "image_resize_smoke", submittedAt);
+        const { createJobHandle } = await import("../lib/access.ts");
+        const handle = createJobHandle({ binding: "image_resize_smoke", submittedAt, jobId: submitted.id });
+
+        process.env.JOB_DEADLINE_MS = "60000"; // lowered to a minute while it runs
+        const { job } = await poll(handle);
+        assert.equal(mock.state.cancels.length, 0, "still inside its saved 15-minute deadline");
+        assert.equal(job.error, null);
+      } finally {
+        if (saved === undefined) delete process.env.JOB_DEADLINE_MS;
+        else process.env.JOB_DEADLINE_MS = saved;
+      }
     });
   });
 
