@@ -32,6 +32,11 @@ test("Photoshoot page renders", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/product shoot/i);
 });
 
+test("the Notes field has an accessible name", async ({ page }) => {
+  await page.goto("/photoshoot");
+  await expect(page.getByRole("textbox", { name: "Notes" })).toBeVisible();
+});
+
 const SHOTS = process.env.PHOTOSHOOT_SHOTS_DIR;
 
 async function shootCarousel(page: Page) {
