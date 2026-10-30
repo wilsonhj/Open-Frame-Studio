@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { CARD_SPECS, expandAssets } from "../../lib/cards/assets";
 import { regenerateBlocker, tileFor } from "../../lib/cards/tiles";
-import { useRun } from "../../lib/client/use-run";
+import { isTerminalRun, useRun } from "../../lib/client/use-run";
 import type { CardAssetId, CardScope, CardsResult, CardTile, MainImageCheck, PipelineRun } from "../../lib/types";
 import { Button, Card, Chip, StatusPill } from "../ui";
 import { CopyFields, EMPTY_COPY, copyToRequest, type CopyDraft } from "./copy-fields";
@@ -156,7 +156,8 @@ export function CardsBoard({ runId }: { runId?: string } = {}) {
 
   const planned = run ? expandAssets(run.request) : expandAssets({ scope });
   const panels: CardTile[] = planned.filter((a) => a !== "hero").map((a) => (run ? tileFor(run, a) : emptyTile(a)));
-  const finished = run && ["succeeded", "partial", "failed"].includes(run.status);
+  // A canceled run is finished too: it keeps the tiles it made.
+  const finished = run && isTerminalRun(run);
   const exportable = finished && (main.ok || panels.some((t) => t.state === "succeeded"));
 
   return (
@@ -333,7 +334,8 @@ function PanelTile({
           <span className="px-4 text-center text-xs text-muted">
             {tile.state === "needs_input"
               ? `Add ${tile.missing.map((m) => FIELD_NAMES[m] ?? m).join(" and ")} to make this panel.`
-              : tile.error?.message ?? (tile.state === "pending" ? "Waits for the hero image" : "Working…")}
+              : tile.error?.message ??
+                (tile.state === "pending" ? "Waits for the hero image" : tile.state === "canceled" ? "Canceled" : "Working…")}
           </span>
         )}
       </div>
