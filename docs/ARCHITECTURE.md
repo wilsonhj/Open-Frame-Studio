@@ -72,7 +72,7 @@ A server-only wrapper around `@comfyorg/sdk` 0.5.0, adapted from `Comfy-Org/comf
 
 ## Deadlines and recovery
 
-**Server.** `lib/job-deadlines.ts` writes each accepted job's deadline to `${DATA_DIR:-.data}/jobs/` (budget `JOB_DEADLINE_MS`, default 15 minutes). A reconciler started by `instrumentation.ts` sweeps every 60 s, cancels overdue jobs, retries a failed cancel after 30 s, and drops a record only when the job is terminal or Comfy has answered 404 for ten minutes straight (it also gives up, with a log line, 24 hours after the deadline). `GET /api/jobs/:handle` also runs the check, so a deadline holds even when no browser is watching. That needs a long-running Node server; on a serverless host enforcement happens only when a job route is called.
+**Server.** `lib/job-deadlines.ts` writes each accepted job's deadline to `${DATA_DIR:-.data}/jobs/` (budget `JOB_DEADLINE_MS`, default 15 minutes). A reconciler started by `instrumentation.ts` sweeps every 60 s, cancels overdue jobs, retries a failed cancel after 30 s, and drops a record only when the job is terminal or Comfy has answered 404 for ten minutes straight (it also gives up, with a log line, 24 hours after the deadline). `GET /api/jobs/:handle` also runs the check, so a deadline holds even when no browser is watching. A job that Comfy reports `canceled` after its deadline carries the error `deadline_exceeded` ("Stopped: it ran past its 15-minute time budget.", or the seconds form for a budget under a minute) instead of a plain cancel. That needs a long-running Node server; on a serverless host enforcement happens only when a job route is called.
 
 **Browser.** `lib/job-recovery.ts` keeps one `localStorage` entry per unfinished run (`studio:unfinished-job:<handle>`), so a reload resumes watching a paid job instead of starting a second one. Each entry names its owning tab; an entry untouched for two minutes may be adopted by another tab. Entries older than 24 hours are dropped.
 
@@ -95,9 +95,9 @@ A `GraphBinding` maps logical input names to `{node, field}` in an API-format gr
 | Command | Covers |
 |---|---|
 | `pnpm test` | `node --test` over `tests/**/*.test.ts` with `--conditions=react-server`, which lets `server-only` import. Client wrapper, bindings, input parsing, access control, deadlines, recovery, status copy, consent, and the mock's own scenarios. No network. |
-| `pnpm test:e2e` | Playwright specs in `tests/e2e`, run against the app and the mock. Not part of CI. |
+| `pnpm test:e2e` | Playwright specs in `tests/e2e`, run against the app and the mock. Runs in CI. |
 
-CI runs install with a frozen lockfile, `check:owners`, `check:models`, `check:graphs`, lint, typecheck, `pnpm test` with a blank `COMFY_API_KEY`, then build, on Node 22.
+CI runs install with a frozen lockfile, `check:owners`, `check:models`, `check:graphs`, lint, typecheck, `pnpm test` with a blank `COMFY_API_KEY`, then build, on Node 22. A separate `e2e` job installs Chromium and runs `pnpm test:e2e` against the mock.
 
 ## Not built or not verified yet
 
@@ -107,7 +107,7 @@ CI runs install with a frozen lockfile, `check:owners`, `check:models`, `check:g
 - Identity in Motion: `MOTION_IDENTITIES_ENABLED` is `false`, so `/motion` refuses an `identityId` before anything is uploaded.
 - The Identity preview panel shows a status pill only: no queue position, progress bar or dedicated Retry control.
 - A demonstrated self-hosted run through `comfy-api-proxy`.
-- End-to-end tests in CI: `pnpm test:e2e` runs locally only, and some specs are still `test.fixme`.
+- Some end-to-end specs are still `test.fixme`: they wait on unbuilt features (Identity in Product Shoot and Motion, Identity preview progress and Retry, the full Product Shoot mode list and interview) or on a test hook to shorten a step budget.
 
 ## Wave 2
 

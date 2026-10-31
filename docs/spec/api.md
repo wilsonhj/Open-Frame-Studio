@@ -118,7 +118,7 @@ A request that uses only `assetId` refs may instead be sent as `application/json
 
 **Run status** is decided like this:
 - `succeeded`: no step failed, and no Comfy step was skipped. A code step may be `skipped` on purpose.
-- `partial`: the run finished with a deliverable, and a step is `failed`, `timed_out`, or `needs_input`, or a Comfy step was `skipped`.
+- `partial`: the run finished with a deliverable, and a step is `failed`, `timed_out`, or `needs_input`, or a Comfy step was `skipped`. A deliverable is a `succeeded` step that no other step depends on, or whose dependents are all `needs_input`. So a Listing run whose hero succeeded and whose other tiles all wait for copy ends `partial`, not `failed`.
 - `failed`: nothing deliverable exists, or a gating step failed. For example, a failed main-image compliance check fails the run before fan-out (`docs/spec/listing.md:176`).
 
 ### 2.0 Durable run state and restart
@@ -242,7 +242,7 @@ There is one binding model. Each `lib/bindings/<workflow>.ts` exports a `GraphBi
 | `klein_t2i` | `prompt` p4.text, `width`/`height` p44 (mirrored to p71), `batch_size`, `seed` p70, `steps` p71, `cfg` p72, `model` 59 | `image` p9 | `workflows/klein_t2i.api.json` (the `p*` chain of `spikes/klein-multiref/flux2_klein_t2i_fixtures.api.json`) |
 | `cutout` | `image` 17 | `cutout` 18, `mask` 21 | `workflows/cutout.api.json` (from `spikes/cutout-upscale/cutout.api.json`) |
 | `upscale` | `image` 1, `scale` 57.resize_type.multiplier, `model` 52.unet_name (3B int8 default), `seed` 54, `color_correction` 59 (`wavelet`) | `image` 9 | `workflows/upscale.api.json` (from `spikes/cutout-upscale/upscale.api.json`) |
-| `h3_r2v` | `image_1` 137, `image_2` 139, `prompt` 138.value, `seed` 129, `duration` 132, `turbo` 146, `steps_base` 143, `steps_turbo` 144, `aspect_ratio`/`megapixels` 115, `ref_image_size` 136 | `video` 92 | `workflows/h3_r2v.api.json` (from `spikes/h3-r2v/h3_r2v.api.json`) |
+| `h3_r2v` | `image_1` 137 (required), `image_2` 139 (required: an unset `LoadImage` keeps the graph's placeholder file, which Comfy rejects), `prompt` 138.value, `seed` 129, `duration` 132, `turbo` 146, `steps_base` 143, `steps_turbo` 144, `aspect_ratio`/`megapixels` 115, `ref_image_size` 136 | `video` 92 | `workflows/h3_r2v.api.json` (from `spikes/h3-r2v/h3_r2v.api.json`) |
 
 - **`applyBindings(graph, binding, values)`** returns a structured clone of the graph. It rejects:
   - unknown logical names;

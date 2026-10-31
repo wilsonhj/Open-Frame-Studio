@@ -58,12 +58,12 @@ COMFY_BASE_URL=http://127.0.0.1:8189 pnpm dev     # terminal 2, then open /smoke
 | `pnpm lint` | ESLint (`eslint-config-next`) |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm test` | `node --test` unit tests against `tests/mock-comfy` (no network, no credits) |
-| `pnpm test:e2e` | Playwright specs in `tests/e2e`: starts the mock Comfy server (port 8190) and the app (port 3210) itself and never touches Comfy Cloud. Needs a Chromium: Playwright's own, or set `E2E_CHROMIUM_PATH`. Not run in CI. |
+| `pnpm test:e2e` | Playwright specs in `tests/e2e`: starts the mock Comfy server (port 8190) and the app (port 3210) itself and never touches Comfy Cloud. Needs a Chromium: Playwright's own, or set `E2E_CHROMIUM_PATH`. Also runs in CI. |
 | `pnpm mock-comfy` | Standalone mock Comfy API v2 server |
 | `pnpm demo` | Live-demo mode: the mock on `127.0.0.1:8199`, returning composited product-style PNGs, plus `next dev` pointed at it. It never calls Comfy Cloud and never reads your key. |
 | `pnpm mock` | Only the demo mock, on `127.0.0.1:8199` |
 
-CI (`.github/workflows/ci.yml`) runs the ownership, model-manifest and graph checks (`check:owners`, `check:models`, `check:graphs`), lint, typecheck, `pnpm test` and build on every push to `main` and every pull request, with `COMFY_API_KEY` blank so nothing can reach the real API.
+CI (`.github/workflows/ci.yml`) runs the ownership, model-manifest and graph checks (`check:owners`, `check:models`, `check:graphs`), lint, typecheck, `pnpm test` and build on every push to `main` and every pull request, with `COMFY_API_KEY` blank so nothing can reach the real API. A second job runs `pnpm test:e2e` against the mock and uploads the Playwright results when it fails.
 
 ## What we built, and what inspired it
 
@@ -104,7 +104,7 @@ spikes/                                     Wave 0 spike scripts and graphs: fro
 
 `lib/comfy.ts` handles the known SDK and API traps:
 
-- Every poll needs a timeout. A job stuck in `unknown`, or running past its 15-minute budget, is canceled on Comfy and becomes terminal with a `poll_timeout` error.
+- Every poll needs a timeout. A pipeline step whose job outlives its poll timeout (a job stuck in `unknown`, say) is canceled on Comfy and becomes terminal with a `poll_timeout` error. A `/api/jobs` job past its 15-minute budget (`JOB_DEADLINE_MS`) is canceled too, and once Comfy confirms the cancel it is reported with a `deadline_exceeded` error: "Stopped: it ran past its 15-minute time budget."
 - `submit()` is never retried. A 422 `idempotency_key_reuse` is surfaced, not resubmitted, because a fresh key would bill a second job.
 - No `metadata` is sent.
 - Status comes from polling, not SSE.
