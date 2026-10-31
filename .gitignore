@@ -25,3 +25,7 @@ playwright-report/
 
 # local run store and Soul registry
 .data/
+
+# python bytecode (spikes)
+__pycache__/
+*.py[cod]
