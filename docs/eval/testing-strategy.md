@@ -1,6 +1,35 @@
 # Testing, validation and live demo
 
-Status: proposal, written 2026-10-29 against `wave2` @ `c4e444e`; baseline and findings re-measured 2026-10-30 at `eabf7ba`, the head of [PR #7](https://github.com/wilsonhj/Open-Soul-Studio/pull/7) at that time (it includes `6da4cc9`). PR #7 has since merged into `main` as `f15b125`, whose tree is identical to `eabf7ba`, so the baseline and findings below hold for `main` as of `f15b125`. The file sits under `docs/eval/**`, which `docs/OWNERS.md` assigns to the orchestrator, so it needs no new ownership row. This PR also corrects `docs/submission/demo-script.md`, which belongs to slice G; G should sign off on that edit.
+This file is the test plan. It was written on 2026-10-29 and measured again on 2026-10-30. Sections 1–5 keep that record and the procedure. The status section is what `main` does now. Where an older sentence disagrees with it, follow the status section.
+
+## Status on `main` @ `4032f9f` (2026-10-31)
+
+Measured on 2026-11-01 in this checkout, Node 22. `pnpm test` ran with `COMFY_API_KEY` blank. `pnpm test:e2e` ran against the mock, with Chrome on `E2E_CHROMIUM_PATH`.
+
+| Check | Result | In CI? |
+|---|---|---|
+| `pnpm check:owners`, `pnpm check:models`, `pnpm check:graphs`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, and the `e2e` job | the GitHub run for `4032f9f` succeeded ([run 41228416532](https://github.com/wilsonhj/Open-Frame-Studio/actions/runs/41228416532)) | yes. The static checks are job `check`. Playwright is job `e2e` (PR #46). |
+| `pnpm test` | 434 pass, 0 fail | yes |
+| `pnpm test:e2e` | 39 pass, 0 fail, 8 skipped (47 tests) | yes |
+
+The 8 skips are one `test.skip` and seven `test.fixme`s. The skip is the Identity preview-sheet journey: it needs at least five face photos, and `fixtures/faces/` is not in the repo. The fixmes are:
+
+- Identity reuse across Photoshoot and Motion, the Identity preview queue and progress bar, and an Identity preview Retry control.
+- Motion with a saved identity as Picture 1 (`MOTION_IDENTITIES_ENABLED` is false), and a stuck Motion job hitting its step deadline (the budget is 15 minutes and a test cannot shorten it).
+- The Product Shoot rail of all 10 modes plus an aspect picker, and the Product Shoot interview. The app builds the five modes in `lib/enhancer/modes.ts`.
+
+What has run on Comfy Cloud is the README status block. Product Shoot, the Listing hero, gallery and story, and an Identity preview have manual runs. The `h3_r2v` graph has a golden run in `fixtures/golden/h3_r2v/`. `/motion` through the page has not run on Cloud. A self-hosted run through `comfy-api-proxy` is still not demonstrated.
+
+The 2026-10-30 findings, brought forward:
+
+| # | Now |
+|---|---|
+| F1 | Still fixed. `/photoshoot` has an `h1`. |
+| F2 | The landing test still uses the first `a[href]` in `main` (`tests/e2e/smoke.spec.ts`). It passes. |
+| F3 | Fixed in PR #46. `.github/workflows/ci.yml` runs `pnpm test:e2e` in job `e2e`. |
+| F4 | Still a local footgun. `playwright.config.ts` does not install a browser. Its fallback list is `E2E_CHROMIUM_PATH` plus two Linux paths. CI installs Chromium itself. |
+| F5 | Superseded. The demo script is `docs/submission/demo-script.md`, and the Cloud record is the README status block. |
+| F6 | The README and `lib/enhancer/modes.ts` name the same five built modes. The other modes in `docs/spec/photoshoot.md` are still not built. |
 
 Three questions:
 
@@ -8,9 +37,9 @@ Three questions:
 2. What must be true before we show the app to anyone, and how do we check it?
 3. Now that PR #7 is on `main`, how do we run a live demo, locally and at a public URL?
 
-## 1. Baseline
+## 1. Baseline (2026-10-30, historical)
 
-Measured locally on PR #7 @ `eabf7ba` (2026-10-30), macOS, Node 22, `COMFY_API_KEY` blank, clean checkout, `pnpm install --frozen-lockfile`. `main` @ `f15b125` has the identical tree, so these numbers hold for `main`; they were not re-run there.
+Measured locally on PR #7 @ `eabf7ba` (2026-10-30), macOS, Node 22, `COMFY_API_KEY` blank, clean checkout, `pnpm install --frozen-lockfile`. `main` @ `f15b125` had the same tree. These numbers are not the current suite. The status section is.
 
 | Check | Result | In CI? |
 |---|---|---|
@@ -18,30 +47,30 @@ Measured locally on PR #7 @ `eabf7ba` (2026-10-30), macOS, Node 22, `COMFY_API_K
 | `pnpm lint`, `pnpm typecheck` | pass | yes |
 | `pnpm test` (node:test against `tests/mock-comfy`) | 254 / 254 pass | yes |
 | `pnpm build` | pass | yes |
-| `pnpm test:e2e` (Playwright against the mock) | **12 pass, 0 fail, 19 skipped** (`test.fixme`), default ports | **no** (yes since PR #46) |
+| `pnpm test:e2e` (Playwright against the mock) | **12 pass, 0 fail, 19 skipped** (`test.fixme`), default ports | **no** on this date |
 | Any workflow on Comfy Cloud | never run (free tier answers 403) | no |
 | Output quality (identity, compliance on real images) | protocol only (`docs/eval/identity.md`) | no |
 
-Earlier runs of the e2e suite: `c4e444e` 9 pass, 3 fail (F1, F2); `4fc07cb` 12 pass, 0 fail. The unit count grew from 224 (`c4e444e`) to 237 (`4fc07cb`) to 254. All 19 skips are acceptance tests for features not built yet: identity 5, photoshoot 5, listing 5, motion 4. The only e2e test that runs on `/photoshoot` or `/listing` checks that the page renders.
+Earlier runs of the e2e suite, at that date: `c4e444e` 9 pass, 3 fail (F1, F2); `4fc07cb` 12 pass, 0 fail. The unit count grew from 224 (`c4e444e`) to 237 (`4fc07cb`) to 254. At that measurement all 19 skips were acceptance tests for features not built yet: identity 5, photoshoot 5, listing 5, motion 4. The only e2e test that ran on `/photoshoot` or `/listing` checked that the page rendered.
 
 ### Running the e2e suite locally
 
-- **Browser.** On a machine where Playwright's browsers were never installed, every test fails at launch with `Executable doesn't exist … chrome-headless-shell` (F4). That is the environment, not the code: after `pnpm exec playwright install chromium` the same commit passes 12 / 12.
+- **Browser.** On a machine where Playwright's browsers were never installed, every test fails at launch with `Executable doesn't exist … chrome-headless-shell` (F4). That is the environment, not the code: after `pnpm exec playwright install chromium` the 2026-10-30 suite passed 12 / 12. The current count is in the status section.
 - **Ports.** The suite starts the mock on `127.0.0.1:8190` and the app on `127.0.0.1:3210` (not `pnpm demo`'s 8199 and 3000, so a running demo does not clash). Outside CI, `reuseExistingServer` is on: if something already listens on 8190 or 3210, Playwright tests that server instead of your checkout, and may report a pass for the wrong code. Check with `lsof -nP -iTCP:3210 -iTCP:8190 -sTCP:LISTEN`, or move the suite with `E2E_APP_PORT` and `E2E_MOCK_PORT`.
 - **Which commit.** Test `main` (`git fetch origin && git checkout --detach origin/main`), or the head of whatever PR is under test (`git fetch origin pull/<n>/head:pr<n>`). A local branch can lag the remote.
 
 ### Findings to fix before a demo
 
-State as of `main` @ `f15b125` (same tree as `eabf7ba`): F1 fixed; F2 passes but stays fragile; F3, F4 and F6 open. F5 is fixed by this PR.
+State when this table was written (`main` @ `f15b125`, same tree as `eabf7ba`): F1 fixed; F2 passed but stayed fragile; F3, F4 and F6 were open. The status section says which of those are closed now.
 
 | # | Finding | Root cause | Fix |
 |---|---|---|---|
 | F1 | `Photoshoot page renders` and `landing link navigates to /photoshoot` fail | `/photoshoot` had no `<h1>`. `components/photoshoot/photoshoot-studio.tsx` rendered the studio without a page heading, while `/listing`, `/identity` and the coming-soon pages have one. It is also an accessibility gap: a screen-reader user lands on a page with no title. | **Fixed in `98243cc`** (on `main` since PR #7), which adds the h1. |
 | F2 | `landing page renders and links to the 4 tools` fails | The test takes the *first* `a[href="/photoshoot"]` in `main`. Since the landing redesign, that is the hero button "Start a photoshoot", not the tool card. | **Passes since `98243cc`**, which renames the button "Start a product shoot". The selector still hits the hero button, so the test breaks again if that copy changes. Selecting the tool card by role and name (`main.getByRole("link", { name: tool.name })`) would make it robust. |
-| F3 | F1 and F2 reached the PR head unnoticed | CI does not run `pnpm test:e2e` (README: "Not run in CI"). | **Fixed by PR #46**, which adds an `e2e` job to `.github/workflows/ci.yml`. |
+| F3 | F1 and F2 reached the PR head unnoticed | CI did not run `pnpm test:e2e`. | **Fixed by PR #46**, which adds an `e2e` job to `.github/workflows/ci.yml`. |
 | F4 | `pnpm test:e2e` fails on a fresh machine with "Executable doesn't exist … chrome-headless-shell" | `playwright.config.ts` falls back only when `chromium.executablePath()` (full Chromium) is missing, and its fallback list holds only `E2E_CHROMIUM_PATH` and two Linux `/opt/pw-browsers/...` paths. On a fresh Mac the fallback runs but finds nothing, so Playwright launches its own headless shell, which is not installed either. The headless-shell mismatch is a second case: when full Chromium is installed without the headless shell, the check passes, the fallback is skipped, and the headless launch fails the same way. | **Open as of `main` @ `f15b125`** (reproduced 2026-10-30 at `eabf7ba`). Locally: `pnpm exec playwright install chromium`, or `E2E_CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" pnpm test:e2e`. In the config, check the headless-shell path too, and when no browser is found, fail with a message that names both of those fixes. |
-| F5 | The demo script does not match the app | `docs/submission/demo-script.md` said `/cards`, "Marketplace Cards", "Soul", and quoted a pitch line no longer on the landing page. `eabf7ba` fixed those names. Still wrong at `f15b125`: line 3 said the flows "have also run on real Comfy Cloud", which is false (README; L4 below), and its "Running on Comfy Cloud" section told the presenter to set a funded `COMFY_API_KEY` and run `pnpm dev`, against the L4 rules. | **Fixed by this PR**: line 3 now says no flow has run on Cloud, and the Cloud section says it is unverified and points to L4 instead of giving its own steps. Still rehearse the script against `main` (section 2, L3). |
-| F6 | The mode lists disagree | README lists ten Product Shoot modes (with `hands_on`, `story_series`, …). `lib/enhancer/modes.ts` implements five (`packshot`, `in_context`, `wide_banner`, `mood_still`, `carousel_set`). The e2e `MODES` list is a third variant (it has `hands_on`). | **Open as of `main` @ `f15b125`.** Pick one source of truth (the code) and mark the rest as planned in the README and spec. |
+| F5 | The demo script does not match the app | `docs/submission/demo-script.md` said `/cards`, "Marketplace Cards", "Soul", and quoted a pitch line no longer on the landing page. `eabf7ba` fixed those names. At `f15b125` the script still claimed Cloud runs the README did not record. | **Superseded.** `docs/submission/demo-script.md` now follows the four tools. Which Cloud runs exist is the README status block, not this row. Rehearse that script before a demo (L3). |
+| F6 | The mode lists disagree | At `f15b125` the README listed ten Product Shoot modes, `lib/enhancer/modes.ts` implemented five, and an e2e list named a third set. | **The README now names the five modes the code builds** (`packshot`, `in_context`, `wide_banner`, `mood_still`, `carousel_set`). The other modes in `docs/spec/photoshoot.md` are still not built, and their e2e test stays `test.fixme`. |
 
 ## 2. Test layers
 
@@ -51,7 +80,7 @@ Each layer answers a different question, and only the cheap ones run on every pu
 |---|---|---|---|---|
 | L0 Static | Does it parse, type and follow the repo rules? | every push and PR | CI | blocking |
 | L1 Unit | Does each module keep its contract? (bindings, runner protocol, access, deadlines, compliance maths) | every push and PR | CI | blocking |
-| L2 E2E (mock) | Does a person get through each flow in a real browser, with a real Next server and the mock? | every PR | CI (since PR #46) | blocking (green since `4fc07cb`) |
+| L2 E2E (mock) | Does a person get through each flow in a real browser, with a real Next server and the mock? | every push to `main` and every PR | CI, job `e2e` | blocking |
 | L3 Demo rehearsal | Does `pnpm demo` produce the outputs the script promises? | before every demo, and on PRs that touch `scripts/demo*` or the flows | local, optionally CI | checklist |
 | L4 Cloud smoke | Does each registered graph run on Comfy Cloud and return the declared outputs? | manually, before a Cloud demo; later nightly | a machine with a paid key | blocking for a Cloud demo |
 | L5 Quality | Are the images good enough to claim what we claim? | once per model or graph change | manual, recorded in `docs/eval/` | blocking for the claim |
@@ -67,11 +96,9 @@ Production config refusal, which the demo deployment depends on, is already cove
 
 ### L2: E2E against the mock
 
-- With F1 and F2 fixed (`98243cc`), the suite is green, so the job can be blocking from the start.
-- Each `test.fixme` is a feature's acceptance test, written ahead of the feature. Its PR should turn it into a real test. Keep the count in the PR description so the skipped number only goes down.
-- Add one end-to-end journey per live surface. Two are missing today:
-  - **Product Shoot:** upload `fixtures/products/product-bottle-transparent.png`, `packshot` × 4, all four frames succeed, reload mid-run and the run resumes. The run submits five jobs: one shared `cutout`, then one `klein_edit_multiref` per frame (`mockRequests().jobPosts` length 5).
-  - **Listing hero:** the same transparent fixture gives a compliant 2000×2000 hero. `product-box-checker.png` (opaque) fails A4 and the run shows that.
+- With F1 and F2 fixed (`98243cc`), the suite could be a blocking job. PR #46 added that job.
+- Each `test.fixme` is a feature's acceptance test, written ahead of the feature. Its PR should turn it into a real test. The ones still skipped are listed in the status section.
+- The Product Shoot packshot × 4 journey and the Listing hero journey are in `tests/e2e/photoshoot.spec.ts` and `tests/e2e/listing.spec.ts`.
 - Keep `workers: 1`. The mock's scenario switch is global state.
 
 ### L3: Demo rehearsal
@@ -87,7 +114,7 @@ Worth automating once the script is stable: one Playwright spec with `OSS_DEMO=1
 
 ### L4: First contact with Comfy Cloud
 
-No graph has ever run on Cloud, so this is the biggest open risk, and only a paid key retires it. Run in this order, cheapest and simplest first, and stop at the first failure:
+When this section was written, no graph had run on Cloud. The README status block is the list of runs since then. A step with no record there is still open, including `/motion` through the page. Run a missing step in this order, cheapest and simplest first, and stop at the first failure:
 
 | Step | Graph or flow | Pass when |
 |---|---|---|
@@ -118,7 +145,9 @@ For each step, record in `docs/eval/cloud-smoke.md`: date, commit, graph hash, C
 
 The `check` job is right. Keep `COMFY_API_KEY: ""`, so CI can never reach the real API.
 
-### 3.2 Add an e2e job
+### 3.2 The e2e job
+
+PR #46 added this job. The copy that runs is `.github/workflows/ci.yml`: a 15-minute timeout, `COMFY_API_KEY` set to a dummy value, and the artifact name `e2e-results`. The sketch below is the original proposal.
 
 ```yaml
   e2e:
@@ -153,7 +182,7 @@ A `workflow_dispatch`-only workflow that runs L4 steps 1, 6 and 7 against a capp
 
 ## 4. Live demo from `main`
 
-What is live on `main` as of `f15b125`: the landing page, `/photoshoot` (product only), `/listing` (hero image), `/runs`, `/smoke`. `/identity` has the intake form only, and Motion is marked "soon". The demo shows those, and says so.
+What is live on `main`: the landing page, `/photoshoot`, `/listing`, `/identity`, `/motion`, `/runs`, and `/smoke`. Product Shoot uses the product photo only. Motion takes an uploaded person photo; a saved identity is switched off. The demo script is `docs/submission/demo-script.md`.
 
 There are three ways to run it. They are not exclusive.
 
@@ -161,11 +190,11 @@ There are three ways to run it. They are not exclusive.
 |---|---|---|---|
 | Real model outputs | no (composited placeholders) | no | yes |
 | Needs a paid Comfy key | no | no | yes |
-| Ready on `main` | yes, once this PR's F5 fix lands | needs a production demo launcher | needs L4 to pass |
+| Ready on `main` | yes (`pnpm demo`) | needs a production demo launcher | needs an L4 record for any step the README does not already list |
 | Cost while running | none | a small always-on server | the server plus Cloud jobs |
 | Risk on stage | lowest | network | network, queue times, credits |
 
-### 4.1 A. Local, on the presenter's machine (works on `main`; use the script as corrected by this PR)
+### 4.1 A. Local, on the presenter's machine (works on `main`; the script is `docs/submission/demo-script.md`)
 
 ```bash
 git pull && pnpm install
@@ -173,7 +202,7 @@ pnpm demo        # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0.1
 ```
 
 - Rehearse the script once against `main`: F5 brought it in line with the UI, and later copy changes can drift it again.
-- Warm every route once (`/`, `/photoshoot`, `/listing`, `/runs`). `pnpm demo` runs `next dev`, so the first visit to each route compiles it.
+- Warm every route once (`/`, `/photoshoot`, `/listing`, `/identity`, `/motion`, `/runs`). `pnpm demo` runs `next dev`, so the first visit to each route compiles it.
 - Say in the first minute that the image model is a mock, as the script already does. The rail's "Demo · local mock" label makes that visible.
 - Fallback: a screen recording of the same run, made during the L3 rehearsal.
 
@@ -238,9 +267,10 @@ Running on our own GPU instead of Comfy Cloud (`COMFY_BASE_URL`, `comfy deploy`)
 ## 5. Demo readiness checklist
 
 - [x] PR #7 merged (`main` @ `f15b125`)
-- [ ] CI green on `main`, including the new e2e job
-- [ ] F3, F4 and F6 fixed (F1 is fixed on `main` and F5 by this PR; F2 passes, selector still fragile)
-- [ ] Demo script rewritten against the merged UI and rehearsed with a timer (L3)
+- [x] CI on `main` includes the e2e job (PR #46). The run for `4032f9f` is green.
+- [x] F3 is fixed. F6's README list matches the five built modes. F4 (installing a browser on a fresh machine) is still open. F2 passes, and its selector is still the first link.
+- [x] Demo script rewritten (`docs/submission/demo-script.md`)
+- [ ] Demo script rehearsed with a timer (L3)
 - [ ] Fallback recording made
 - [ ] For a public URL: deployed, `HANDLE_SECRET`, `STUDIO_ACCESS_CODE` and `TRUSTED_PROXY_HOPS` set, startup log shows no `[access]` warning
 - [ ] For Comfy Cloud: L4 table filled in, spend cap set, the day-before re-run passed
