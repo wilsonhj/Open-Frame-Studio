@@ -149,10 +149,45 @@ async function shotPrompts(): Promise<string[]> {
   return jobPosts.map((post) => shotPrompt(post.body)).filter((p): p is string => p !== null);
 }
 
+test.describe("Photoshoot with no Identity", () => {
+  for (const [label, person] of [
+    ["Hands-on", "a pair of well-groomed hands"],
+    ["On model", "a professional adult model"],
+  ] as const) {
+    test(`${label}: shoots from the product photo alone, with no error or notice`, async ({ page }) => {
+      await page.goto("/photoshoot");
+      await page.getByTestId("product-input").setInputFiles(PRODUCT);
+      await page.getByRole("button", { name: label }).click();
+      // The picker is offered, and "No identity" is the default.
+      await expect(page.getByTestId("soul-library")).toBeVisible();
+      await page.getByRole("button", { name: "Shoot 1", exact: true }).click();
+      await expect(page.getByTestId("run-progress")).toHaveText(/2 of 2 jobs done/, { timeout: 45_000 });
+      await expect(page.getByTestId("frame-0").locator("img")).toBeVisible();
+      // Scoped to the page: Next's route announcer is also role=alert.
+      await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+      await expect(page.getByText(/Identity ignored/)).toHaveCount(0);
+
+      // Only the cutout reaches the shot: no Identity refs.
+      const { jobPosts } = await mockRequests();
+      expect(jobPosts).toHaveLength(2);
+      expect(jobPosts[1].assetIds).toHaveLength(1);
+      const [prompt] = await shotPrompts();
+      expect(prompt).toContain(person);
+    });
+  }
+
+  test("modes that ignore an Identity hide the picker", async ({ page }) => {
+    await page.goto("/photoshoot");
+    await page.getByRole("button", { name: "Product shot" }).click();
+    await expect(page.getByTestId("soul-library")).toHaveCount(0);
+  });
+});
+
 test.describe("Photoshoot dock", () => {
   test.fixme("mode rail lists all 10 modes and the aspect picker only offers the whitelist", async ({ page }) => {
-    // Not built (observed on main): the Mode field offers the 5 demo modes only (DEMO_MODES in
-    // lib/enhancer/modes.ts: packshot, in_context, wide_banner, mood_still, carousel_set) and the
+    // Not built (observed on main): the Mode field offers the 7 demo modes only (DEMO_MODES in
+    // lib/enhancer/modes.ts: packshot, in_context, hands_on, wide_banner, mood_still, carousel_set,
+    // on_model) and the
     // slate has no aspect picker; the aspect follows the mode (ux.md §5 item 6 asks for whitelist chips).
     // TODO(wave2 frontend: Photoshoot dock): one control per mode in MODES; aspect options equal ASPECTS;
     // mood_still defaults to 2:3, wide_banner to a >=16:9 aspect.
