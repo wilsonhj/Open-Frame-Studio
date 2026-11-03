@@ -10,13 +10,13 @@ Measured on 2026-11-01 in this checkout, Node 22. `pnpm test` ran with `COMFY_AP
 |---|---|---|
 | `pnpm check:owners`, `pnpm check:models`, `pnpm check:graphs`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, and the `e2e` job | the GitHub run for `4032f9f` succeeded ([run 41228416532](https://github.com/wilsonhj/Open-Frame-Studio/actions/runs/41228416532)) | yes. The static checks are job `check`. Playwright is job `e2e` (PR #46). |
 | `pnpm test` | 434 pass, 0 fail | yes |
-| `pnpm test:e2e` | 39 pass, 0 fail, 8 skipped (47 tests) | yes |
+| `pnpm test:e2e` | 43 pass, 0 fail, 8 skipped (51 tests) | yes |
 
 The 8 skips are one `test.skip` and seven `test.fixme`s. The skip is the Identity preview-sheet journey: it needs at least five face photos, and `fixtures/faces/` is not in the repo. The fixmes are:
 
 - Identity reuse across Photoshoot and Motion, the Identity preview queue and progress bar, and an Identity preview Retry control.
 - Motion with a saved identity as Picture 1 (`MOTION_IDENTITIES_ENABLED` is false), and a stuck Motion job hitting its step deadline (the budget is 15 minutes and a test cannot shorten it).
-- The Product Shoot rail of all 10 modes plus an aspect picker, and the Product Shoot interview. The app builds the five modes in `lib/enhancer/modes.ts`.
+- The Product Shoot rail of all 10 modes plus an aspect picker, and the Product Shoot interview. The app builds seven modes in `lib/enhancer/modes.ts`.
 
 What has run on Comfy Cloud is the README status block. Product Shoot, the Listing hero, gallery and story, and an Identity preview have manual runs. The `h3_r2v` graph has a golden run in `fixtures/golden/h3_r2v/`. `/motion` through the page has not run on Cloud. A self-hosted run through `comfy-api-proxy` is still not demonstrated.
 

@@ -33,7 +33,7 @@ pnpm demo          # mock Comfy on 127.0.0.1:8199 + the studio on http://127.0.0
 ## 0:30 – 1:30 · Product Shoot
 
 - Click **Product Shoot**. Click **Upload product photo** and pick the mug.
-- **Mode** offers five modes (Product shot, Lifestyle scene, Hero banner, Moodboard pin, Social carousel); pick **Product shot**. The shoot uses the product photo only. Under **Count**, pick **4** (the most a mode allows). The line under Notes reads *"5 jobs · cutout + 4 × 1:1 frames"*.
+- **Mode** offers seven modes (Product shot, Lifestyle scene, Hands-on, Hero banner, Moodboard pin, Social carousel, On model); pick **Product shot**. The shoot uses the product photo only (Hands-on and On model also offer an optional identity). Under **Count**, pick **4** (the most a mode allows). The line under Notes reads *"5 jobs · cutout + 4 × 1:1 frames"*.
 - Click the orange **SHOOT 4** button. One click is one run; the client never resubmits on its own.
 - Narrate the states: the cutout runs first, then each frame goes *waiting → developing → done*. The browser polls `GET /api/pipelines/photoshoot/{runId}`, starting at 1 s and backing off to 5 s.
 - **Reload the page mid-run.** The contact sheet comes back: the run id is kept in sessionStorage, and the run itself is a durable JSON document on the server. The product control then says **Re-add product photo**. That only means a second shoot needs the file again. The frames already on the sheet stay.
