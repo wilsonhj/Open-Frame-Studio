@@ -8,8 +8,18 @@ import { buildPrompts } from "../../lib/enhancer/variation.ts";
 const AXES = ["preset", "lighting", "angle", "palette"] as const;
 
 describe("MODE_TEMPLATES", () => {
-  it("covers the five demo modes", () => {
-    assert.deepEqual(DEMO_MODES, ["packshot", "in_context", "wide_banner", "mood_still", "carousel_set"]);
+  it("covers the seven demo modes", () => {
+    assert.deepEqual(DEMO_MODES, ["packshot", "in_context", "hands_on", "wide_banner", "mood_still", "carousel_set", "on_model"]);
+  });
+
+  it("only hands_on and on_model use an Identity, and they describe a person without one", () => {
+    for (const mode of DEMO_MODES) {
+      const t = MODE_TEMPLATES[mode];
+      const person = mode === "hands_on" || mode === "on_model";
+      assert.equal(t.identityK, person ? 3 : 0, mode);
+      assert.equal(t.promptTemplate.includes("{person}"), person, mode);
+      assert.equal("person" in t, person, mode);
+    }
   });
 
   for (const mode of DEMO_MODES) {
@@ -42,6 +52,16 @@ describe("MODE_TEMPLATES", () => {
 });
 
 describe("buildPrompts", () => {
+  it("names the Identity in images 2-4 only when one is selected", () => {
+    const [withIdentity] = buildPrompts(MODE_TEMPLATES.on_model, "", 1, 3, true);
+    assert.match(withIdentity.prompt, /the person from images 2-4/);
+    assert.match(withIdentity.prompt, /the product from image 1/);
+    const [archetype] = buildPrompts(MODE_TEMPLATES.on_model, "", 1, 3);
+    assert.match(archetype.prompt, /a professional adult model/);
+    assert.doesNotMatch(archetype.prompt, /image(s)? 2/);
+    assert.doesNotMatch(archetype.prompt, /\{\w+\}/);
+  });
+
   it("is deterministic", () => {
     const t = MODE_TEMPLATES.in_context;
     assert.deepEqual(buildPrompts(t, "matte bottle", 4, 42), buildPrompts(t, "matte bottle", 4, 42));
