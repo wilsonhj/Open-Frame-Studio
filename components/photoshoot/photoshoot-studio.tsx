@@ -1,13 +1,16 @@
 "use client";
 /**
  * Product Photoshoot screen (docs/spec/ux.md §5): contact sheet on the left,
- * Slate (product, mode, count, notes, SHOOT) on the right. Demo scope: product
- * only, no identity. Runs through useRun("photoshoot") (slice G).
+ * Slate (product, mode, Identity, count, notes, SHOOT) on the right. The
+ * Identity picker shows only for modes that use one (`identityK > 0`); "No
+ * identity" is the default and always valid. Runs through useRun("photoshoot")
+ * (slice G).
  */
 import { useState } from "react";
 
 import { Chip } from "../ui";
 import { Frame } from "./frame";
+import { SoulLibrary } from "../soul/soul-library";
 import { DEMO_MODES, MODE_TEMPLATES, type DemoMode } from "../../lib/enhancer/modes";
 import { SURFACES } from "../../lib/brand";
 import { useRun } from "../../lib/client/use-run";
@@ -47,6 +50,7 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
   const [mode, setMode] = useState<DemoMode>("in_context");
   const [count, setCount] = useState<number>(MODE_TEMPLATES.in_context.count.def);
   const [notes, setNotes] = useState("");
+  const [identityId, setIdentityId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
@@ -61,10 +65,12 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
       setMode(slate.mode);
       setCount(slate.count);
       setNotes(slate.notes);
+      setIdentityId(run.request.identityId ?? null);
     }
   }
 
   const template = MODE_TEMPLATES[mode];
+  const usesIdentity = template.identityK > 0;
   const live = run !== null && !TERMINAL.has(run.status);
 
   function pickMode(next: DemoMode) {
@@ -87,6 +93,7 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
     if (!file) return setLocalError("Add a product photo first.");
     setLocalError(null);
     const request: PhotoshootRequest = { mode, prompt: notes.trim(), images: [{ upload: "product" }], count };
+    if (usesIdentity && identityId) request.identityId = identityId;
     const body = new FormData();
     body.append("request", JSON.stringify(request));
     body.append("product", file, file.name);
@@ -253,6 +260,12 @@ export function PhotoshootStudio({ runId }: { runId?: string }) {
             ))}
           </div>
         </Field>
+
+        {usesIdentity ? (
+          <Field label="Person">
+            <SoulLibrary variant="picker" selectedId={identityId} onSelect={(s) => setIdentityId(s?.id ?? null)} />
+          </Field>
+        ) : null}
 
         <Field label={`Count · ${template.count.min}–${template.count.max}`}>
           <div className="flex flex-wrap gap-2">
