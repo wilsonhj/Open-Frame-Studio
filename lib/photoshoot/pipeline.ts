@@ -1,11 +1,15 @@
 /**
  * Product Shoot pipeline (slice D; docs/spec/photoshoot.md §6–§8).
  *
- * Current scope: product-only. One `cutout` comfy step on the hero product
- * image, then N `klein_edit_multiref` steps with the cutout as image 1, each
- * with its own enhancer prompt and seed. An identity id is accepted and
- * ignored (with a notice). The runner skips the frames when the cutout fails;
- * retrying a frame re-runs the failed cutout too.
+ * One `cutout` comfy step on the hero product image, then N
+ * `klein_edit_multiref` steps with the cutout as image 1, each with its own
+ * enhancer prompt and seed. Modes with `identityK > 0` (`hands_on`,
+ * `on_model`) bind a selected Identity's best refs as images 2.. and name
+ * them in the prompt; without one they describe a person instead, and the run
+ * is never blocked. An Identity that can't be used refuses the plan (404/400
+ * on `identityId`). Other modes ignore an identity id, with a notice. The
+ * runner skips the frames when the cutout fails; retrying a frame re-runs the
+ * failed cutout too.
  */
 import { buildPrompts } from "../enhancer/variation.ts";
 import { DEMO_MODES, KLEIN_SIZES, MODE_TEMPLATES, isDemoMode } from "../enhancer/modes.ts";
@@ -15,6 +19,7 @@ import { TERMINAL_STEP_STATUSES } from "../contracts/pipeline.ts";
 import type { ImageRef } from "../contracts/job.ts";
 import type { AspectRatio, PhotoshootItem, PhotoshootRequest, VariationPick } from "../contracts/photoshoot.ts";
 import { ASPECT_RATIOS } from "../contracts/photoshoot.ts";
+import { IdentityInputError, SoulNotFoundError, bestRefs } from "../soul/registry.ts";
 import { MAX_NOTES } from "./copy.ts";
 
 const CUTOUT_STEP = "cutout";
@@ -125,14 +130,36 @@ function assetIdOf(ref: ImageRef | undefined): string {
   return ref.assetId;
 }
 
+const identityError = (message: string) => Object.assign(new Error(message), { status: 400, field: "identityId" });
+
+/** The Identity refs' asset ids (images 2..), or none when the mode doesn't use one or none is selected. */
+async function identityAssets(request: PhotoshootRequest): Promise<string[]> {
+  if (!request.identityId || !isDemoMode(request.mode)) return [];
+  const k = MODE_TEMPLATES[request.mode].identityK;
+  if (k === 0) return [];
+  let refs;
+  try {
+    refs = await bestRefs(request.identityId, k);
+  } catch (e) {
+    // Unknown: 404 (the runner maps SoulNotFoundError); refused, e.g. no consent record: 400.
+    if (e instanceof SoulNotFoundError || e instanceof IdentityInputError) throw e;
+    throw identityError("That identity can't be used right now. Try again, or shoot without it.");
+  }
+  if (refs.length === 0) throw identityError("That identity has no usable reference photo.");
+  return refs.map((r) => r.assetId);
+}
+
 function kleinStep(
   index: number,
   prompt: string,
   seed: number,
   aspect: AspectRatio,
   variation: VariationPick,
+  identityRefs: string[],
 ): ComfyPipelineStep {
   const { width, height } = KLEIN_SIZES[aspect];
+  // Unbound optional slots are dropped from the graph (lib/bindings/prepare.ts).
+  const refs = Object.fromEntries(identityRefs.map((assetId, i) => [`image_${i + 2}`, assetId]));
   return {
     id: shotStepId(index),
     kind: "comfy",
@@ -140,6 +167,7 @@ function kleinStep(
     dependsOn: [CUTOUT_STEP],
     inputs: {
       image_1: { fromStep: CUTOUT_STEP, outputNode: "cutout" },
+      ...refs,
       prompt,
       seed,
       width,
@@ -154,13 +182,13 @@ function kleinStep(
   };
 }
 
-function planShots(request: PhotoshootRequest, baseSeed: number): PipelineStep[] {
+function planShots(request: PhotoshootRequest, baseSeed: number, identityRefs: string[]): PipelineStep[] {
   if (!isDemoMode(request.mode)) throw new Error(`photoshoot: unsupported mode ${request.mode}`);
   const template = MODE_TEMPLATES[request.mode];
   const { aspect } = resolveAspect(request);
   const { count } = resolveCount(request);
-  return buildPrompts(template, request.prompt, count, baseSeed).map((p) =>
-    kleinStep(p.index, p.prompt, p.seed, aspect, p.variation),
+  return buildPrompts(template, request.prompt, count, baseSeed, identityRefs.length > 0).map((p) =>
+    kleinStep(p.index, p.prompt, p.seed, aspect, p.variation, identityRefs),
   );
 }
 
@@ -225,6 +253,8 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
   kind: "photoshoot",
   validate: validatePhotoshoot,
   async plan(request, ctx) {
+    // The identity first: one that can't be resolved refuses the plan before anything else.
+    const identityRefs = await identityAssets(request);
     const baseSeed = typeof request.seed === "number" ? request.seed >>> 0 : ctx.randomSeed();
     const cutout: ComfyPipelineStep = {
       id: CUTOUT_STEP,
@@ -235,7 +265,7 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
       timeoutMs: CUTOUT_TIMEOUT_MS,
       status: "pending",
     };
-    return [cutout, ...planShots(request, baseSeed)];
+    return [cutout, ...planShots(request, baseSeed, identityRefs)];
   },
   handlers: {},
   async buildResult(run) {
@@ -244,7 +274,10 @@ export const photoshootPipeline: PipelineDefinition<"photoshoot"> = {
     const notices: string[] = [];
     if (clamped) notices.push(`Asked for ${run.request.count}; this mode makes ${count}.`);
     if (snapped) notices.push(`Aspect ${run.request.aspectRatio} isn't offered for this mode; used the nearest, ${aspect}.`);
-    if (run.request.identityId) notices.push("Identity ignored: product shoots use the product photo only for now.");
+    const usesIdentity = isDemoMode(run.request.mode) && MODE_TEMPLATES[run.request.mode].identityK > 0;
+    if (run.request.identityId && !usesIdentity) {
+      notices.push("Identity ignored: this mode shows the product only. Hands-on and On model can use it.");
+    }
     const cutout = run.steps.find((s) => s.id === CUTOUT_STEP);
     const items: PhotoshootItem[] = [];
     for (let i = 0; i < count; i++) {
