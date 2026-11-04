@@ -10,7 +10,7 @@ For the HTTP contract, including the planned pipeline routes, see [spec/api.md](
 |---|---|
 | `/smoke` | Works. Uploads an image, runs `image_resize_smoke` through `/api/jobs`, shows the output. |
 | `/identity` | Works. Intake (name, likeness consent, 5–20 photos; the picker stays locked until consent is given), YuNet photo checks and reference selection, a preview sheet, and `identity.json` export and import, through `/api/souls/**`. |
-| `/photoshoot` | Works. Product cutout, then FLUX.2 Klein frames in five shoot modes (`lib/enhancer/modes.ts`). Uses the product photo only; an identity is ignored for now. |
+| `/photoshoot` | Works. Product cutout, then FLUX.2 Klein frames in seven shoot modes (`lib/enhancer/modes.ts`). `hands_on` and `on_model` add an optional identity's best 3 refs after the product; the other modes use the product photo only. |
 | `/listing` | Works. The compliant white-background hero (checks A1–A7, C3), then gallery and story panels anchored on it, with a ZIP export. |
 | `/motion` | Works. A person still (Picture 1) and a product still become one MiniMax H3 reference-to-video clip. Using a saved identity as Picture 1 is off for now (`MOTION_IDENTITIES_ENABLED` in `lib/motion/options.ts`), so an `identityId` is refused with a 400. |
 | `/runs` | Recent runs in this tab. |
@@ -103,11 +103,11 @@ CI runs install with a frozen lockfile, `check:owners`, `check:models`, `check:g
 
 - Cloud evidence: Product Shoot, the Listing hero, gallery and story panels, and Identity have run on Comfy Cloud through the app (manual runs on Oct 30; only `fixtures/golden/h3_r2v/` is recorded in the repo). Motion's `h3_r2v` graph has run through `scripts/golden-run.mjs` with two product stills, but `/motion` itself has not run on Cloud. Open quality issues from those runs: generated Listing panels drift from the product's colour and material (nothing checks consistency with the hero), and Identity's photo-check thresholds (`lib/identity/qa.ts`) are still marked "calibrate" in the spec. The Cloud run's false blur rejects of sharp photos with smaller faces were fixed in PR #16: `faceSharpness` now only scales faces down.
 - A measured identity-preservation result: the acceptance gate in [`docs/eval/identity.md`](eval/identity.md) needs human reviewers.
-- Identity in Product Shoot: `lib/photoshoot/pipeline.ts` ignores `identityId`, and `/photoshoot` has no identity picker.
+- Identity in the other Product Shoot modes: only `hands_on` and `on_model` use one; the rest ignore `identityId` with a notice. The identity's style card is not added to the prompt yet.
 - Identity in Motion: `MOTION_IDENTITIES_ENABLED` is `false`, so `/motion` refuses an `identityId` before anything is uploaded.
 - The Identity preview panel shows a status pill only: no queue position, progress bar or dedicated Retry control.
 - A demonstrated self-hosted run through `comfy-api-proxy`.
-- Some end-to-end specs are still `test.fixme`: they wait on unbuilt features (Identity in Product Shoot and Motion, Identity preview progress and Retry, the full Product Shoot mode list and interview) or on a test hook to shorten a step budget.
+- Some end-to-end specs are still `test.fixme`: they wait on unbuilt features (Identity reuse from a created and imported identity across Product Shoot and Motion, Identity preview progress and Retry, the full Product Shoot mode list and interview) or on a test hook to shorten a step budget.
 
 ## Wave 2
 

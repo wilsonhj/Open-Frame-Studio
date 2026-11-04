@@ -2,8 +2,11 @@
  * MODE_TEMPLATES: per-mode defaults, prompt templates and variation pools for
  * Product Photoshoot (docs/spec/photoshoot.md §2, §3, §6). Pure data, no I/O.
  *
- * Demo scope: the five product-only modes. Every pool holds at least 4 values
- * so up to 4 free-variation outputs differ on every rotating axis.
+ * Demo scope: seven of the ten modes. `hands_on` and `on_model` use an
+ * Identity when one is selected (`identityK` refs, prompt `person.identity`)
+ * and otherwise describe a person in the prompt (`person.none`); the rest are
+ * product-only. Every pool holds at least 4 values so up to 4 free-variation
+ * outputs differ on every rotating axis.
  */
 import type { AspectRatio, ModeTemplate, PhotoshootMode } from "../contracts/photoshoot.ts";
 
@@ -35,7 +38,7 @@ const PALETTES = [
   "rich seasonal tones",
 ] as const;
 
-export type DemoMode = "packshot" | "in_context" | "wide_banner" | "mood_still" | "carousel_set";
+export type DemoMode = "packshot" | "in_context" | "hands_on" | "wide_banner" | "mood_still" | "carousel_set" | "on_model";
 
 export const MODE_TEMPLATES = {
   packshot: {
@@ -83,6 +86,34 @@ export const MODE_TEMPLATES = {
       preset: ["kitchen counter", "café table", "bathroom shelf", "outdoor picnic blanket", "tidy home desk"],
       lighting: LIGHTING,
       angle: ANGLES,
+      palette: PALETTES,
+    },
+  },
+  hands_on: {
+    mode: "hands_on",
+    label: "Hands-on",
+    defaultAspect: "4:5",
+    aspects: ["4:5", "1:1", "3:4", "9:16"],
+    minOutputs: 1,
+    maxOutputs: MAX_OUTPUTS,
+    promptTemplate:
+      "Close-up photo of {person} holding or applying {product}, at {style}. {lighting}, {angle}, {palette}. Tight crop on the hands and the product, natural skin texture, no text, no letters, no logos.",
+    variationAxes: ["preset", "lighting", "angle", "palette"],
+    sharedStyle: false,
+    needsPerson: false,
+    priority: 3,
+    cues: ["hands", "holding", "applying", "swatch", "in hand"],
+    count: { min: 1, max: MAX_OUTPUTS, def: 1, chips: [1, 2, 3, 4] },
+    identityK: 3,
+    productRef: "cutout",
+    person: {
+      identity: "the person from images 2-4 (same face, skin tone and features), framed on their hands and part of their face",
+      none: "a pair of well-groomed hands, with at most part of a face in frame",
+    },
+    pools: {
+      preset: ["a bathroom vanity", "a bright studio table", "a sunlit bedroom dresser", "a marble countertop"],
+      lighting: LIGHTING,
+      angle: ["tight close-up crop", "45-degree close crop", "over-the-shoulder close crop", "macro close-up of hands and product"],
       palette: PALETTES,
     },
   },
@@ -167,6 +198,35 @@ export const MODE_TEMPLATES = {
       "the product in a lifestyle context",
       "closing image, the product centred on a clean, uncluttered background",
     ],
+  },
+  on_model: {
+    mode: "on_model",
+    label: "On model",
+    defaultAspect: "3:4",
+    aspects: ["3:4", "4:5", "2:3", "9:16"],
+    minOutputs: 1,
+    maxOutputs: MAX_OUTPUTS,
+    promptTemplate:
+      "Fashion photo of {person} wearing or using {product}, in {style}. {lighting}, {angle}, {palette}. Editorial lookbook composition with the product clearly visible, no text, no letters, no logos.",
+    variationAxes: ["preset", "lighting", "angle", "palette"],
+    sharedStyle: false,
+    needsPerson: false,
+    priority: 3,
+    cues: ["model", "wearing", "worn by", "on me", "lookbook", "try-on"],
+    count: { min: 1, max: MAX_OUTPUTS, def: 1, chips: [1, 2, 3, 4] },
+    identityK: 3,
+    productRef: "cutout",
+    // Without an Identity, an archetype text model (docs/spec/photoshoot.md §2).
+    person: {
+      identity: "the person from images 2-4, same face, skin tone and features",
+      none: "a professional adult model with a natural, friendly look",
+    },
+    pools: {
+      preset: ["a clean studio backdrop", "a city street", "a sunlit park", "a minimal loft interior"],
+      lighting: LIGHTING,
+      angle: ["full-body view", "waist-up view", "three-quarter view", "close-up on the product area"],
+      palette: PALETTES,
+    },
   },
 } as const satisfies Record<DemoMode, ModeTemplate>;
 

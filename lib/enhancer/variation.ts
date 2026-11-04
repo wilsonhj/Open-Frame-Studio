@@ -61,8 +61,10 @@ function cap(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export function buildPrompts(template: ModeTemplate, notes: string, n: number, seed: number): BuiltPrompt[] {
+/** `withIdentity`: an Identity's refs follow the product (images 2..), so `{person}` names them. */
+export function buildPrompts(template: ModeTemplate, notes: string, n: number, seed: number, withIdentity = false): BuiltPrompt[] {
   const count = Math.max(0, Math.floor(n));
+  const person = template.person ? (withIdentity ? template.person.identity : template.person.none) : "";
   const base = seed >>> 0;
   const extra = notes.trim();
   const out: BuiltPrompt[] = [];
@@ -87,6 +89,7 @@ export function buildPrompts(template: ModeTemplate, notes: string, n: number, s
       const variation: VariationPick = { ...lock, angle: angles[i % angles.length] };
       const body = fill(template.promptTemplate, {
         product: PRODUCT,
+        person,
         style: lock.preset,
         lighting: cap(lock.lighting),
         angle: variation.angle,
@@ -114,6 +117,7 @@ export function buildPrompts(template: ModeTemplate, notes: string, n: number, s
     for (const r of rot) variation[r.axis] = r.values[(i * r.stride + r.offset) % r.values.length];
     const body = fill(template.promptTemplate, {
       product: PRODUCT,
+      person,
       style: variation.preset,
       lighting: cap(variation.lighting),
       angle: variation.angle,

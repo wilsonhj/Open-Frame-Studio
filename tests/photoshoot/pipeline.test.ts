@@ -115,6 +115,25 @@ describe("photoshoot plan and result", () => {
     assert.ok(result.notices.some((n) => n.includes("Identity ignored")));
   });
 
+  for (const [mode, aspect, person] of [
+    ["hands_on", { width: 896, height: 1120 }, /a pair of well-groomed hands/],
+    ["on_model", { width: 864, height: 1152 }, /a professional adult model/],
+  ] as const) {
+    it(`${mode} without an Identity binds only the cutout, describes the person, and adds no notice`, async () => {
+      const r = photoshootPipeline.validate({ mode, prompt: "", images: [{ assetId: "a" }] });
+      assert.ok(r.ok, r.ok ? "" : r.error);
+      const steps = await photoshootPipeline.plan(r.value, ctx);
+      const [, shot] = steps;
+      assert.deepEqual(shot.inputs.image_1, { fromStep: "cutout", outputNode: "cutout" });
+      assert.equal(shot.inputs.image_2, undefined);
+      assert.equal(shot.inputs.width, aspect.width);
+      assert.equal(shot.inputs.height, aspect.height);
+      assert.match(String(shot.inputs.prompt), person);
+      const result = await photoshootPipeline.buildResult({ kind: "photoshoot", request: r.value, steps } as unknown as PipelineRun<"photoshoot">);
+      assert.deepEqual(result.notices, []);
+    });
+  }
+
   it("a frame skipped because the cutout failed says so, not a generic frame error", async () => {
     const request = { mode: "packshot" as const, prompt: "", images: [{ assetId: "a" }], count: 1 };
     const steps = await photoshootPipeline.plan(request, ctx);

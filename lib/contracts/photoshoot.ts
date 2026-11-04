@@ -99,6 +99,11 @@ export type ModeTemplate = {
   count?: { min: number; max: number; def: number; chips: readonly number[] };
   /** Number of identity refs fed to the graph (0 = no identity). */
   identityK?: 0 | 2 | 3;
+  /**
+   * Who `{person}` in the prompt is: the Identity in images 2.. when one is
+   * selected, else a described person. Only modes with a `{person}` slot.
+   */
+  person?: { identity: string; none: string };
   /** Which product image is the graph reference. */
   productRef?: "cutout" | "source" | "none";
   /** Variation value pools per axis. */

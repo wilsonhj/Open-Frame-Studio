@@ -282,7 +282,7 @@ These are all modes except `carousel_set` and `ad_variants`.
 - `gpt_image_2` takes repeated `--image-references` (`MD:58`).
 - Higgsfield's photoshoot "does not chain"; it owns its pipeline (`HFC:155`). To keep a face consistent, the cookbook suggests switching to Higgsfield's Soul models instead of `gpt_image_2` (`CB:64`).
 
-**Ours: deliberate extension (not built yet: `lib/photoshoot/pipeline.ts` ignores `identityId` for now).** An identity can feed straight into Photoshoot. This is the headline feature (`docs/PLAN.md:31`). An identity is a curated set of 3–6 reference crops plus a style card, stored as `identity.json` (`docs/PLAN.md:7`).
+**Ours: deliberate extension.** Built for `hands_on` and `on_model` (`identityK: 3` in `lib/enhancer/modes.ts`); every other built mode still ignores `identityId`, with a notice. An identity can feed straight into Photoshoot. This is the headline feature (`docs/PLAN.md:31`). An identity is a curated set of 3–6 reference crops plus a style card, stored as `identity.json` (`docs/PLAN.md:7`).
 
 The Klein multi-ref graph has slots for 3 face refs and 1 product ref, and more can be added (`docs/spikes/klein-multiref.md:47`, `docs/spikes/klein-multiref.md:64-73`). FLUX.2 prompts refer to references as "image 1…4" in plain words (`docs/spikes/klein-multiref.md:83`).
 
@@ -290,15 +290,17 @@ The Klein multi-ref graph has slots for 3 face refs and 1 product ref, and more 
 
 | Slot | Content | When | Spike node |
 |---|---|---|---|
-| image 1 | **Product cutout**: BiRefNet RGBA composited on mid-grey (`cutout.api.json`, `docs/spikes/cutout-upscale.md:15-17`) | every mode except `restage` and text-only Type C | `62.image` |
-| image 2–4 | **Identity refs**: the top-k crops from `identity.json`, ranked by QA score. k = 3 for `on_model` and `hands_on`; k = 2 for other modes that include a person | when an identity is selected and the mode allows people (§2 column) | `54`, `60`, `61` |
+| image 1 | **Product cutout**: BiRefNet RGBA composited on mid-grey (`cutout.api.json`, `docs/spikes/cutout-upscale.md:15-17`) | every mode except `restage` and text-only Type C | `54.image` (binding `image_1`, required) |
+| image 2–4 | **Identity refs**: the top-k crops from `identity.json`, ranked by QA score. k = 3 for `on_model` and `hands_on`; k = 2 for other modes that include a person (not built: those modes ignore the identity for now) | when an identity is selected and the mode allows people (§2 column) | `60`, `61`, `62` (binding `image_2..4`, optional; unused slots are dropped by `lib/bindings/prepare.ts`) |
 | last | **Style/scene ref**: the user's moodboard image (Type F Q3, or "like this") | optional, at most 1 | added `LoadImage` (ours) |
-| image 1 (restyle) | **Source image**, used as is (no cutout) | `restage` only | `62.image`, or `54.image` |
+| image 1 (restyle) | **Source image**, used as is (no cutout) | `restage` only | `54.image` |
 
 Rules (ours):
 - **Product fidelity first.** The product ref always sits in slot 1. The prompt says "the product from image 1, unchanged: same shape, label, colour".
-- **Identity.** The prompt says "the person from images 2–4". The identity's style card (skin tone, hair and similar notes) is appended as text.
-- **Identity in a mode without people** (`packshot`, `concept`). Ignore the identity, and show a dismissible hint suggesting `in_context` or `on_model` instead.
+- **Identity.** The prompt says "the person from images 2-4". The identity's style card (skin tone, hair and similar notes) is to be appended as text (not built yet).
+- **No identity selected.** Never an error, and no notice. `hands_on` describes hands (at most part of a face) in the prompt; `on_model` describes an archetype model. The refs are not bound.
+- **Unusable identity.** An unknown id refuses the run with 404 on `identityId`; one without a likeness-consent record, or whose refs can't be uploaded, with 400 on `identityId`. It never falls back to no identity.
+- **Identity in a mode without people** (`packshot`, `concept`). Ignore the identity, and show a dismissible hint suggesting `in_context` or `on_model` instead. Built as a run notice ("Identity ignored: …"), shown for every built mode with `identityK: 0`; the Photoshoot slate offers the Identity picker only in `hands_on` and `on_model`.
 - **Cap.** At most 5 reference images per job (a cost and VRAM guard). Reference resize is `17.resolution.megapixels = 1.0` (`docs/spikes/klein-multiref.md:69`).
 - **Cutout source.** The cutout is computed once per uploaded product and cached by content hash. The raw photo is never used as a ref when a cutout exists. If the cutout fails, the raw photo is used and a warning is logged.
 
